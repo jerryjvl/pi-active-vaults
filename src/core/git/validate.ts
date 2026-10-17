@@ -19,9 +19,14 @@ function wellFormedRefComponents(name: string): boolean {
   return !name.includes('..') && !name.includes('//') && !name.endsWith('/') && !name.endsWith('.') && !name.endsWith('.lock') && !name.includes('@{');
 }
 
+/** Whether `value` is a full object name (SHA-1 or SHA-256), never a movable name. */
+export function isSha(value: string): boolean {
+  return SHA.test(value);
+}
+
 /** A full object name. Used wherever the caller must name an exact commit, never a movable name. */
 export function checkSha(value: string): Result<string, GitError> {
-  return SHA.test(value) ? ok(value) : invalid('sha');
+  return isSha(value) ? ok(value) : invalid('sha');
 }
 
 /** A SHA, branch, tag or simple expression like `HEAD~1`: no leading `-`, no ranges, no whitespace. */

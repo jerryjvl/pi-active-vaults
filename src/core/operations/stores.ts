@@ -7,6 +7,7 @@
 // it references, which the layers already imply.
 
 import type { InstallationPaths } from '../config/index.ts';
+import { integritySchema } from '../integrity/index.ts';
 import type { Result } from '../result/index.ts';
 import {
   INDEX_FILE,
@@ -18,7 +19,7 @@ import {
   type StoreOptions,
 } from '../store/index.ts';
 
-export const STATE_MODULES: readonly ModuleSchema[] = [];
+export const STATE_MODULES: readonly ModuleSchema[] = [integritySchema];
 
 export const INDEX_MODULES: readonly ModuleSchema[] = [];
 

@@ -15,7 +15,7 @@
 // is ever offered a way to record one about its own work.
 
 import { isDeepStrictEqual } from 'node:util';
-import { notesAppend, notesShow, type Attribution, type Git, type GitError, type Sha } from '../git/index.ts';
+import { isSha, notesAppend, notesShow, type Attribution, type Git, type GitError, type Sha } from '../git/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 
 export const ATTESTATIONS_REF = 'refs/notes/vault/attestations';
@@ -47,7 +47,6 @@ export type AttestationError =
   | { readonly reason: 'invalid-attestations'; readonly subject: Sha; readonly records: readonly number[] }
   | { readonly reason: 'not-recorded'; readonly subject: Sha };
 
-const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const MAX_EVIDENCE_CHARS = 2000;
 
 const singleLine = (value: unknown): value is string => typeof value === 'string' && value !== '' && !/[\r\n\0]/.test(value);
@@ -61,7 +60,7 @@ function invalidField(value: unknown): string | undefined {
   if (unknown !== undefined) return unknown;
   if (!ATTESTATION_KINDS.includes(a['kind'] as AttestationKind)) return 'kind';
   if (!singleLine(a['name'])) return 'name';
-  if (typeof a['subject'] !== 'string' || !SHA.test(a['subject'])) return 'subject';
+  if (typeof a['subject'] !== 'string' || !isSha(a['subject'])) return 'subject';
   if (!singleLine(a['result'])) return 'result';
   if (!singleLine(a['by'])) return 'by';
   if (a['version'] !== undefined && !singleLine(a['version'])) return 'version';
