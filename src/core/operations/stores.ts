@@ -7,6 +7,7 @@
 // it references, which the layers already imply.
 
 import { actorsSchema } from '../actors/index.ts';
+import { budgetsSchema } from '../budgets/index.ts';
 import type { InstallationPaths } from '../config/index.ts';
 import { integritySchema } from '../integrity/index.ts';
 import type { Result } from '../result/index.ts';
@@ -20,7 +21,7 @@ import {
   type StoreOptions,
 } from '../store/index.ts';
 
-export const STATE_MODULES: readonly ModuleSchema[] = [integritySchema, actorsSchema];
+export const STATE_MODULES: readonly ModuleSchema[] = [integritySchema, actorsSchema, budgetsSchema];
 
 export const INDEX_MODULES: readonly ModuleSchema[] = [];
 
