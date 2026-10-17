@@ -3,19 +3,27 @@
 // own worktree, `<worktrees>/<name>`. New work starts from the accepted
 // `main`. Package commits carry the actor's trailers and never land anywhere
 // but the actor's branch — and never while another session holds the actor
-// (one writer at a time).
+// (one writer at a time). extension.md "Commits": blocking checks run first —
+// every check on the accepted `main`, against the exact commit — and a commit
+// they do not all pass is not made; their verdicts are recorded.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { actorBranch, commitAsActor, ensureActorWorktree, takeActorHold, type Holder } from '../../../src/core/actors/index.ts';
+import { readAttestations } from '../../../src/core/attestations/index.ts';
 import type { ProcessLiveness } from '../../../src/core/process/index.ts';
-import { withTestVault, type TestVault } from '../../support/vault.ts';
+import { TEST_ATTRIBUTION } from '../../support/git-repo.ts';
+import { scriptSource, withTestVault, type TestVault } from '../../support/vault.ts';
 
 /** Processes that are running, by ID, with their start times. */
 const running = (live: Record<number, string>): ProcessLiveness => async (pid) => ({ ok: true, value: live[pid] });
 const nobody = running({});
-const holds = (v: TestVault, alive: ProcessLiveness = nobody) => ({ git: v.git, store: v.store, alive });
+const holds = (v: TestVault, alive: ProcessLiveness = nobody) => ({
+  git: v.git, store: v.store, alive, clock: v.clock, attribution: TEST_ATTRIBUTION,
+  checks: { env: { PATH: process.env['PATH'] ?? '' }, timeoutMs: 10_000, os: 'linux', sandbox: 'none' } as const,
+});
+const posixOnly = { skip: process.platform === 'win32' ? 'POSIX shell scripts' : false };
 
 test('an actor\'s worktree is made on its own branch, starting from the accepted main rather than main\'s tip', withTestVault(async (v) => {
   const accepted = v.accept();
@@ -65,18 +73,18 @@ test('commits as an actor carry its trailers and are refused off its branch', wi
   assert.ok(made.ok);
   const worktree = made.value.path;
   writeIn(worktree, 'notes/a.md');
-  const committed = await commitAsActor(holds(v), v.vault.id, worktree, {
+  const committed = await commitAsActor(holds(v), v.vault, worktree, {
     origin: { trace: '01TRACE', actor: 'gardener', session: 'S1' },
     message: 'Add a note',
     date: v.clock.now(),
   });
   assert.ok(committed.ok);
-  assert.match(v.repo.git('log', '-1', '--format=%B', committed.value), /Vault-Trace: 01TRACE\nVault-Actor: gardener\nVault-Session: S1/);
+  assert.match(v.repo.git('log', '-1', '--format=%B', committed.value.sha), /Vault-Trace: 01TRACE\nVault-Actor: gardener\nVault-Session: S1/);
   writeIn(worktree, 'notes/b.md');
-  const wrongActor = await commitAsActor(holds(v), v.vault.id, worktree, { origin: { trace: 'T', actor: 'librarian' }, message: 'x', date: v.clock.now() });
+  const wrongActor = await commitAsActor(holds(v), v.vault, worktree, { origin: { trace: 'T', actor: 'librarian' }, message: 'x', date: v.clock.now() });
   assert.equal(!wrongActor.ok && wrongActor.error.reason, 'wrong-branch');
   v.repo.write('c.md', 'c');
-  const onMain = await commitAsActor(holds(v), v.vault.id, v.repo.path, { origin: { trace: 'T', actor: 'gardener' }, message: 'x', date: v.clock.now() });
+  const onMain = await commitAsActor(holds(v), v.vault, v.repo.path, { origin: { trace: 'T', actor: 'gardener' }, message: 'x', date: v.clock.now() });
   assert.equal(!onMain.ok && onMain.error.reason, 'wrong-branch');
 }));
 
@@ -92,18 +100,57 @@ test('a commit as an actor is refused while another session holds it; its holder
   writeIn(worktree, 'notes/held.md');
   const before = v.repo.git('rev-parse', 'refs/heads/actor/gardener');
 
-  const refused = await commitAsActor(holds(v, live), v.vault.id, worktree, { origin, message: 'While held', date: v.clock.now() });
+  const refused = await commitAsActor(holds(v, live), v.vault, worktree, { origin, message: 'While held', date: v.clock.now() });
   assert.deepEqual(!refused.ok && refused.error.reason === 'actor-busy' && refused.error.hold.holder, session);
   assert.equal(v.repo.git('rev-parse', 'refs/heads/actor/gardener'), before, 'nothing committed');
-  const other = await commitAsActor(holds(v, live), v.vault.id, worktree, { origin, message: 'Not the holder either', date: v.clock.now(), holder: { ...session, session: 'S-mine' } });
+  const other = await commitAsActor(holds(v, live), v.vault, worktree, { origin, message: 'Not the holder either', date: v.clock.now(), holder: { ...session, session: 'S-mine' } });
   assert.equal(!other.ok && other.error.reason, 'actor-busy');
 
-  const byHolder = await commitAsActor(holds(v, live), v.vault.id, worktree, { origin, message: 'As the holder', date: v.clock.now(), holder: session });
+  const byHolder = await commitAsActor(holds(v, live), v.vault, worktree, { origin, message: 'As the holder', date: v.clock.now(), holder: session });
   assert.ok(byHolder.ok, JSON.stringify(byHolder));
   writeIn(worktree, 'notes/after.md');
-  const afterEnd = await commitAsActor(holds(v, nobody), v.vault.id, worktree, { origin, message: 'Holder ended', date: v.clock.now() });
+  const afterEnd = await commitAsActor(holds(v, nobody), v.vault, worktree, { origin, message: 'Holder ended', date: v.clock.now() });
   assert.ok(afterEnd.ok, 'a hold whose process ended holds nothing');
   assert.equal(v.store.get<{ n: number }>('SELECT count(*) AS n FROM actors_holds')?.n, 1, 'a commit checks the hold; it never takes one');
+}));
+
+test('a commit that a check on the accepted main does not pass is not made; one that all pass is, with their verdicts recorded', posixOnly, withTestVault(async (v) => {
+  v.repo.write('.vault/checks/no-todo.sh', scriptSource('no-todo', 'if grep -rq TODO notes; then echo "a TODO is left"; exit 1; fi; echo clean'));
+  v.repo.commit('a check');
+  const accepted = v.accept();
+  const made = await ensureActorWorktree(v.git, v.vault, accepted, 'gardener');
+  assert.ok(made.ok);
+  const worktree = made.value.path;
+  const origin = { trace: '01TRACE', actor: 'gardener' };
+  const before = v.repo.git('rev-parse', 'refs/heads/actor/gardener');
+
+  writeFileSync(join(worktree, 'note.md'), 'x');
+  mkdirSync(join(worktree, 'notes'), { recursive: true });
+  writeFileSync(join(worktree, 'notes', 'a.md'), 'TODO: finish');
+  const blocked = await commitAsActor(holds(v), v.vault, worktree, { origin, message: 'Unfinished', date: v.clock.now() });
+  assert.ok(!blocked.ok && blocked.error.reason === 'checks-failed');
+  assert.deepEqual(blocked.error.results.map((r) => [r.name, r.result, r.evidence]), [['no-todo', 'fail', 'a TODO is left']]);
+  assert.equal(v.repo.git('rev-parse', 'refs/heads/actor/gardener'), before, 'nothing landed');
+  assert.match(v.repo.git('-C', worktree, 'status', '--porcelain'), /notes\//, 'the changes are still there to fix');
+
+  writeFileSync(join(worktree, 'notes', 'a.md'), 'Finished.');
+  const committed = await commitAsActor(holds(v), v.vault, worktree, { origin, message: 'Finished', date: v.clock.now() });
+  assert.ok(committed.ok, JSON.stringify(committed));
+  assert.deepEqual(committed.value.checks.map((r) => [r.name, r.result]), [['no-todo', 'pass']]);
+  const attestations = await readAttestations(v.git, v.vault.path, committed.value.sha);
+  assert.deepEqual(attestations.ok && attestations.value.map((a) => [a.kind, a.name, a.result, a.subject]), [['check', 'no-todo', 'pass', committed.value.sha]]);
+}));
+
+test('a commit is refused while main has an unaccepted change, since its checks cannot run', withTestVault(async (v) => {
+  const accepted = v.accept();
+  const made = await ensureActorWorktree(v.git, v.vault, accepted, 'gardener');
+  assert.ok(made.ok);
+  v.repo.write('stray.md', 'x');
+  v.repo.commit('stray commit on main');
+  writeIn(made.value.path, 'notes/a.md');
+  const refused = await commitAsActor(holds(v), v.vault, made.value.path, { origin: { trace: 'T', actor: 'gardener' }, message: 'x', date: v.clock.now() });
+  assert.equal(!refused.ok && refused.error.reason, 'unaccepted-change');
+  assert.equal(v.repo.git('rev-parse', 'refs/heads/actor/gardener'), accepted.sha);
 }));
 
 function writeIn(root: string, path: string): void {
