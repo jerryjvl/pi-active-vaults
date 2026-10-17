@@ -226,7 +226,7 @@ chooses how proposals are reviewed (`vault.review`):
 
 | Mode | Proposal | Approval | Merge |
 |---|---|---|---|
-| `local` (default) | Actor branch in the local repository | `vault accept` by an owner (the installation's `person` must be in `vault.owners`) | `vault accept`, of the reviewed SHA |
+| `local` (default) | Actor branch in the local repository | `vault accept` by an owner (the installation's `person` must be in `vault.owners`) | `vault accept`, of the SHA that owner reviewed |
 | `forge` | Actor branch pushed to the vault's remote, shown as a pull request | Owner review in the forge (Gitea, GitHub, GitLab) | The forge, gated by branch protection |
 
 In `forge` mode the package publishes each check's attestation as a commit

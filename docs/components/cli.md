@@ -42,7 +42,7 @@ the system. Commands mirror the Pi extension's tools and commands.
 |---|---|
 | `vault status` | Pending proposals, failing checks, queued work |
 | `vault review <actor>` | Commits, diff, checks and control-change flags; records the reviewed SHA |
-| `vault accept <actor>` | Merge the reviewed SHA if the merge policy is satisfied |
+| `vault accept <actor>` | Merge the SHA you last reviewed if the merge policy is satisfied |
 | `vault accept --adopt <sha>` | Show the delta from the accepted `main` to `<sha>` and, once confirmed, accept it |
 | `vault sync [actor]` | Bring actor branches up to date with `main`; in `forge` mode, fetch first |
 | `vault propose <actor>` | In `forge` mode: push the actor branch and open or update its pull request |

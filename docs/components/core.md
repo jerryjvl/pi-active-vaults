@@ -50,8 +50,8 @@ it; no vault logic lives anywhere else.
 | `effectiveContract` | Vault, path | Merged contract with the origin of each key |
 | `matchConditions` | Event, candidate documents | Matching `(document, condition)` pairs |
 | `deriveEvents` | Vault, ref range | Git events |
-| `review` | Vault, actor | Commits, diff summary, check results, control-change flags, reviewed SHA |
-| `accept` | Vault, actor, reviewed SHA, approver | Merge result (recorded as the accepted `main`) or the unmet requirements |
+| `review` | Vault, actor, reviewer | Commits, diff summary, check results, control-change flags; records the reviewed SHA as the reviewer's latest review |
+| `accept` | Vault, actor, approver | Merge of the SHA from the approver's own latest review (recorded as the accepted `main`), or the reason it was refused — including the unmet requirements |
 | `adopt` | Vault, SHA, approver | The delta from the accepted `main`, then the new accepted `main` once confirmed |
 | `integrityStatus` | Vault | `accepted`, or the unaccepted change with its commits |
 | `runScript` | Vault, script name, arguments | Exit status and output |

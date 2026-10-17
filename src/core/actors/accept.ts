@@ -3,8 +3,8 @@
 //
 // It composes, in order: no unaccepted change on `main` (merging onto one
 // would quietly accept it too); an owner of the accepted `main` approving; the
-// commit reviewed being exactly the branch's tip (a branch that moved since
-// review is refused); the approval recorded as an attestation; the merge
+// commit that owner last reviewed — their own review, never anyone else's —
+// being exactly the branch's tip (a branch that moved since review is refused); the approval recorded as an attestation; the merge
 // policy satisfied for that commit; a merge of that SHA — never a branch name
 // — into the checkout of `main`; and recording the merge as the accepted
 // `main`, but only if `main` had not moved meanwhile. In `forge` mode the
@@ -45,7 +45,7 @@ export type AcceptError =
   | UnacceptedChangeError
   | { readonly reason: 'forge-mode' }
   | { readonly reason: 'not-owner'; readonly approver: string }
-  | { readonly reason: 'not-reviewed'; readonly actor: string }
+  | { readonly reason: 'not-reviewed'; readonly actor: string; readonly approver: string }
   | { readonly reason: 'branch-moved'; readonly reviewed: Sha; readonly head: Sha }
   | { readonly reason: 'policy-unmet'; readonly verdict: PolicyVerdict }
   | { readonly reason: 'main-not-checked-out' }
@@ -66,8 +66,10 @@ export async function accept(
   if (identity.value.review === 'forge') return err({ reason: 'forge-mode' });
   if (!isOwner(identity.value, request.approver)) return err({ reason: 'not-owner', approver: request.approver });
 
-  const reviewed = reviewRecord(store, vault.id, actor);
-  if (reviewed === undefined) return err({ reason: 'not-reviewed', actor });
+  // Only the approver's own review binds the SHA: what someone else looked at
+  // is not what this owner is approving.
+  const reviewed = reviewRecord(store, vault.id, actor, request.approver);
+  if (reviewed === undefined) return err({ reason: 'not-reviewed', actor, approver: request.approver });
   const proposal = await readProposal(git, vault.path, accepted.value, actor);
   if (!proposal.ok) return proposal;
   const { head, base, tainted } = proposal.value;

@@ -44,7 +44,7 @@ Commands are typed by the person using Pi, so they may perform owner actions.
 |---|---|
 | `/vault status` | Pending proposals, checks, queued work |
 | `/vault review <actor>` | Review a proposal and record the reviewed SHA |
-| `/vault accept <actor>` | Accept the reviewed SHA if policy is satisfied |
+| `/vault accept <actor>` | Accept the SHA you last reviewed if policy is satisfied |
 | `/vault accept --adopt <sha>` | Show the delta from the accepted `main` and, once confirmed, accept it |
 | `/vault contract <path>` | Effective contract for a path |
 | `/vault jobs` | Jobs and their state |

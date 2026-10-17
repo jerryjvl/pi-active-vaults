@@ -152,10 +152,13 @@ follow the condition's `missed` setting.
 In `local` review mode:
 
 1. `vault review <vault> <actor>` shows commits, diff, check results and flags for
-   control changes, and records the SHA reviewed.
-2. `vault accept` gathers attestations for that SHA, evaluates the merge policy,
-   merges only that SHA and records the result as the accepted `main`. It
-   refuses if the branch has moved.
+   control changes, and records the SHA reviewed, as that reviewer's latest
+   review.
+2. `vault accept` takes the SHA from the accepting owner's own latest review —
+   never from anyone else's — gathers attestations for it, evaluates the merge
+   policy, merges only that SHA and records the result as the accepted `main`.
+   It refuses if that owner has not reviewed the proposal or the branch has
+   moved since.
 3. The merge produces Git events that may trigger further work.
 
 In `forge` review mode — for example a headless server proposing to a vault

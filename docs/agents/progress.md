@@ -3,16 +3,20 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 2 — complete, awaiting review
+**Current stage:** 3a — traces, budgets, queue, models and search (the first half of Stage 3)
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 2, including the Stage 1 review findings and the
-  whole-codebase consolidation pass; see its entry below.
-- **In progress:** nothing.
-- **Next:** review of Stage 2. Do not start Stage 3 until told to.
+- **Scope of this session:** the Stage 2 review findings (1)–(4), then Stage 3a
+  only: `traces`, `budgets`, `queue`, `models`, `search`, tests first,
+  a refactoring pass, and a checkpoint. Judgements, `notify`, `templates` and
+  `forge` are for the next session.
+- **Done:** findings (1) and (3) (documentation), (2) accept binds to the
+  approver's own review.
+- **In progress:** finding (4), the `process` module.
+- **Next:** finding (4); then Stage 3a module by module.
 
 ## Stage entries
 
