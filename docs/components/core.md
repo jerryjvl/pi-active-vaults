@@ -25,19 +25,19 @@ it; no vault logic lives anywhere else.
 |---|---|
 | `process` | Start a process: a program with an argument array, or an explicit shell command line; exactly the environment given; standard input closed unless input is given; bounded output; a time limit, past which the process is killed — with its process group on POSIX |
 | `http` | Make a JSON request to a configured endpoint (a model role or a forge): never follows redirects, so a body or credential goes only to the URL given; a time limit; errors carry a status, never the response body |
-| `config` | Load and validate the installation config; resolve `${ENV}` and `!command` secrets; resolve the platform's config and state directories |
+| `config` | Load and validate the installation config; register a vault in it, keeping the file as written; resolve `${ENV}` and `!command` secrets; resolve the platform's config and state directories |
 | `registry` | The vaults on this machine: their paths, root contracts and catalog entries |
 | `git` | Wrapper around the `git` command line: refs, notes, worktrees, diffs, merges, trailers |
 | `documents` | Parse and write Markdown with frontmatter, preserving formatting of untouched content |
 | `contracts` | Find `_contract.md` files, merge them into an effective contract with per-key strategies, report the origin of each key |
-| `conditions` | Parse `applies-when`; match Git and session events against conditions; the path globs merge rules share |
+| `conditions` | Parse `applies-when`; list the documents on the accepted `main` with their conditions (their own, then their contracts'); match Git and session events against conditions; the path globs merge rules share |
 | `events` | Derive Git events from a ref range (paths, change kinds, renames, labels, the actor and run that made each change) |
 | `policy` | Evaluate merge rules against changed paths and attestations |
 | `attestations` | Read and write attestation records in Git notes |
-| `actors` | Actor branches and worktrees; the hold that keeps one writer per actor, void once its process has ended; proposals; review records; SHA-bound accept and adopt |
+| `actors` | Actor branches and worktrees; the hold that keeps one writer per actor, void once its process has ended; committing as an actor, only when every check passes; syncing actor branches with the accepted `main`; proposals; review records; SHA-bound accept and adopt |
 | `integrity` | The accepted `main` per vault: record it on accept and adopt, detect unaccepted changes, provide the notice every surface shows |
-| `scripts` | Resolve built-ins and the vault's scripts and checks from the accepted `main`, parse headers, run them with their declared limits |
-| `templates` | Validate a template's marker, create a vault from it with fresh history and recorded origin |
+| `scripts` | Resolve built-ins and the vault's scripts and checks from the accepted `main`, parse headers, run them with their declared limits; run the checks against an exact commit and record their verdicts |
+| `templates` | Validate a template's marker, create a vault from it with fresh history and recorded origin — or an empty vault |
 | `judgements` | Run judgement checks: build the state from a document, ask the contract's axes of the judgement model, apply `pass-when`, record the attestation (see Judgements) |
 | `notify` | Validate recipients and messages, write to the outbox, deliver through the configured transport, retry |
 | `budgets` | Allot budgets down a session tree; account for tokens; enforce limits |
@@ -47,7 +47,7 @@ it; no vault logic lives anywhere else.
 | `search` | Index documents per vault; keyword, vector and hybrid search; rerank; check each hit against the current content |
 | `models` | Clients for configured model roles: embeddings, rerank, judgement. Splits work into batches of the role's `batch` size and sends up to `parallel` requests at a time. Never follows redirects, so content goes only to the configured URL |
 | `forge` | Forge adapters (Gitea, GitHub, GitLab): push actor branches, open or update pull requests, publish commit statuses and `vault/policy`, read approvals and merges, check branch protection |
-| `operations` | The catalogue of operations — name (also its permission), parameters, implementation, and which surfaces expose it (Pi tool, Pi command, CLI, MCP) — from which every surface is generated; permission sets and their evaluation; the complete list of module schemas each local store is opened with |
+| `operations` | The catalogue of operations — name (also its permission), parameters, implementation, and which surfaces expose it (Pi tool, Pi command, CLI, MCP) — from which every surface is generated; checking parameters and choosing vaults alike for every surface; the messages and statuses every surface shows, and the unaccepted-change notices; permission sets and their evaluation; loading the installation with the sections other modules own; the complete list of module schemas each local store is opened with |
 
 ## Key interfaces
 
@@ -61,6 +61,8 @@ it; no vault logic lives anywhere else.
 | `adopt` | Vault, SHA, approver, acknowledgement | Failed checks and control changes in the delta from the accepted `main`, with an acknowledgement for them; the delta; then the new accepted `main` once confirmed — refused if the concerns are not the ones acknowledged |
 | `integrityStatus` | Vault | `accepted`, or the unaccepted change with its commits |
 | `runScript` | Vault, script name, arguments | Exit status and output |
+| `runChecks` | Vault, commit, actor | Each check's verdict on that commit (`pass`, `fail`, `error`) |
+| `commitAsActor` | Vault, actor worktree, message | The commit, landed only if every check passed it, with their verdicts recorded |
 | `search` | Query, vault scope | Ranked hits, each with a freshness verdict |
 | `enqueueSpawn` | Document, condition, event, parent trace | Queue entry or the existing claim |
 

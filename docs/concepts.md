@@ -263,6 +263,15 @@ available to every vault. A vault cannot replace or shadow them. The first is
 **Checks** are scripts in `.vault/checks/` that assess a proposal and produce an
 attestation. **Judgements** are checks that call a judgement-role model.
 
+Every check on the accepted `main` is blocking. A check runs against one exact
+commit: its working directory is a fresh export of that commit's files, and
+its standard input is the proposal as JSON — `vault`, `commit`, `base` (where
+the commit's history meets the accepted `main`), `actor`, and `changes`
+(`change`, `path`, `oldPath`). Exit `0` is `pass` and any other exit
+`fail`; a check that times out, cannot run or is not a valid check is
+`error`. The first line of its output is the evidence. A commit is made only
+when every check passes it; its verdicts are then recorded.
+
 ## Attestation and merge policy
 
 An attestation records a verdict about an exact subject:
@@ -335,7 +344,9 @@ change to `main` is reported until an owner accepts it. See
 
 Commits made by the package carry trailers: `Vault-Trace`, `Vault-Actor` and, for
 commits made from a Pi session, `Vault-Session` — plus `Vault-Tainted` once that
-session is tainted.
+session is tainted. Their Git identity is the actor's (or, for an owner act,
+the person's) name at the installation, `<name>@<host>`, whatever the
+machine's Git configuration says.
 
 ## Trace
 

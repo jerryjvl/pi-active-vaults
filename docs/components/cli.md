@@ -1,15 +1,20 @@
 # CLI — `vault`
 
 Every vault operation from the command line, for people and for scripts outside
-the system. Commands mirror the Pi extension's tools and commands.
+the system. Commands are generated from the core's catalogue of operations, so
+they mirror the Pi extension's tools and commands; each command's options are
+its operation's parameters (`vault <command> --help`).
 
 ## Conventions
 
-- `vault <command> [vault] [args]`. The vault may be omitted when the current
-  directory is inside one.
-- `--json` on every reading command gives machine-readable output.
-- Exit status: `0` success, `1` failure, `2` refused by policy (for example an
-  unmet merge requirement).
+- `vault <command> [vault] [args]`. The vault may also be given with
+  `--vault`, or in a path as `<vault-id>:<path>`; it may be omitted when the
+  current directory is inside one — its checkout, or an actor's worktree,
+  which also makes that actor the current actor. Paths are relative to the
+  current directory when it is inside the vault.
+- `--json` on every command gives machine-readable output.
+- Exit status: `0` success, `1` failure, `2` refused — by policy (for example
+  an unmet merge requirement), by a guard, or as a usage error.
 - Works without the daemon. Commands that need it say so and exit `1`.
 - Every command first reports any vault with an unaccepted change to `main`, on
   standard error, until it is adopted or discarded.
@@ -20,12 +25,12 @@ the system. Commands mirror the Pi extension's tools and commands.
 
 | Command | Does |
 |---|---|
-| `vault init <path> [--template <url\|name>[@ref]] [--id <id>]` | Create a vault: empty, or from a template with fresh history; registers it |
+| `vault init <path> [--template <url\|name>[@ref]] [--id <id>]` | Create a vault and register it: empty — owned by the installation's `person`, every change needing checks and an owner — or from a template with fresh history. Its first commit is its accepted `main` |
 | `vault template show <url\|name>[@ref]` | Check that a repository is a compatible template and summarise it |
-| `vault add <path>` | Register an existing vault in the installation |
+| `vault add <path>` | Register an existing vault in the installation, by the id its root contract declares; nothing in it is accepted until an owner adopts `main` |
 | `vault list` | Registered vaults and their catalog entries |
 | `vault whoami` | This installation's name, for use as a vault's `executor` |
-| `vault doctor [--fix]` | Check config, Pi, Git, model endpoints, hooks (including a `core.hooksPath` that bypasses them), daemon service, paths and forge settings; report a `local` vault with a remote, sessions holding an actor, and a leftover Git lock in `main`'s worktree; `--fix` installs hooks, corrects permissions and, when no daemon is running, runs its start-up recovery |
+| `vault doctor [--fix]` | Check config, Pi, Git, model endpoints' tokens, hooks (including a `core.hooksPath` that bypasses them), daemon service, paths and forge settings; report a `local` vault with a remote, sessions holding an actor (and any whose holder cannot be told from a reused process), a leftover Git lock in `main`'s worktree, undelivered notifications, search that is keyword-only because no policy entry names the vault, and no `budgets.daily-tokens`; `--fix` installs hooks where none of the user's is in the way, corrects permissions and, when no daemon is running, runs its start-up recovery. A problem exits `1`; warnings do not |
 
 ### Knowledge
 
@@ -43,10 +48,10 @@ the system. Commands mirror the Pi extension's tools and commands.
 | `vault status` | Pending proposals, failing checks, queued work |
 | `vault review <actor>` | Commits, diff, checks and control-change flags; records the reviewed SHA |
 | `vault accept <actor>` | Merge the SHA you last reviewed if the merge policy is satisfied |
-| `vault accept --adopt <sha>` | Show failed checks and control changes in the delta from the accepted `main` to `<sha>` first, and require them to be acknowledged; then show the delta and, once confirmed, accept it. With neither, it goes straight to the delta |
-| `vault sync [actor]` | Bring actor branches up to date with `main`; in `forge` mode, fetch first |
+| `vault accept --adopt <sha>` | Show failed checks and control changes in the delta from the accepted `main` to `<sha>` first, and require them to be acknowledged; then show the delta and, once confirmed, accept it. With neither, it goes straight to the delta. Without a terminal to confirm at, it shows the delta and exits `2`; `--acknowledge <digest> --yes` confirms what was shown |
+| `vault sync [actor]` | Bring actor branches up to date with the accepted `main` — forward, or with a merge that the checks assess; in `forge` mode, fetch first |
 | `vault propose <actor>` | In `forge` mode: push the actor branch and open or update its pull request |
-| `vault commit -m <msg>` | Commit as the current actor, with checks and trailers |
+| `vault commit -m <msg> [paths] [--actor <name>]` | Commit the actor's worktree as the current actor (else `--actor`, else the installation's `person`), with trailers, if every check passes |
 
 ### Work
 
@@ -55,8 +60,8 @@ the system. Commands mirror the Pi extension's tools and commands.
 | `vault jobs` | Jobs with their conditions, last run, next run and pending items |
 | `vault run <document>` | Run a job now, outside its conditions |
 | `vault trigger <name> [--payload <file>]` | Emit an external event |
-| `vault script <name> [args]` | Run an approved script |
-| `vault notify --to <alias> --subject <text>` | Send a notification (body on standard input); `vault notify test` checks the transport |
+| `vault script <name> [args]` | Run an approved script; its arguments, options included, pass through |
+| `vault notify --to <alias> --subject <text>` | Send a notification (body on standard input); `vault notify test --to <alias>` checks the transport by delivering a test message at once, outside the outbox |
 | `vault trace <id>` | Show a trace; full detail while logs are retained |
 
 ### Daemon

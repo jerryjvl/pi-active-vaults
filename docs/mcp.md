@@ -63,6 +63,10 @@ With no `mcp` section, or a profile with no permissions, MCP can touch nothing.
   machine only through a reverse proxy that does.
 - **Accept needs an owner.** `accept` works only on a profile that declares an
   `owner`, and the approval attestation records both the owner and the profile.
+  Reviews through a profile are its owner's too.
+- **Writes name their actor.** `write` and `commit` take the actor to write as —
+  one of the vault's actors or owners — and are refused while another session
+  holds it.
 - **Only listed tools exist.** A client sees exactly the operations its profile
   permits for at least one vault, in a stable order; calls for a vault where
   the operation is not permitted are refused.

@@ -81,7 +81,8 @@ never gives up; a message whose alias has since been removed from the config
 is undeliverable. Undelivered messages appear in `vault status` and `vault
 doctor`. The `Message-ID` is derived from the trace ID, the key and how many
 messages that trace sent with that key before, so a retry is recognisably the
-same message and a later one is not.
+same message and a later one is not. `vault notify test --to <alias>` delivers
+one test message at once, outside the outbox, and reports why it failed.
 
 **Volume is bounded.** Per-hour and size limits apply; bodies are plain UTF-8
 text.

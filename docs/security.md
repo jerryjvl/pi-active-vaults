@@ -45,8 +45,9 @@ a rewrite — the vault has an **unaccepted change**:
 - **Every command reports it.** Each `vault` CLI command, each Pi session using
   the vault, and each MCP response for the vault carries a notice naming the
   vault and the unaccepted commit, until it is resolved.
-- **Automation pauses for that vault.** Triggers, spawns and script runs stop;
-  reading, search, review and interactive work continue.
+- **Automation pauses for that vault.** Triggers, spawns and script runs stop —
+  checks too, so commits wait; reading, search, review and interactive work
+  continue.
 - **The owner is notified once** through `builtin:notify`, when a daemon is
   running.
 
