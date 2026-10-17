@@ -98,7 +98,7 @@ Everything a vault shares lives in Git. Everything local to a machine lives in
 
 | File | Holds | Lifecycle |
 |---|---|---|
-| `state.sqlite` | Accepted `main` per vault, spawn queue and claims, job cursors, run state, actor holds, budget ledger, review records, notification outbox, judgement cache | Durable; never deleted by the package |
+| `state.sqlite` | Accepted `main` per vault, spawn queue and claims, job cursors, run state, actor holds, budget ledger, review records, notification outbox | Durable; never deleted by the package |
 | `index.sqlite` | Chunks, keyword index (FTS5), vectors (`sqlite-vec`), content hashes, the embedding model it was built with | Derived from Git; safe to delete and rebuild |
 
 - **One access path.** Only the core's `store` module opens these files.

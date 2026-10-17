@@ -19,6 +19,10 @@ the `vault_script` tool; people and scripts use `vault notify`.
 | `--subject` | Subject line. Line breaks are removed. |
 | `--key` | Deduplication key. A second message with the same key inside its cooldown is dropped. |
 
+It prints the outcome — `sent`, `queued` (kept for retry), `duplicate` or
+`undeliverable` — and the `Message-ID`, and exits `0`; a refusal (a raw
+address, an unknown alias, a limit) exits `1`, and a usage error `2`.
+
 ## Configuration
 
 In the installation config:
@@ -40,7 +44,10 @@ notify:
 | Transport | Use when |
 |---|---|
 | `smtp` | Default. Authenticated submission to any provider's mail server. |
-| `sendmail` | The machine already has a configured mail command (for example `msmtp`); the package passes the message to it on standard input. |
+| `sendmail` | The machine already has a configured mail command (for example `msmtp`); the package passes the message to it on standard input. Keys: `command`, and `args` (default `[-t, -i]`). |
+
+`port` is `465` or `587`; there is no other. `limits` default to the values
+shown; `max-bytes` bounds the body.
 
 ## Guarantees
 
@@ -69,10 +76,12 @@ not supported: home connections are commonly blocked or treated as spam.
 
 **Nothing is lost on failure.** Each message is recorded in the outbox in the
 state database before sending and marked sent only after the server accepts it.
-The daemon retries failures with backoff; undelivered messages appear in
-`vault status` and `vault doctor`. The
-`Message-ID` is derived from the trace ID and key, so a retry is recognisably
-the same message.
+The daemon retries failures with backoff, from a minute up to six hours, and
+never gives up; a message whose alias has since been removed from the config
+is undeliverable. Undelivered messages appear in `vault status` and `vault
+doctor`. The `Message-ID` is derived from the trace ID, the key and how many
+messages that trace sent with that key before, so a retry is recognisably the
+same message and a later one is not.
 
 **Volume is bounded.** Per-hour and size limits apply; bodies are plain UTF-8
 text.

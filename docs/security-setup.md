@@ -28,6 +28,11 @@ API and reports what is missing.
 | **Protected `main`** | No direct pushes, no force pushes, no deletion; changes only through pull requests; the `vault/policy` status required. |
 | **Required approval** | At least one approval from an owner, who is not the pull request's author. |
 
+On GitLab, statuses count as pipelines: require that pipelines succeed. A
+GitLab approval names no commit, so `vault/policy` counts owners' approvals
+only where approvals are reset when commits are pushed (a setting not every
+tier offers).
+
 `vault/policy` carries the vault's own merge policy — `when-tainted` rules,
 judgements, control changes — to the forge. Without **Required approval**, it
 alone decides, which suits a vault meant to merge on checks, such as an

@@ -313,10 +313,12 @@ chooses how proposals are reviewed (`vault.review`):
 on the machine that accepted it, so another clone would see those accepts as
 unaccepted changes. A vault used on several machines uses `forge` mode.
 
-In `forge` mode the package publishes each check's attestation as a commit
-status on the proposal, plus one status, **`vault/policy`**, saying whether the
-proposal satisfies the vault's merge policy. It never pushes to `main`, and
-learns about merges by fetching. The forge's branch protection on `main`
+In `forge` mode the package pushes the actor branch and the attestation notes
+to the vault's `origin` and publishes each check's attestation as a commit
+status on the proposal (`vault/check/<name>`), plus one status,
+**`vault/policy`**, saying whether the proposal satisfies the vault's merge
+policy — counting owners' forge approvals of that exact commit. It never
+pushes to `main`, and learns about merges by fetching. The forge's branch protection on `main`
 requires `vault/policy` and, in the recommended setup, an owner's approval;
 `vault doctor` verifies it is in place (see [Security
 setup](security-setup.md)). Owners are identified by their forge usernames.
@@ -453,4 +455,6 @@ vault:
 Creating a vault from a template copies its current content into a new
 repository with fresh history, sets the new vault's `id`, and replaces the
 `template` key with `vault.from-template` — the source URL and commit — so the
-origin is recorded. The first commit is the new vault's accepted `main`.
+origin is recorded. The first commit is the new vault's accepted `main`. A
+template is fetched only over https, ssh or from a local repository, and one
+containing a symbolic link is refused.
