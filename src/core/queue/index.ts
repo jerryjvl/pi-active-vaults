@@ -8,6 +8,7 @@ export {
   listSpawns,
   markAwaited,
   nextSpawns,
+  noChangeSpawn,
   queueSchema,
   recordSpawn,
   spawnEventKey,
@@ -19,5 +20,6 @@ export {
   type SpawnEvent,
   type SpawnRequest,
   type SpawnState,
+  type StopReason,
 } from './spawns.ts';
 export { advanceCursor, gitStream, readCursor, timerStream, type CursorError, type CursorKey } from './cursors.ts';

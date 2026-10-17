@@ -42,7 +42,7 @@ export interface TraceSession {
   readonly ended?: string;
   /** Work tokens counted against the session's budget. */
   readonly tokens: number;
-  readonly outcome: 'committed' | 'stopped';
+  readonly outcome: 'committed' | 'no-change' | 'stopped';
   /** Why a stopped session stopped. */
   readonly reason?: string;
 }
@@ -65,7 +65,7 @@ export interface CompactTrace {
 const KEYS = ['trace', 'vault', 'path', 'trigger', 'sessions', 'judgements', 'scripts', 'documents', 'elsewhere'] as const;
 const OPAQUE_REFERENCE = /^ref:[0-9a-f]{16}$/;
 const TRIGGER_EVENTS = [...EVENT_KINDS, 'manual'] as const;
-const OUTCOMES = ['committed', 'stopped'] as const;
+const OUTCOMES = ['committed', 'no-change', 'stopped'] as const;
 
 /** A new trace ID: the one place runs get their identity. */
 export function newTraceId(ids: IdSource): string {

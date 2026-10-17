@@ -10,9 +10,10 @@
 // it again. `matched` is not stored: matching is a pure function of history.
 //
 // Invariants: every later state change is one transaction that moves the
-// spawn only from the state before it (queued → running → committed →
-// recorded; queued or running → stopped → recorded), and ending a run ends
-// its budget session, returning what it did not use to the tree's pool.
+// spawn only from the state before it (queued → running → committed or
+// no-change → recorded; queued or running → stopped → recorded), and ending a
+// run ends its budget session, returning what it did not use to the tree's
+// pool.
 
 import {
   allot,
@@ -76,7 +77,15 @@ export type SpawnEvent =
   /** `vault run`: a job run now, outside its conditions. */
   | { readonly kind: 'manual'; readonly id: string };
 
-export type SpawnState = 'queued' | 'running' | 'committed' | 'stopped' | 'recorded';
+export type SpawnState = 'queued' | 'running' | 'committed' | 'no-change' | 'stopped' | 'recorded';
+
+/**
+ * Why a queued or running spawn stopped: over its budget or run time, queued
+ * too long, an error, or still running when the daemon restarted (start-up
+ * recovery). A spawn its session tree refused at the claim carries the
+ * tree's reason instead.
+ */
+export type StopReason = 'budget' | 'ttl' | 'queue-time' | 'error' | 'restart';
 
 export interface SpawnRequest {
   readonly vault: string;
@@ -275,17 +284,24 @@ export function commitSpawn(store: Store, clock: Clock, id: number, commit: stri
   });
 }
 
-/** Stops a queued or running spawn: `budget`, `ttl`, `queue-time`, `error`, or another reason. */
-export function stopSpawn(store: Store, clock: Clock, id: number, reason: string): Result<SpawnEntry, QueueError> {
+/** The run ended without changes: the job decided there was nothing to do. */
+export function noChangeSpawn(store: Store, clock: Clock, id: number): Result<SpawnEntry, QueueError> {
+  return advance(store, id, ['running'], 'no-change', (tx, entry) => {
+    endSession(tx, clock, entry);
+    return { ended: clock.now().toISOString() };
+  });
+}
+
+export function stopSpawn(store: Store, clock: Clock, id: number, reason: StopReason): Result<SpawnEntry, QueueError> {
   return advance(store, id, ['queued', 'running'], 'stopped', (tx, entry) => {
     endSession(tx, clock, entry);
     return { reason, ended: clock.now().toISOString() };
   });
 }
 
-/** Marks a committed or stopped spawn as recorded in its trace: its last state. */
+/** Marks an ended spawn as recorded in its trace: its last state. */
 export function recordSpawn(store: Store, id: number): Result<SpawnEntry, QueueError> {
-  return advance(store, id, ['committed', 'stopped'], 'recorded', () => ({}));
+  return advance(store, id, ['committed', 'no-change', 'stopped'], 'recorded', () => ({}));
 }
 
 /** Another session is waiting on this spawn's result, so it runs first. */
