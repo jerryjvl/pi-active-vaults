@@ -11,17 +11,22 @@
     "node": ">=22.18"
   },
   "bin": {
-    "vault": "./bin/vault.js"
+    "vault": "./dist/cli/main.js"
   },
+  "files": [
+    "dist",
+    "skills"
+  ],
   "pi": {
     "extensions": [
-      "./src/extension/index.ts"
+      "./dist/extension/index.js"
     ],
     "skills": [
       "./skills"
     ]
   },
   "scripts": {
+    "build": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
     "test": "node --test \"test/**/*.test.ts\"",
     "check": "tsc --noEmit"
   },

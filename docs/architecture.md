@@ -208,7 +208,11 @@ docs/
 
 ## Technology
 
-- TypeScript, compiled with `tsc`. Pi loads the compiled extension.
+- TypeScript, compiled with `tsc` (`npm run build`) from `src/` to `dist/`, which
+  mirrors it; relative `.ts` import specifiers are rewritten to `.js`. The
+  `vault` bin and the Pi extension are the compiled files under `dist/`, and
+  only `dist/` and `skills/` are published. Tests run directly on the source
+  under Node's type stripping, so they need no build.
 - Node.js ≥ 22.18: the built-in `node:sqlite` for all local storage (no native
   dependency to build; extension loading needs this version), `node:test` for
   tests.
