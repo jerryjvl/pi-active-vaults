@@ -11,7 +11,7 @@ import { TEST_ATTRIBUTION } from '../../support/git-repo.ts';
 import { scriptSource, withTestVault, type TestVault } from '../../support/vault.ts';
 
 async function attest(v: TestVault, attestation: Omit<Attestation, 'at' | 'by'> & { by?: string }): Promise<void> {
-  const recorded = await recordAttestation(v.git, v.repo.path, { by: attestation.name, at: 't', ...attestation }, TEST_ATTRIBUTION);
+  const recorded = await recordAttestation(v.git, v.repo.path, { by: attestation.name, at: '2026-01-01T00:00:00.000Z', ...attestation }, TEST_ATTRIBUTION);
   if (!recorded.ok) assert.fail(JSON.stringify(recorded.error));
 }
 

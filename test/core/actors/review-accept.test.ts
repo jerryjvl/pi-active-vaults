@@ -192,7 +192,7 @@ test('reviews recorded before reviews were kept per reviewer survive the upgrade
   const upgraded = openStore(path, STATE_FILE, [integritySchema, actorsSchema]);
   assert.ok(upgraded.ok);
   try {
-    assert.deepEqual(reviewRecord(upgraded.value, 'home', 'gardener', 'alice'), { vault: 'home', actor: 'gardener', sha: 'abc', reviewer: 'alice', at: 'then' });
+    assert.deepEqual(reviewRecord(upgraded.value, 'home', 'gardener', 'alice'), { vault: 'home', actor: 'gardener', sha: 'abc', reviewer: 'alice', at: '2026-01-01T00:00:00.000Z' });
     assert.equal(reviewRecord(upgraded.value, 'home', 'gardener', 'bob'), undefined);
   } finally {
     upgraded.value.close();

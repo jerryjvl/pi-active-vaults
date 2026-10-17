@@ -23,7 +23,7 @@ const change = (path: string, rules: MergeRule[], overrides: Partial<PolicyChang
   ({ path, deleted: false, content: BLOB, control: false, rules, judgementVersions: { quality: 'axes-1' }, ...overrides });
 
 const verdict = (kind: Attestation['kind'], name: string, result: string, overrides: Partial<Attestation> = {}): Attestation =>
-  ({ kind, name, subject: HEAD, result, by: name, at: 't', ...overrides });
+  ({ kind, name, subject: HEAD, result, by: name, at: '2026-01-01T00:00:00.000Z', ...overrides });
 
 function input(changes: PolicyChange[], overrides: Partial<PolicyInput> = {}): PolicyInput {
   return {
