@@ -49,7 +49,7 @@ function holdOf(row: Row): ActorHold {
   return { vault: row.vault, actor: row.actor, holder: { process: { pid: row.pid, started: row.started }, session: row.session }, since: row.since };
 }
 
-function sameHolder(a: Holder, b: Holder): boolean {
+export function sameHolder(a: Holder, b: Holder): boolean {
   return a.process.pid === b.process.pid && a.process.started === b.process.started && a.session === b.session;
 }
 

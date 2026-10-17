@@ -5,15 +5,20 @@
 // A new actor branch starts at the accepted `main`, so an actor never builds on
 // content no owner accepted. Commits are made only on the actor's own branch:
 // a worktree on any other branch — `main` above all — is refused rather than
-// written to.
+// written to. And only by its one writer: while a hold by another session
+// stands, a commit is refused. A commit checks the hold and never takes one —
+// sessions and the scheduler take holds; a command committing once need not.
 
 import { realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { ensurePrivateDir } from '../config/index.ts';
 import { addWorktree, createCommit, currentBranch, listWorktrees, resolveRevision, type Git, type GitError, type Identity, type Sha } from '../git/index.ts';
 import type { AcceptedMain } from '../integrity/index.ts';
+import type { ProcessLiveness } from '../process/index.ts';
 import { isActor, readVaultIdentity, type IdentityError, type RegisteredVault } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
+import type { Queryable } from '../store/index.ts';
+import { actorHold, sameHolder, type Holder, type HoldError } from './holds.ts';
 import { packageTrailers, type CommitOrigin } from './trailers.ts';
 
 export function actorBranch(actor: string): string {
@@ -75,16 +80,28 @@ export interface ActorCommit {
   readonly identity?: Identity;
   /** Everything (default) or only these paths. */
   readonly stage?: 'all' | readonly string[];
+  /** The committing session's own hold on the actor, when it has one. */
+  readonly holder?: Holder;
 }
 
-export type ActorCommitError = GitError | { readonly reason: 'wrong-branch'; readonly expected: string; readonly actual?: string };
+export interface ActorCommitContext {
+  readonly git: Git;
+  readonly store: Queryable;
+  readonly alive: ProcessLiveness;
+}
 
-/** Commits in `worktree` as `origin.actor`, with the package's trailers — only on that actor's branch. */
-export async function commitAsActor(git: Git, worktree: string, commit: ActorCommit): Promise<Result<Sha, ActorCommitError>> {
-  const expected = actorBranch(commit.origin.actor);
+export type ActorCommitError = GitError | HoldError | { readonly reason: 'wrong-branch'; readonly expected: string; readonly actual?: string };
+
+/** Commits in `worktree` as `origin.actor` of `vault`, with the package's trailers — only on that actor's branch, and not while another holds it. */
+export async function commitAsActor(context: ActorCommitContext, vault: string, worktree: string, commit: ActorCommit): Promise<Result<Sha, ActorCommitError>> {
+  const { git } = context;
+  const { actor } = commit.origin;
+  const expected = actorBranch(actor);
   const branch = await currentBranch(git, worktree);
   if (!branch.ok) return branch;
   if (branch.value !== expected) return err({ reason: 'wrong-branch', expected, ...(branch.value === undefined ? {} : { actual: branch.value }) });
+  const hold = await actorHold(context.store, context.alive, vault, actor);
+  if (hold !== undefined && (commit.holder === undefined || !sameHolder(hold.holder, commit.holder))) return err({ reason: 'actor-busy', hold });
   return createCommit(git, worktree, {
     message: commit.message,
     trailers: packageTrailers(commit.origin),
