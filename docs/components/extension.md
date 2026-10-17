@@ -58,8 +58,8 @@ and `Vault-Session` trailers.
 
 A session is tainted once it uses any tool not in the installation's
 `taint.trusted-tools`, or reads a file outside the registered vaults. Unknown
-tools taint, so the check fails closed. Proposals from tainted sessions are
-marked, so merge rules with `when-tainted` apply.
+tools taint, so the check fails closed. Commits from a tainted session carry a
+`Vault-Tainted` trailer, so merge rules with `when-tainted` apply.
 
 ## Headless sessions
 

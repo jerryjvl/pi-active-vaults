@@ -12,10 +12,17 @@ Kept current with every commit, so an interrupted session can resume.
 - **Done:** Stage 1 review findings 1–4 (`main` merged `d8217ac`, trailers in
   the repository's directory, `prepack` build, per-module schema ownership with
   `operations/stores.ts` assembling the lists).
-- **In progress:** Stage 2 — nothing started yet.
-- **Next:** Stage 2 modules in dependency order, tests first: `contracts`,
-  `conditions`, `registry`, `events`, `attestations`, `policy`, `integrity`,
-  `actors`, `scripts`; then the refactor and whole-codebase consolidation pass.
+- **In progress:** Stage 2. Proposed documentation for the formats Stage 2
+  must fix (`docs: propose …` commit, implemented against; needs owner
+  approval): attestation storage and `version`/`at` fields, the
+  `Vault-Tainted` trailer and proposal taint, list-ops on mapping items,
+  root-relative contract paths, unknown contract keys `nearest`, actors are
+  `actors` ∪ `owners`, script naming and required header keys, deleted paths
+  under judgement rules need `owner`, `missed` default, default worktrees.
+- **Next:** Stage 2 modules in dependency order, tests first: `git` additions
+  (tree listing, merge base, first-parent history), `conditions`, `contracts`,
+  `registry`, `events`, `attestations`, `integrity`, `scripts`, `policy`,
+  `actors`; then the refactor and whole-codebase consolidation pass.
   Modules with tables export a `ModuleSchema` and are added to
   `STATE_MODULES` in `src/core/operations/stores.ts`.
 

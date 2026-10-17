@@ -48,7 +48,7 @@ applies-when:
 |---|---|
 | `on` | `timer`, `committed`, `merged`, `session.start`, `session.tool`, `session.path`, `external` |
 | `effect` | `inject` — add the document to the current session's context; `spawn` — start a session that runs the document |
-| `schedule`, `missed` | Timer only: cron expression; `run-once` or `skip` for runs missed while nothing was running |
+| `schedule`, `missed` | Timer only: cron expression; `run-once` (default) or `skip` for runs missed while nothing was running |
 | `paths`, `change` | Path globs and change kinds (`created`, `modified`, `deleted`, `renamed`) |
 | `labels` | Match if the changed document carries any of these labels |
 | `tools`, `model` | Session events: tool names; model ID |
@@ -83,7 +83,7 @@ root down. Each key has a merge strategy:
 |---|---|
 | `nearest` | The deepest value wins |
 | `merge` | Maps merge key by key |
-| `list-ops` | `[+x]` adds, `[-x]` removes, a plain list replaces |
+| `list-ops` | `[+x]` adds, `[-x]` removes, a plain list replaces; a mapping item is written `+: {…}` or `-: {…}`, and removes only an equal item |
 | `tighten-only` | Deeper contracts may add requirements, never remove them |
 | `locked` | Root contract only |
 
@@ -98,6 +98,9 @@ Contract keys:
 | `naming` | `nearest` | Filename pattern for new documents, e.g. `"{topic}-{date}.md"` |
 | `axes` | `merge` | Judgement questions: name → `{ type: bool \| choice \| score, instructions, options or levels, pass-when }`, where `pass-when` is the condition on the answer's probabilities that makes the judgement pass |
 | `applies-when` | `list-ops` | Conditions that apply to every document in the subtree |
+
+Any other key is the vault's own and merges `nearest`. Paths in contracts and
+conditions are relative to the vault root.
 
 The root contract also identifies the vault:
 
@@ -129,10 +132,12 @@ add requirements.
 |---|---|
 | `checks` | Every blocking check passed for the exact commit |
 | `owner` | An owner approved the exact commit |
-| `judgement:<name>` | The named judgement produced a passing outcome |
+| `judgement:<name>` | The named judgement produced a passing outcome for the path's current content; a deleted path cannot be judged and needs `owner` instead |
 
 A rule may add `when-tainted: [...]` — extra requirements when the proposal came
-from a session that read untrusted content.
+from a session that read untrusted content. A proposal is tainted when any of
+its commits carries a `Vault-Tainted` trailer, or was not made by the package
+(has no `Vault-Trace`).
 
 **Control changes always need an owner.** Whatever the contracts say, a change
 to any `_contract.md`, anything under `.vault/`, or the `applies-when` or
@@ -172,7 +177,9 @@ a header comment:
 ```
 
 Scripts take arguments, print results, exit non-zero on failure, and never
-prompt. Header lines are comments (`#` or `//`). A script runs with the
+prompt. Header lines are comments (`#` or `//`); `name` and `summary` are
+required, `name` is the file name without its extension, and `net` defaults to
+`yes`. Files in subdirectories are support files, not scripts. A script runs with the
 interpreter in its `#!` line; on Windows the package runs it through that
 interpreter, or through Git for Windows' `sh` for shell scripts. A script
 declaring `net: no` runs without network access where the platform allows it.
@@ -192,21 +199,26 @@ An attestation records a verdict about an exact subject:
 |---|---|
 | `kind` | `check`, `judgement` or `approval` |
 | `name` | Which check, judgement or approver |
-| `subject` | Commit SHA or content hash |
+| `subject` | Commit SHA, or the blob SHA of judged content |
 | `result` | `pass`, `fail`, or a named outcome |
-| `by` | Script and version, model and rules version, or person |
+| `by` | Script, model, or person |
+| `version` | The check's blob SHA or the judgement's axes version; absent for approvals |
 | `evidence` | Short supporting detail |
+| `at` | When it was recorded |
 
 Attestations are stored as Git notes on `refs/notes/vault/attestations`, so they
-travel with the repository. Accepting a proposal evaluates the merge policy
-against the attestations for the exact commit under review.
+travel with the repository: one JSON object per line in the note on the subject.
+For each kind and name the latest record counts. Accepting a proposal evaluates
+the merge policy against the attestations for the exact commit under review; a
+check counts only at its version on the accepted `main`, and a judgement only
+for the current content and axes.
 
 ## Actor
 
 A named writer — an agent role or a person — with its own branch (default
 `actor/<name>`) and worktree (`<worktrees>/<name>`, from the installation
-config). Many jobs may write into one actor's branch; each actor's branch is one
-review lane.
+config). An actor is one of the root contract's `actors` or `owners`. Many jobs
+may write into one actor's branch; each actor's branch is one review lane.
 
 A **proposal** is an actor's branch ahead of `main`. The vault's root contract
 chooses how proposals are reviewed (`vault.review`):
@@ -232,7 +244,8 @@ change to `main` is reported until an owner accepts it. See
 [Security model](security.md).
 
 Commits made by the package carry trailers: `Vault-Trace`, `Vault-Actor` and, for
-commits made from a Pi session, `Vault-Session`.
+commits made from a Pi session, `Vault-Session` — plus `Vault-Tainted` once that
+session is tainted.
 
 ## Trace
 
