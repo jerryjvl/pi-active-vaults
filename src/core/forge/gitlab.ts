@@ -10,9 +10,9 @@
 //    required when merging needs every pipeline to succeed.
 
 import type { ForgeEntry } from '../config/index.ts';
-import { ok } from '../result/index.ts';
+import { isRecord, ok } from '../result/index.ts';
 import {
-  UNPROTECTED, forgeCaller, isRecord, isShaValue, shortDescription,
+  UNPROTECTED, forgeCaller, isShaValue, onePull, readAccount, shortDescription,
   type ForgeAdapter, type ForgeDepsBase, type ForgeError, type PullRequest, type StatusState,
 } from './adapter.ts';
 
@@ -31,19 +31,10 @@ export function gitlabAdapter(entry: ForgeEntry, project: string, deps: ForgeDep
     const state = value['state'] === 'opened' ? 'open' : value['state'] === 'merged' ? 'merged' : 'closed';
     return { number: value['iid'], url: typeof value['web_url'] === 'string' ? value['web_url'] : '', head: value['source_branch'], headSha: value['sha'], state };
   };
-  const onePull = (value: unknown) => {
-    const pull = pullOf(value);
-    return pull === undefined ? forge.bad('not a merge request') : ok(pull);
-  };
 
   return {
     type: 'gitlab',
-    async account() {
-      const got = await forge.call('GET', '/user');
-      if (!got.ok) return got;
-      const username = isRecord(got.value.body) ? got.value.body['username'] : undefined;
-      return typeof username === 'string' ? ok(username) : forge.bad('no username');
-    },
+    account: () => readAccount(forge, 'username'),
     async findPullRequest(head, base) {
       const query = `state=opened&source_branch=${encodeURIComponent(head)}&target_branch=${encodeURIComponent(base)}`;
       const listed = await forge.list(`${repo}/merge_requests?${query}`, 'per_page', PAGE);
@@ -56,7 +47,7 @@ export function gitlabAdapter(entry: ForgeEntry, project: string, deps: ForgeDep
       const made = await forge.call('POST', `${repo}/merge_requests`, {
         source_branch: request.head, target_branch: request.base, title: request.title, description: request.body,
       });
-      return made.ok ? onePull(made.value.body) : made;
+      return made.ok ? onePull(forge, pullOf, made.value.body) : made;
     },
     async updatePullRequest(number, request) {
       const updated = await forge.call('PUT', `${repo}/merge_requests/${number}`, { title: request.title, description: request.body });

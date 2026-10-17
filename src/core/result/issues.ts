@@ -104,3 +104,8 @@ export class DataReader {
     return found;
   }
 }
+
+/** Whether `value` is a mapping: an object, not null, not a list. */
+export function isRecord(value: unknown): value is PlainObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}

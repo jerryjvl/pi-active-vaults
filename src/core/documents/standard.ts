@@ -1,6 +1,6 @@
 // The standard keys a document's frontmatter may carry (concepts.md
-// "Document"), and the package's reserved directory (principle 13), read the
-// same way wherever they are needed.
+// "Document"), the package's reserved directory (principle 13), and what
+// counts as text — read the same way wherever they are needed.
 
 /** The package's own directory in a vault: scripts, checks, compact traces. */
 export const PACKAGE_DIRECTORY = '.vault';
@@ -22,4 +22,14 @@ export function isDocumentPath(path: string): boolean {
 export function labelsOf(frontmatter: Readonly<Record<string, unknown>>): string[] {
   const labels = frontmatter['labels'];
   return Array.isArray(labels) && labels.every((l) => typeof l === 'string' && l !== '') ? [...labels] : [];
+}
+
+/** Bytes as UTF-8 text, or undefined when they are not valid UTF-8 or contain NUL (binary content). */
+export function utf8Text(bytes: Uint8Array): string | undefined {
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return text.includes('\0') ? undefined : text;
+  } catch {
+    return undefined;
+  }
 }

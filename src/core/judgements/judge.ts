@@ -23,7 +23,7 @@ import { readProposal, type ProposalError } from '../actors/index.ts';
 import type { Clock } from '../clock/index.ts';
 import type { InstallationConfig } from '../config/index.ts';
 import { contractReader, type ContractError } from '../contracts/index.ts';
-import { documentTitle, labelsOf, parseDocument } from '../documents/index.ts';
+import { documentTitle, labelsOf, parseDocument, utf8Text } from '../documents/index.ts';
 import { TREE_MODES, listTree, readFileAt, type Attribution, type Git, type GitError, type Sha } from '../git/index.ts';
 import { requireNoUnacceptedChange, type UnacceptedChangeError, type VaultLocation } from '../integrity/index.ts';
 import { askSystemOne, modelFor, type ModelClient, type ModelError, type RoleUnavailable, type SystemOneQuestion } from '../models/index.ts';
@@ -85,12 +85,8 @@ async function contentAt(git: Git, repo: string, commit: Sha, path: string): Pro
   if (entry.mode === TREE_MODES.symlink) return err({ reason: 'not-text', path });
   const bytes = await readFileAt(git, repo, commit, path);
   if (!bytes.ok) return bytes;
-  try {
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.value);
-    return text.includes('\0') ? err({ reason: 'not-text', path }) : ok({ blob: entry.sha, text });
-  } catch {
-    return err({ reason: 'not-text', path });
-  }
+  const text = utf8Text(bytes.value);
+  return text === undefined ? err({ reason: 'not-text', path }) : ok({ blob: entry.sha, text });
 }
 
 /** Judges the document at `path` in `commit` on every axis in effect for it on the accepted main. */

@@ -3,10 +3,10 @@
 // approval is marked `dismissed`. A protected branch cannot be deleted.
 
 import type { ForgeEntry } from '../config/index.ts';
-import { ok } from '../result/index.ts';
+import { isRecord, ok } from '../result/index.ts';
 import {
-  UNPROTECTED, forgeCaller, isRecord, isShaValue, shortDescription, standingApprovals,
-  type ForgeAdapter, type ForgeDepsBase, type PullRequest,
+  UNPROTECTED, forgeCaller, headPull, isShaValue, onePull, readAccount, shortDescription, standingApprovals,
+  type ForgeAdapter, type ForgeDepsBase,
 } from './adapter.ts';
 
 const PAGE = 50;
@@ -15,31 +15,15 @@ export function giteaAdapter(entry: ForgeEntry, project: string, deps: ForgeDeps
   const forge = forgeCaller(entry, deps, (token) => ({ authorization: `token ${token}` }));
   const repo = `/repos/${project}`;
 
-  const pullOf = (value: unknown): PullRequest | undefined => {
-    if (!isRecord(value) || typeof value['number'] !== 'number' || !isRecord(value['head'])) return undefined;
-    const { ref, sha } = value['head'];
-    if (typeof ref !== 'string' || !isShaValue(sha)) return undefined;
-    const state = value['merged'] === true ? 'merged' : value['state'] === 'open' ? 'open' : 'closed';
-    return { number: value['number'], url: typeof value['html_url'] === 'string' ? value['html_url'] : '', head: ref, headSha: sha, state };
-  };
-  const onePull = (value: unknown) => {
-    const pull = pullOf(value);
-    return pull === undefined ? forge.bad('not a pull request') : ok(pull);
-  };
 
   return {
     type: 'gitea',
-    async account() {
-      const got = await forge.call('GET', '/user');
-      if (!got.ok) return got;
-      const login = isRecord(got.value.body) ? got.value.body['login'] : undefined;
-      return typeof login === 'string' ? ok(login) : forge.bad('no login');
-    },
+    account: () => readAccount(forge, 'login'),
     async findPullRequest(head, base) {
       const listed = await forge.list(`${repo}/pulls?state=open`, 'limit', PAGE);
       if (!listed.ok) return listed;
       for (const item of listed.value) {
-        const pull = pullOf(item);
+        const pull = headPull(item);
         if (pull === undefined) return forge.bad('not a pull request');
         if (pull.head === head && isRecord(item) && isRecord(item['base']) && item['base']['ref'] === base) return ok(pull);
       }
@@ -47,7 +31,7 @@ export function giteaAdapter(entry: ForgeEntry, project: string, deps: ForgeDeps
     },
     async openPullRequest(request) {
       const made = await forge.call('POST', `${repo}/pulls`, request);
-      return made.ok ? onePull(made.value.body) : made;
+      return made.ok ? onePull(forge, headPull, made.value.body) : made;
     },
     async updatePullRequest(number, request) {
       const updated = await forge.call('PATCH', `${repo}/pulls/${number}`, request);

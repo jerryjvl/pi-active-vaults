@@ -6,10 +6,10 @@
 // required.
 
 import type { ForgeEntry } from '../config/index.ts';
-import { ok } from '../result/index.ts';
+import { isRecord, ok } from '../result/index.ts';
 import {
-  UNPROTECTED, forgeCaller, isRecord, isShaValue, shortDescription, standingApprovals,
-  type ForgeAdapter, type ForgeDepsBase, type PullRequest,
+  UNPROTECTED, forgeCaller, headPull, isShaValue, onePull, readAccount, shortDescription, standingApprovals,
+  type ForgeAdapter, type ForgeDepsBase,
 } from './adapter.ts';
 
 const PAGE = 100;
@@ -21,38 +21,22 @@ export function githubAdapter(entry: ForgeEntry, project: string, deps: ForgeDep
   const repo = `/repos/${project}`;
   const owner = project.split('/')[0] ?? '';
 
-  const pullOf = (value: unknown): PullRequest | undefined => {
-    if (!isRecord(value) || typeof value['number'] !== 'number' || !isRecord(value['head'])) return undefined;
-    const { ref, sha } = value['head'];
-    if (typeof ref !== 'string' || !isShaValue(sha)) return undefined;
-    const merged = value['merged'] === true || typeof value['merged_at'] === 'string';
-    return { number: value['number'], url: typeof value['html_url'] === 'string' ? value['html_url'] : '', head: ref, headSha: sha, state: merged ? 'merged' : value['state'] === 'open' ? 'open' : 'closed' };
-  };
-  const onePull = (value: unknown) => {
-    const pull = pullOf(value);
-    return pull === undefined ? forge.bad('not a pull request') : ok(pull);
-  };
   const enabled = (value: unknown): boolean => isRecord(value) && value['enabled'] === true;
 
   return {
     type: 'github',
-    async account() {
-      const got = await forge.call('GET', '/user');
-      if (!got.ok) return got;
-      const login = isRecord(got.value.body) ? got.value.body['login'] : undefined;
-      return typeof login === 'string' ? ok(login) : forge.bad('no login');
-    },
+    account: () => readAccount(forge, 'login'),
     async findPullRequest(head, base) {
       const query = `state=open&base=${encodeURIComponent(base)}&head=${encodeURIComponent(`${owner}:${head}`)}`;
       const listed = await forge.list(`${repo}/pulls?${query}`, 'per_page', PAGE);
       if (!listed.ok) return listed;
-      const pulls = listed.value.map(pullOf);
+      const pulls = listed.value.map(headPull);
       if (pulls.some((p) => p === undefined)) return forge.bad('not a pull request');
       return ok(pulls.find((p) => p?.head === head));
     },
     async openPullRequest(request) {
       const made = await forge.call('POST', `${repo}/pulls`, request);
-      return made.ok ? onePull(made.value.body) : made;
+      return made.ok ? onePull(forge, headPull, made.value.body) : made;
     },
     async updatePullRequest(number, request) {
       const updated = await forge.call('PATCH', `${repo}/pulls/${number}`, request);

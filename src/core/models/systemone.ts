@@ -16,7 +16,7 @@
 // levels. Anything else fails the whole request: a gate must never decide on
 // a partial or impossible answer. `usage` may be absent.
 
-import { err, ok, type Result } from '../result/index.ts';
+import { err, isRecord, ok, type Result } from '../result/index.ts';
 import { postJson, roleToken, type ModelClient, type ModelError } from './clients.ts';
 import type { PermittedModel } from './roles.ts';
 
@@ -46,7 +46,6 @@ export interface SystemOneResult {
 // Rounding in a model's softmax should not fail a well-formed answer.
 const SUM_TOLERANCE = 1e-6;
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isUnit = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
 
 /** The answer to `question`, or why it cannot be one. */

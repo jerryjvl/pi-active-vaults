@@ -12,6 +12,7 @@
 
 import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
+import { utf8Text } from '../documents/index.ts';
 import type { BuiltinScript, ScriptOutput } from '../scripts/index.ts';
 import { sendNotification, type NotifyDeps } from './send.ts';
 
@@ -48,13 +49,13 @@ export function notifyBuiltin(deps: NotifyDeps, context: { readonly trace: strin
       const given = readArgs(args);
       if (typeof given === 'string') return output(2, '', `usage: ${given}\n`);
       const bodyFile = given.get('--body-file');
-      let body: string;
+      let body: string | undefined;
       try {
-        const bytes = bodyFile === undefined ? Buffer.from(run.input ?? '', 'utf8') : readFileSync(isAbsolute(bodyFile) ? bodyFile : resolve(run.cwd, bodyFile));
-        body = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        body = utf8Text(bodyFile === undefined ? Buffer.from(run.input ?? '', 'utf8') : readFileSync(isAbsolute(bodyFile) ? bodyFile : resolve(run.cwd, bodyFile)));
       } catch {
-        return output(2, '', 'usage: the body must be readable UTF-8 text\n');
+        body = undefined;
       }
+      if (body === undefined) return output(2, '', 'usage: the body must be readable UTF-8 text\n');
       const key = given.get('--key');
       const sent = await sendNotification(deps, {
         to: given.get('--to') ?? '', subject: given.get('--subject') ?? '', body, trace: context.trace, ...(key === undefined ? {} : { key }),

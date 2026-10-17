@@ -17,7 +17,7 @@
 import { resolveSecret, type ForgeEntry, type SecretDeps } from '../config/index.ts';
 import { isSha, type Sha } from '../git/index.ts';
 import { requestJson, type HttpClient, type HttpError, type HttpRequest } from '../http/index.ts';
-import { err, ok, type Result } from '../result/index.ts';
+import { err, isRecord, ok, type Result } from '../result/index.ts';
 
 export interface PullRequest {
   readonly number: number;
@@ -101,7 +101,6 @@ export function shortDescription(text: string): string {
   return text.length <= MAX_DESCRIPTION ? text : `${text.slice(0, MAX_DESCRIPTION - 1)}…`;
 }
 
-export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 export const isShaValue = (value: unknown): value is Sha => typeof value === 'string' && isSha(value);
 
 /** Requests to one forge: its base, its token header, its errors. */
@@ -145,6 +144,29 @@ export function forgeCaller(entry: ForgeEntry, deps: ForgeDepsBase, headers: (to
   };
 
   return { forge, call, list, bad };
+}
+
+/** The account a forge's `/user` answer names, in its `field`. */
+export async function readAccount(forge: ForgeCaller, field: 'login' | 'username'): Promise<Result<string, ForgeError>> {
+  const got = await forge.call('GET', '/user');
+  if (!got.ok) return got;
+  const name = isRecord(got.value.body) ? got.value.body[field] : undefined;
+  return typeof name === 'string' ? ok(name) : forge.bad(`no ${field}`);
+}
+
+/** A pull request as Gitea and GitHub both give it: `number`, `html_url`, `head.ref` and `head.sha`. */
+export function headPull(value: unknown): PullRequest | undefined {
+  if (!isRecord(value) || typeof value['number'] !== 'number' || !isRecord(value['head'])) return undefined;
+  const { ref, sha } = value['head'];
+  if (typeof ref !== 'string' || !isShaValue(sha)) return undefined;
+  const merged = value['merged'] === true || typeof value['merged_at'] === 'string';
+  return { number: value['number'], url: typeof value['html_url'] === 'string' ? value['html_url'] : '', head: ref, headSha: sha, state: merged ? 'merged' : value['state'] === 'open' ? 'open' : 'closed' };
+}
+
+/** One pull request read with `pullOf`, or a bad response. */
+export function onePull(forge: ForgeCaller, pullOf: (value: unknown) => PullRequest | undefined, value: unknown): Result<PullRequest, ForgeError> {
+  const pull = pullOf(value);
+  return pull === undefined ? forge.bad('not a pull request') : ok(pull);
 }
 
 /** Each user's standing approval from reviews in order: an approval stands until changes are requested or it is dismissed. */
