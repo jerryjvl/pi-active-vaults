@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { actorHold, actorsSchema, listActorHolds, releaseActorHold, takeActorHold, type Holder } from '../../../src/core/actors/index.ts';
-import type { ProcessLiveness } from '../../../src/core/process/index.ts';
+import { processStartTime, type ProcessLiveness, type ProcessProbe } from '../../../src/core/process/index.ts';
 import { fakeClock } from '../../support/clock.ts';
 import { withStore } from '../../support/store.ts';
 
@@ -63,4 +63,41 @@ test('a holder releases only its own hold; listing shows the holds that stand', 
   assert.deepEqual((await listActorHolds(store, processes({ 200: 'boot-1:900' }))).map((h) => h.actor), ['librarian'], 'an ended holder is not listed');
   assert.equal(releaseActorHold(store, { ...where, holder: alice }), true);
   assert.equal(await actorHold(store, live, 'home', 'gardener'), undefined);
+}));
+
+/** Liveness as the system answers it, through a probe for `platform` that can start nothing. */
+function probedLiveness(platform: NodeJS.Platform, exists: (pid: number) => 'exists' | 'gone'): ProcessLiveness {
+  const probe: ProcessProbe = {
+    platform,
+    env: {},
+    exists,
+    readFile: () => undefined,
+    run: async () => ({ ok: false, error: { reason: 'cannot-start', code: 'ENOENT' } }),
+  };
+  return (pid) => processStartTime(pid, probe);
+}
+
+test('a holder whose process has vanished never leaves a standing hold, on any platform — even where its start time cannot be asked', async () => {
+  for (const platform of ['linux', 'darwin', 'win32'] as const) {
+    await withStore([actorsSchema], async (store) => {
+      const clock = fakeClock();
+      assert.ok((await takeActorHold(store, processes({ 100: 'boot-1:500' }), clock, { ...where, holder: alice })).ok);
+      const vanished = probedLiveness(platform, () => 'gone');
+      assert.equal(await actorHold(store, vanished, 'home', 'gardener'), undefined, platform);
+      assert.deepEqual(await listActorHolds(store, vanished), [], platform);
+      assert.ok((await takeActorHold(store, vanished, clock, { ...where, holder: bob })).ok, `${platform}: nothing to unlock`);
+    })();
+  }
+});
+
+test('listing says which holds stand only because their existing holder\'s start time cannot be told', withStore([actorsSchema], async (store) => {
+  const clock = fakeClock();
+  const live = processes({ 100: 'boot-1:500', 200: 'boot-1:900' });
+  assert.ok((await takeActorHold(store, live, clock, { ...where, holder: alice })).ok);
+  assert.ok((await takeActorHold(store, live, clock, { vault: 'home', actor: 'librarian', holder: bob })).ok);
+  const listed = await listActorHolds(store, processes({ 200: 'boot-1:900' }, [100]));
+  assert.deepEqual(listed.map((h) => [h.actor, h.holder.process.pid, h.holder.session, h.standing]), [
+    ['gardener', 100, 'session-a', 'cannot-tell'],
+    ['librarian', 200, 'session-b', 'running'],
+  ]);
 }));
