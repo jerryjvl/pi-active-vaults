@@ -42,6 +42,8 @@ export interface ForgeEntry {
   readonly host: string;
   readonly type: ForgeType;
   readonly token: SecretRef;
+  /** The API base, when it is not where the forge type usually has it. */
+  readonly api?: string;
 }
 
 export interface InstallationConfig {
@@ -122,17 +124,22 @@ class Reader extends DataReader {
   }
 }
 
+/** An endpoint's URL: http or https. */
+function httpUrl(r: Reader, value: unknown, path: string): string {
+  const url = r.string(value, path);
+  if (url === '') return url;
+  try {
+    const protocol = new URL(url).protocol;
+    if (protocol !== 'http:' && protocol !== 'https:') r.add(path, 'must be an http or https URL');
+  } catch {
+    r.add(path, 'must be a valid URL');
+  }
+  return url;
+}
+
 function readModel(r: Reader, value: unknown, path: string): ModelEndpoint {
   const m = r.record(value, path, ['url', 'token', 'model', 'batch', 'parallel']);
-  const url = r.string(m['url'], join(path, 'url'));
-  if (url !== '') {
-    try {
-      const protocol = new URL(url).protocol;
-      if (protocol !== 'http:' && protocol !== 'https:') r.add(join(path, 'url'), 'must be an http or https URL');
-    } catch {
-      r.add(join(path, 'url'), 'must be a valid URL');
-    }
-  }
+  const url = httpUrl(r, m['url'], join(path, 'url'));
   return {
     url,
     token: r.secret(m['token'], join(path, 'token')),
@@ -178,12 +185,13 @@ function readForges(r: Reader, value: unknown): ForgeEntry[] {
   const seen = new Set<string>();
   return r.list(value ?? [], 'forges').map((item, i) => {
     const path = `forges[${i}]`;
-    const f = r.record(item, path, ['host', 'type', 'token']);
+    const f = r.record(item, path, ['host', 'type', 'token', 'api']);
     const host = r.string(f['host'], join(path, 'host'), FORGE_HOST);
     if (host !== '' && seen.has(host)) r.add(join(path, 'host'), 'duplicate forge host');
     seen.add(host);
     const type = r.oneOf(f['type'], join(path, 'type'), FORGE_TYPES);
-    return { host, type: type ?? 'gitea', token: r.secret(f['token'], join(path, 'token')) };
+    const api = f['api'] === undefined ? undefined : httpUrl(r, f['api'], join(path, 'api'));
+    return { host, type: type ?? 'gitea', token: r.secret(f['token'], join(path, 'token')), ...(api === undefined ? {} : { api }) };
   });
 }
 

@@ -207,3 +207,12 @@ test('loading a file distinguishes missing from unreadable and parses the rest',
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a forge may name its API base, for a forge whose API is not at the usual place', () => {
+  const config = parse('forges:\n  - { host: git.lan, type: gitea, token: "${T}", api: "http://git.lan:3000/api/v1" }\n');
+  assert.ok(config.ok);
+  assert.deepEqual(config.value.forges, [{ host: 'git.lan', type: 'gitea', token: { kind: 'env', name: 'T', where: 'forges[0].token' }, api: 'http://git.lan:3000/api/v1' }]);
+  const bad = parse('forges:\n  - { host: git.lan, type: gitea, token: "${T}", api: "ftp://git.lan" }\n');
+  assert.ok(!bad.ok && bad.error.reason === 'invalid');
+  assert.deepEqual(bad.error.issues, [{ path: 'forges[0].api', message: 'must be an http or https URL' }]);
+});

@@ -374,7 +374,7 @@ models:
   rerank:    { url: https://…/v1, token: ${RERANK_TOKEN}, model: qwen3-reranker }
   judgement: { url: https://…/v1, token: ${JUDGE_TOKEN}, model: laya, parallel: 4 }
 forges:
-  - { host: git.example.net, type: gitea, token: ${FORGE_TOKEN} }
+  - { host: git.example.net, type: gitea, token: ${FORGE_TOKEN} }   # api: optional, when the API is not at the usual place
 mcp: { … }                     # see mcp.md
 labels:
   equivalent: [[private:geopolitics, digests:geopolitics]]
