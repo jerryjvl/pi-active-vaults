@@ -3,6 +3,7 @@
 // the local stores from each module's schema.
 
 export { INDEX_MODULES, STATE_MODULES, openIndexStore, openStateStore } from './stores.ts';
+export { loadInstallation, type Installation, type InstallationError } from './installation.ts';
 export {
   PERMISSIONS,
   PERMISSION_GROUPS,

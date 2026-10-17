@@ -19,7 +19,7 @@ test('a vault is added to an existing config, keeping its comments and layout', 
   assert.deepEqual(added, { ok: true, value: undefined });
   const text = readFileSync(file, 'utf8');
   assert.match(text, /^# my installation\n/);
-  assert.match(text, /person: alice {3}# me/);
+  assert.match(text, /person: alice +# me/);
   const loaded = loadInstallationConfig(file, host);
   assert.ok(loaded.ok);
   assert.deepEqual(loaded.value.vaults.map((v) => [v.id, v.path]), [['home', '/home/alice/vaults/home'], ['work', '/srv/vaults/work']]);

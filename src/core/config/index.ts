@@ -1,5 +1,5 @@
 // Public surface of the config module: the host and its directories, the
-// installation config, and secret resolution.
+// installation config and registering vaults in it, and secret resolution.
 
 export {
   CONFIG_OVERRIDE_VARIABLE,
@@ -40,3 +40,4 @@ export {
   type ModelRole,
   type VaultEntry,
 } from './installation.ts';
+export { registerVault, type NewVaultEntry, type RegisterError } from './register.ts';
