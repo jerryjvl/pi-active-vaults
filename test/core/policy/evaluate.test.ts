@@ -124,3 +124,15 @@ test('requirements are listed once each, with every path needing them, in a stab
     ['judgement:quality', ['a.md', 'b.md']],
   ]);
 });
+
+test('an unmet requirement says whether something failed, or it is still waiting for a result', () => {
+  const failedOf = (rules: MergeRule[], commit: Attestation[], content = new Map<string, Attestation[]>()) =>
+    evaluatePolicy(input([change('a.md', rules)], { attestations: { commit, content } })).requirements.map((r) => [r.requirement, r.met, r.failed]);
+  assert.deepEqual(failedOf([rule(['**'], ['checks', 'owner'])], []), [['checks', false, false], ['owner', false, false]], 'nothing yet: waiting');
+  assert.deepEqual(failedOf([rule(['**'], ['checks'])], [verdict('check', 'links', 'fail', { version: LINKS_V2 })]), [['checks', false, true]]);
+  assert.deepEqual(failedOf([rule(['**'], ['checks'])], [verdict('check', 'links', 'pass', { version: '1'.repeat(40) })]), [['checks', false, false]], 'stale: to be re-run');
+  const judged = (result: string) => new Map([[BLOB, [verdict('judgement', 'quality', result, { subject: BLOB, version: 'axes-1' })]]]);
+  assert.deepEqual(failedOf([rule(['**'], ['judgement:quality'])], [], judged('fail')), [['judgement:quality', false, true]]);
+  assert.deepEqual(failedOf([rule(['**'], ['judgement:quality'])], [], judged('pass')), [['judgement:quality', true, false]]);
+  assert.deepEqual(failedOf([rule(['**'], ['judgement:quality'])], []), [['judgement:quality', false, false]]);
+});

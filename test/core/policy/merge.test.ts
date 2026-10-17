@@ -65,3 +65,18 @@ test('the axes version names the definition, independent of key order', () => {
   assert.equal(axesVersion({ type: 'bool', instructions: 'x' }), axesVersion({ instructions: 'x', type: 'bool' }));
   assert.notEqual(axesVersion({ type: 'bool', instructions: 'x' }), axesVersion({ type: 'bool', instructions: 'y' }));
 });
+
+test('approvals given elsewhere (a forge\'s reviews) count only as approvals of the exact commit under review', withTestVault(async (v) => {
+  const accepted = v.accept();
+  const head = v.propose({ 'notes/a.md': 'x' });
+  const approval = (subject: string, kind: Attestation['kind'] = 'approval'): Attestation =>
+    ({ kind, name: 'alice', subject, result: 'pass', by: 'alice via forge', at: '2026-01-01T00:00:00.000Z' });
+  const owner = async (approvals: Attestation[]) => {
+    const evaluated = await evaluateMerge(v.git, v.repo.path, { accepted, base: accepted.sha, head, tainted: false, approvals });
+    assert.ok(evaluated.ok);
+    return evaluated.value.verdict.requirements.find((r) => r.requirement === 'owner')?.met;
+  };
+  assert.equal(await owner([approval(head)]), true);
+  assert.equal(await owner([approval(accepted.sha)]), false, 'another commit');
+  assert.equal(await owner([approval(head, 'check')]), false, 'not an approval');
+}, { extra: 'merge:\n  - { paths: ["**"], require: [owner] }' }));
