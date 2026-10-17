@@ -1,0 +1,72 @@
+// Documented behaviour: cli.md `vault doctor` and security-setup.md — it
+// checks config, Git, Pi, model endpoints, hooks (including a core.hooksPath
+// that bypasses them), paths and forge settings, and reports a local vault
+// with a remote, sessions holding an actor, and a leftover Git lock in main's
+// worktree; `--fix` installs hooks and corrects permissions. Assigned to this
+// stage: a hold whose holder cannot be told is reported with its process and
+// session, undelivered notifications, keyword-only search because no policy
+// entry names a vault, and no budgets.daily-tokens.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { takeActorHold } from '../../../src/core/actors/index.ts';
+import { runProcess } from '../../../src/core/process/index.ts';
+import { withInstallation, type TestInstallation } from '../../support/installation.ts';
+
+type Finding = { level: string; check: string; vault?: string; message: string };
+const findings = async (t: TestInstallation, params: Record<string, unknown> = {}) => {
+  const outcome = await t.run('doctor', params);
+  return { outcome, found: (outcome.data as { findings: Finding[] }).findings };
+};
+const about = (found: Finding[], check: string) => found.filter((f) => f.check === check);
+
+test('doctor reports a hooks path that bypasses the hooks, a remote on a local vault, a lock left in main\'s worktree', withInstallation(async (t) => {
+  t.repo.git('config', 'core.hooksPath', '/elsewhere');
+  t.repo.git('remote', 'add', 'origin', 'https://git.example.net/home/vault.git');
+  writeFileSync(join(t.repo.path, '.git', 'index.lock'), '');
+  const { outcome, found } = await findings(t);
+  assert.equal(outcome.status, 'failed', 'a problem fails the command');
+  assert.match(about(found, 'hooks')[0]?.message ?? '', /core\.hooksPath \(\/elsewhere\) bypasses the package's hooks/);
+  assert.match(about(found, 'remotes')[0]?.message ?? '', /A local vault has remotes \(origin\)/);
+  assert.deepEqual(about(found, 'locks').map((f) => f.level), ['problem']);
+}));
+
+test('doctor warns of keyword-only search, no daily ceiling, notify unconfigured, and undelivered notifications', withInstallation(async (t) => {
+  const { found } = await findings(t);
+  assert.match(about(found, 'search')[0]?.message ?? '', /keyword-only: no policy entry allows the embed role for this vault/);
+  assert.match(about(found, 'budgets')[0]?.message ?? '', /budgets\.daily-tokens is not set/);
+  assert.match(about(found, 'notify')[0]?.message ?? '', /notify is not configured/);
+}, { config: 'models:\n  embed: { url: "https://models.example.net/v1", token: "${EMBED_TOKEN}", model: e }' }));
+
+test('doctor lists sessions holding actors, and says which stand only because their process cannot be told apart', withInstallation(async (t) => {
+  for (const [actor, pid] of [['gardener', 7], ['alice', 8]] as const) {
+    assert.ok((await takeActorHold(t.context.state, async () => ({ ok: true, value: 's' }), t.clock, { vault: 'home', actor, holder: { process: { pid, started: 's' }, session: `S-${actor}` } })).ok);
+  }
+  const holds = about((await findings(t)).found, 'holds');
+  assert.deepEqual(holds.map((h) => h.level), ['warning', 'ok']);
+  assert.match(holds[0]?.message ?? '', /alice is held by session S-alice: process 8 exists, but whether it is that session cannot be told/);
+  assert.match(holds[1]?.message ?? '', /gardener is held by session S-gardener \(process 7\)/);
+}, { running: { 7: 's' }, unknown: [8] }));
+
+test('doctor --fix installs the pre-push guard, which refuses a push of main, and makes the state private', { skip: process.platform === 'win32' ? 'POSIX hook and modes' : false }, withInstallation(async (t) => {
+  const hook = join(t.repo.path, '.git', 'hooks', 'pre-push');
+  assert.match(about((await findings(t)).found, 'hooks')[0]?.message ?? '', /not installed/);
+  chmodSync(t.installation.paths.stateDb, 0o644);
+  assert.deepEqual(about((await findings(t)).found, 'permissions').map((f) => f.level), ['problem']);
+  await findings(t, { fix: true });
+  assert.ok(existsSync(hook));
+  assert.equal(statSync(t.installation.paths.stateDb).mode & 0o777, 0o600);
+  assert.match(about((await findings(t)).found, 'hooks')[0]?.message ?? '', /is installed/);
+
+  const push = (line: string) => runProcess({ program: { file: '/bin/sh', args: [hook, 'origin', 'url'] }, env: { PATH: process.env['PATH'] ?? '' }, input: line, timeoutMs: 5000, maxStdoutBytes: 1024, maxStderrBytes: 1024 });
+  const zero = '0'.repeat(40);
+  const main = await push(`refs/heads/main ${'1'.repeat(40)} refs/heads/main ${zero}\n`);
+  assert.equal(main.ok && main.value.exitCode, 1);
+  const actor = await push(`refs/heads/actor/gardener ${'1'.repeat(40)} refs/heads/actor/gardener ${zero}\n`);
+  assert.equal(actor.ok && actor.value.exitCode, 0);
+
+  writeFileSync(hook, '#!/bin/sh\nexit 0\n');
+  assert.match(about((await findings(t, { fix: true })).found, 'hooks')[0]?.message ?? '', /pre-push hook of its own/);
+  assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\nexit 0\n', 'a hook of the user\'s is never replaced');
+}));

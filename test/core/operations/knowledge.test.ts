@@ -1,0 +1,64 @@
+// Documented behaviour: cli.md "Knowledge" — `read` prints a document with its
+// freshness against the accepted main, `contract` the effective contract with
+// each key's origin, `reindex` rebuilds the search index and `search` searches
+// it. security.md — reading continues during an unaccepted change, from the
+// accepted main; an index update is refused then. Search without an embedding
+// model is keyword-only and says so.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { withInstallation } from '../../support/installation.ts';
+
+test('read shows the accepted main\'s version and whether main has since changed or removed it', withInstallation(async (t) => {
+  t.repo.write('notes/a.md', '# A\nline two\nline three\n');
+  t.repo.write('notes/b.md', '# B\n');
+  t.repo.commit('notes');
+  t.accept();
+  const read = await t.run('read', { path: 'notes/a.md' });
+  assert.equal(read.status, 'ok');
+  assert.equal(read.text, '# A\nline two\nline three\n');
+  assert.deepEqual((read.data as { freshness: string }).freshness, 'current');
+  assert.equal((await t.run('read', { path: 'notes/a.md', range: '2-3' })).text, 'line two\nline three');
+
+  t.repo.write('notes/a.md', '# A, edited\n');
+  t.repo.git('rm', '--quiet', 'notes/b.md');
+  t.repo.commit('unaccepted edits');
+  const changed = await t.run('read', { path: 'notes/a.md' });
+  assert.equal(changed.status, 'ok', 'reading continues during an unaccepted change');
+  assert.match(changed.text, /^# A\nline two/);
+  assert.equal((changed.data as { freshness: string }).freshness, 'changed');
+  assert.equal(((await t.run('read', { path: 'notes/b.md' })).data as { freshness: string }).freshness, 'gone');
+  const missing = await t.run('read', { path: 'notes/none.md' });
+  assert.equal(missing.status, 'failed');
+}));
+
+test('contract shows each key with the contracts it came from', withInstallation(async (t) => {
+  t.repo.write('topics/_contract.md', '---\nindex: opt-in\nnaming: "{topic}.md"\n---\nTopic prose.\n');
+  t.repo.commit('contract');
+  t.accept();
+  const shown = await t.run('contract', { path: 'topics/cars.md' });
+  assert.equal(shown.status, 'ok');
+  const data = shown.data as { values: Record<string, unknown>; origins: Record<string, string[]> };
+  assert.equal(data.values['index'], 'opt-in');
+  assert.deepEqual(data.origins['index'], ['topics/_contract.md']);
+  assert.deepEqual(data.origins['vault'], ['_contract.md']);
+  assert.match(shown.text, /Topic prose\./);
+}));
+
+test('reindex builds the index from the accepted main, search finds it keyword-only and says so; reindex is refused during an unaccepted change', withInstallation(async (t) => {
+  t.repo.write('notes/router.md', '# Router\nThe router lives in the hall cupboard.\n');
+  t.repo.commit('router');
+  t.accept();
+  const reindexed = await t.run('reindex');
+  assert.equal(reindexed.status, 'ok', reindexed.text);
+  const found = await t.run('search', { query: 'cupboard router' });
+  assert.equal(found.status, 'ok');
+  assert.match(found.text, /^home:notes\/router\.md — Router \[current\]/);
+  assert.match(found.text, /Keyword search only \(no-embed-model\)/);
+
+  t.repo.write('stray.md', 'stray');
+  t.repo.commit('stray');
+  const paused = await t.run('reindex');
+  assert.equal(paused.status, 'refused');
+  assert.match(paused.text, /unaccepted change/);
+  assert.equal((await t.run('search', { query: 'stray' })).text.startsWith('No hits.'), true, 'unaccepted content is never searchable');
+}));
