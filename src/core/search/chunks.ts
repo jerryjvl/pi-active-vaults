@@ -3,12 +3,12 @@
 // document's title and the section's heading path — so a chunk read alone, by
 // a person, a keyword match or an embedding model, says where it is from.
 //
-// Lines inside fenced code are content, never headings. A long section is
-// split at paragraphs, and an overlong paragraph is cut, so no chunk exceeds
+// Sections and the title are read by `documents`. A long section is split at
+// paragraphs, and an overlong paragraph is cut, so no chunk exceeds
 // MAX_CHUNK_CHARS. A document whose frontmatter cannot be read is indexed as
 // plain text: search reads content, it does not enforce frontmatter.
 
-import { parseDocument } from '../documents/index.ts';
+import { documentTitle, markdownSections, parseDocument } from '../documents/index.ts';
 
 export interface Chunk {
   /** The headings above the section, outermost first. */
@@ -18,40 +18,6 @@ export interface Chunk {
 }
 
 const MAX_CHUNK_CHARS = 1500;
-
-const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
-const FENCE = /^ {0,3}(`{3,}|~{3,})/;
-
-interface Section {
-  readonly heading: string[];
-  readonly lines: string[];
-}
-
-function sections(body: string): { sections: Section[]; firstTitle?: string } {
-  const found: Section[] = [{ heading: [], lines: [] }];
-  const stack: { level: number; text: string }[] = [];
-  let fence: string | undefined;
-  let firstTitle: string | undefined;
-  for (const line of body.split(/\r?\n/)) {
-    const fenceMark = FENCE.exec(line)?.[1];
-    if (fenceMark !== undefined) {
-      if (fence === undefined) fence = fenceMark;
-      else if (fenceMark[0] === fence[0] && fenceMark.length >= fence.length) fence = undefined;
-    }
-    const heading = fence === undefined && fenceMark === undefined ? HEADING.exec(line) : null;
-    if (heading === null) {
-      found[found.length - 1]?.lines.push(line);
-      continue;
-    }
-    const level = heading[1]?.length ?? 1;
-    const text = (heading[2] ?? '').trim();
-    if (level === 1 && firstTitle === undefined && text !== '') firstTitle = text;
-    while (stack.length > 0 && (stack[stack.length - 1]?.level ?? 0) >= level) stack.pop();
-    stack.push({ level, text });
-    found.push({ heading: stack.map((h) => h.text), lines: [] });
-  }
-  return { sections: found, ...(firstTitle === undefined ? {} : { firstTitle }) };
-}
 
 /** Pieces of at most MAX_CHUNK_CHARS: whole paragraphs where they fit, cut where one does not. */
 function pieces(text: string): string[] {
@@ -73,18 +39,11 @@ function pieces(text: string): string[] {
   return out;
 }
 
-function stem(path: string): string {
-  return (path.split('/').at(-1) ?? path).replace(/\.md$/i, '');
-}
-
 /** The document's title and its chunks. */
 export function chunkDocument(vault: string, path: string, text: string): { title: string; chunks: Chunk[] } {
   const parsed = parseDocument(text);
-  const body = parsed.ok ? parsed.value.body : text;
-  const given = parsed.ok ? parsed.value.frontmatter['title'] : undefined;
-  const { sections: found, firstTitle } = sections(body);
-  const title = typeof given === 'string' && given.trim() !== '' ? given.trim() : firstTitle ?? stem(path);
-  const chunks = found.flatMap(({ heading, lines }) => {
+  const title = documentTitle(path, text);
+  const chunks = markdownSections(parsed.ok ? parsed.value.body : text).sections.flatMap(({ heading, lines }) => {
     const header = [vault, title, heading.join(' › ')].filter((part) => part !== '').join(' · ');
     return pieces(lines.join('\n')).map((piece) => ({ heading, header, body: piece }));
   });

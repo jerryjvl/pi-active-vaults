@@ -6,3 +6,4 @@ export { describeDocumentError, parseDocument, type DocumentError, type ParsedDo
 export { updateFrontmatter, type FrontmatterChanges, type FrontmatterValue } from './update.ts';
 export { PACKAGE_DIRECTORY, inPackageDirectory, isDocumentPath, labelsOf } from './standard.ts';
 export { readDocumentAt, type CommittedDocument } from './committed.ts';
+export { documentTitle, markdownSections, type MarkdownSection } from './markdown.ts';
