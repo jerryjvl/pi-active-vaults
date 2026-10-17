@@ -180,3 +180,21 @@ test('nothing is sent for no inputs', async () => {
     assert.equal(requests.length, 0);
   });
 });
+
+test('a redirect is an error naming the role, and the content never reaches the redirect\'s target', async () => {
+  // core.md `models`: requests never follow redirects, so vault content goes
+  // only to the configured URL — a 307 or 308 would otherwise resend the body.
+  await withStub(embeddings, async (elsewhere, received) => {
+    for (const status of [301, 302, 303, 307, 308]) {
+      await withStub(() => ({ status, headers: { location: `${elsewhere}/v1/embeddings` } }), async (url) => {
+        const policy = [{ vaults: ['home'], allowModels: ['embed' as const, 'rerank' as const] }];
+        const embedder = modelFor(config({ embed: endpoint(url) }, policy), 'embed', ['home']);
+        const reranker = modelFor(config({ rerank: endpoint(url) }, policy), 'rerank', ['home']);
+        assert.ok(embedder.ok && reranker.ok);
+        assert.deepEqual(await embed(client(), embedder.value, ['private text']), { ok: false, error: { reason: 'redirected', role: 'embed', status } });
+        assert.deepEqual(await rerank(client(), reranker.value, 'q', ['private text']), { ok: false, error: { reason: 'redirected', role: 'rerank', status } });
+      });
+    }
+    assert.equal(received.length, 0, 'nothing reached the redirect target');
+  });
+});
