@@ -44,7 +44,8 @@ export type VaultEvent =
   | { readonly kind: 'session.start'; readonly model?: string }
   | { readonly kind: 'session.tool'; readonly tool: string; readonly model?: string }
   | { readonly kind: 'session.path'; readonly vault: string; readonly path: string; readonly model?: string }
-  | { readonly kind: 'external'; readonly vault: string; readonly name: string };
+  /** `vault trigger`: `payload` is the JSON given with it, passed to the job as data. */
+  | { readonly kind: 'external'; readonly vault: string; readonly name: string; readonly payload?: unknown };
 
 /** A document whose conditions are candidates for an event. */
 export interface Candidate {

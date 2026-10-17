@@ -26,7 +26,7 @@ test('the Pi commands are the documented ones', () => {
 });
 
 test('a model is never offered a parameter choosing whom it writes as', () => {
-  for (const operation of CATALOGUE) {
+  for (const operation of CATALOGUE.filter((o) => o.surfaces.tool !== undefined)) {
     assert.equal(paramsOn(operation, 'tool').some((p) => p.name === 'actor'), false, operation.name);
   }
 });

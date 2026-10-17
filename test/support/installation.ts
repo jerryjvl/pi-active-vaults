@@ -76,12 +76,12 @@ export function withInstallation(run: (t: TestInstallation) => Promise<void>, op
     const host = hostFor(dir, repo);
     repo.write('_contract.md', rootContract(options.contract));
     repo.commit('Create vault');
-    mkdirSync(dir.file('config'), { recursive: true });
+    mkdirSync(dir.file('config'), { recursive: true, mode: 0o700 });
     writeFileSync(dir.file('config', 'config.yaml'), [
       'installation: { name: alice@homeserver, person: alice }',
       `vaults: [{ id: ${options.contract?.id ?? 'home'}, path: ${JSON.stringify(repo.path)} }]`,
       options.config ?? '',
-    ].join('\n'));
+    ].join('\n'), { mode: 0o600 });
     const alive: ProcessLiveness = async (pid) =>
       (options.unknown?.includes(pid) === true ? { ok: false, error: { reason: 'cannot-tell', pid } } : { ok: true, value: options.running?.[pid] });
     const contexts: OperationContext[] = [];
