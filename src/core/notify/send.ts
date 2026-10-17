@@ -10,6 +10,10 @@
 //    looked up only at delivery, from the configuration as it is then;
 //  - what is returned — alias, subject, Message-ID, outcome — holds no address
 //    and no credential.
+//
+// A transport test (`vault notify test`) is the one send that skips the
+// outbox: it delivers one fixed message to an alias at once and reports why
+// it failed, since a test that queued and retried would answer nothing.
 
 import { err, ok, type Result } from '../result/index.ts';
 import type { Store } from '../store/index.ts';
@@ -76,10 +80,17 @@ async function attempt(deps: NotifyDeps, entry: OutboxEntry): Promise<Notificati
   return { ...record, outcome: 'queued' };
 }
 
+/** The address an alias stands for; any address-like input is refused, never looked up. */
+function recipient(config: NotifyConfig, alias: string): Result<string, NotifyError> {
+  if (alias.includes('@')) return err({ reason: 'raw-address' });
+  const address = Object.hasOwn(config.recipients, alias) ? config.recipients[alias] : undefined;
+  return address === undefined ? err({ reason: 'unknown-recipient', alias }) : ok(address);
+}
+
 export async function sendNotification(deps: NotifyDeps, request: NotificationRequest): Promise<Result<NotificationRecord, NotifyError>> {
   const { config } = deps;
-  if (request.to.includes('@')) return err({ reason: 'raw-address' });
-  if (!Object.hasOwn(config.recipients, request.to)) return err({ reason: 'unknown-recipient', alias: request.to });
+  const address = recipient(config, request.to);
+  if (!address.ok) return address;
   const subject = oneLine(request.subject);
   if (subject === '') return err({ reason: 'empty-subject' });
   if (Buffer.byteLength(request.body, 'utf8') > config.limits.maxBytes) return err({ reason: 'too-large', maxBytes: config.limits.maxBytes });
@@ -94,6 +105,22 @@ export async function sendNotification(deps: NotifyDeps, request: NotificationRe
       : err(queued.error);
   }
   return ok(await attempt(deps, queued.value));
+}
+
+/** Delivers one test message to `alias` now, outside the outbox. */
+export async function testTransport(deps: NotifyDeps, alias: string): Promise<Result<void, NotifyError | { readonly reason: 'delivery-failed'; readonly failure: string }>> {
+  const address = recipient(deps.config, alias);
+  if (!address.ok) return address;
+  const now = deps.clock.now();
+  const delivered = await deliver(deps.config.transport, deps, {
+    from: deps.config.from,
+    to: address.value,
+    subject: 'Test notification from pi-active-vaults',
+    body: 'This message tests the notification transport. Nothing needs to be done.\n',
+    messageId: `<test.${now.getTime()}@${domainOf(deps.config.from.address)}>`,
+    date: now,
+  });
+  return delivered.ok ? ok(undefined) : err({ reason: 'delivery-failed', failure: delivered.error.reason });
 }
 
 /** Retries every message whose next attempt is due (the daemon's outbox), oldest first. */
