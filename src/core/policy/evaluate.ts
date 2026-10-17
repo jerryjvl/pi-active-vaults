@@ -54,6 +54,8 @@ export interface RequirementVerdict {
   /** The paths that need it, sorted. */
   readonly paths: readonly string[];
   readonly met: boolean;
+  /** Unmet because something did not pass — rather than a result still to come (missing or stale). */
+  readonly failed: boolean;
   /** Why it is unmet. */
   readonly reasons: readonly string[];
 }
@@ -109,30 +111,47 @@ const CHECK_REASONS: Readonly<Record<string, string>> = {
   unusable: 'cannot run',
 };
 
-function checkReasons(input: PolicyInput): string[] {
-  return checkStatuses(input)
-    .filter((check) => check.status !== 'pass')
-    .map((check) => `${check.name}: ${CHECK_REASONS[check.status] ?? check.status}`);
+/** A status that is still to come rather than a verdict against. */
+const WAITING = new Set(['missing', 'stale']);
+
+interface Unmet {
+  readonly reasons: string[];
+  readonly failed: boolean;
 }
 
-function ownerReasons(input: PolicyInput): string[] {
+function checkReasons(input: PolicyInput): Unmet {
+  const unpassed = checkStatuses(input).filter((check) => check.status !== 'pass');
+  return {
+    reasons: unpassed.map((check) => `${check.name}: ${CHECK_REASONS[check.status] ?? check.status}`),
+    failed: unpassed.some((check) => !WAITING.has(check.status)),
+  };
+}
+
+function ownerReasons(input: PolicyInput): Unmet {
   const approved = input.owners.some((owner) => {
     const latest = latestAttestation(input.attestations.commit, 'approval', owner);
     return latest?.result === 'pass' && latest.subject === input.subject;
   });
-  return approved ? [] : ['no owner has approved this commit'];
+  return { reasons: approved ? [] : ['no owner has approved this commit'], failed: false };
 }
 
-function judgementReasons(input: PolicyInput, name: string, changes: readonly PolicyChange[]): string[] {
-  return changes.flatMap((change) => {
+function judgementReasons(input: PolicyInput, name: string, changes: readonly PolicyChange[]): Unmet {
+  let failed = false;
+  const reasons = changes.flatMap((change) => {
     const version = change.judgementVersions[name];
-    if (version === undefined) return [`${change.path}: no judgement "${name}" is defined for it`];
+    if (version === undefined) {
+      failed = true; // no judgement can ever be made for it
+      return [`${change.path}: no judgement "${name}" is defined for it`];
+    }
     const content = change.content;
     const latest = content === undefined ? undefined : latestAttestation(input.attestations.content.get(content) ?? [], 'judgement', name);
     if (latest === undefined || latest.subject !== content) return [`${change.path}: not judged in its current content`];
     if (latest.version !== version) return [`${change.path}: judged under other axes`];
-    return latest.result === 'pass' ? [] : [`${change.path}: ${latest.result}`];
+    if (latest.result === 'pass') return [];
+    failed = true;
+    return [`${change.path}: ${latest.result}`];
   });
+  return { reasons, failed };
 }
 
 const ORDER = (r: Requirement): string => (r === 'checks' ? '0' : r === 'owner' ? '1' : `2${r}`);
@@ -145,11 +164,11 @@ export function evaluatePolicy(input: PolicyInput): PolicyVerdict {
   const requirements = [...needing]
     .sort(([a], [b]) => (ORDER(a) < ORDER(b) ? -1 : ORDER(a) > ORDER(b) ? 1 : 0))
     .map(([requirement, changes]): RequirementVerdict => {
-      const reasons =
+      const { reasons, failed } =
         requirement === 'checks' ? checkReasons(input)
         : requirement === 'owner' ? ownerReasons(input)
         : judgementReasons(input, judgementName(requirement), changes);
-      return { requirement, paths: changes.map((c) => c.path).sort(), met: reasons.length === 0, reasons };
+      return { requirement, paths: changes.map((c) => c.path).sort(), met: reasons.length === 0, failed, reasons };
     });
   return { satisfied: requirements.every((r) => r.met), requirements };
 }

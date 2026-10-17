@@ -34,6 +34,8 @@ export interface MergeRequest {
   /** The commit under review. */
   readonly head: Sha;
   readonly tainted: boolean;
+  /** Approvals given outside the repository — a forge's reviews; only approvals of `head` count. */
+  readonly approvals?: readonly Attestation[];
 }
 
 export interface MergeEvaluation {
@@ -64,8 +66,10 @@ export async function evaluateMerge(git: Git, repo: string, request: MergeReques
   if (!checks.ok) return checks;
   const tree = await listTree(git, repo, head);
   if (!tree.ok) return tree;
-  const commitAttestations = await readAttestations(git, repo, head);
-  if (!commitAttestations.ok) return commitAttestations;
+  const recorded = await readAttestations(git, repo, head);
+  if (!recorded.ok) return recorded;
+  const given = (request.approvals ?? []).filter((a) => a.kind === 'approval' && a.subject === head);
+  const commitAttestations = [...recorded.value, ...given];
 
   const contentOf = new Map(tree.value.map((entry) => [entry.path, entry.sha]));
   const controlled = new Set(control.value.map((c) => c.path));
@@ -112,7 +116,7 @@ export async function evaluateMerge(git: Git, repo: string, request: MergeReques
     owners: identity.value.owners,
     checks: checks.value.scripts.map((check) => ({ name: check.name, version: check.version })),
     invalidChecks: checks.value.invalid.map((check) => check.name),
-    attestations: { commit: commitAttestations.value, content: contentAttestations },
+    attestations: { commit: commitAttestations, content: contentAttestations },
   };
   return ok({ verdict: evaluatePolicy(input), checks: checkStatuses(input), changes: changes.value, control: control.value });
 }
