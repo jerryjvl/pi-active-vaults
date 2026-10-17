@@ -39,3 +39,11 @@ test('only the git module knows how to talk to git', () => {
     .map((file) => relative(srcRoot, file));
   assert.deepEqual(offenders, []);
 });
+
+test('HTTP requests are made only by the http module, which never follows redirects', () => {
+  const offenders = sourceFiles(srcRoot)
+    .filter((file) => relative(srcRoot, file).split('\\').join('/') !== 'core/http/index.ts')
+    .filter((file) => /\bfetch\s*\(|node:https?['"]|['"]undici['"]/.test(readFileSync(file, 'utf8')))
+    .map((file) => relative(srcRoot, file));
+  assert.deepEqual(offenders, []);
+});

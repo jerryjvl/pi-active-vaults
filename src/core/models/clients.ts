@@ -4,60 +4,43 @@
 // The configured `url` is the API base (`…/v1`).
 //
 // Invariants: a client accepts only a `PermittedModel`, so the installation's
-// policy has been applied; the token is resolved at the point of use, once per
-// call, and sent only as a bearer token; error values name the role and a
-// reason — never the token, and never the response body, which may echo
-// either; a response is checked in full (one finite vector or score per
-// input, vectors of one dimension), and anything else is an error, never a
-// partial result.
+// policy has been applied; requests go through `http`, so a redirect is an
+// error and content goes only to the configured URL; the token is resolved at
+// the point of use, once per call, and sent only as a bearer token; error
+// values name the role and a reason — never the token, and never the response
+// body, which may echo either; a response is checked in full (one finite
+// vector or score per input, vectors of one dimension), and anything else is
+// an error, never a partial result.
 
 import { resolveSecret, type ModelRole, type SecretDeps } from '../config/index.ts';
+import { requestJson, type HttpClient, type HttpError } from '../http/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import { inBatches } from './batches.ts';
 import type { PermittedModel } from './roles.ts';
 
-export interface ModelClient {
-  readonly fetch: typeof fetch;
+export interface ModelClient extends HttpClient {
   readonly secrets: SecretDeps;
-  /** Time limit per request; default 60 s. */
-  readonly timeoutMs?: number;
 }
 
 export type ModelError =
   | { readonly reason: 'token'; readonly role: ModelRole; readonly where: string }
-  | { readonly reason: 'unreachable'; readonly role: ModelRole }
-  | { readonly reason: 'timed-out'; readonly role: ModelRole }
-  | { readonly reason: 'http-error'; readonly role: ModelRole; readonly status: number }
-  | { readonly reason: 'bad-response'; readonly role: ModelRole; readonly detail: string };
+  | (HttpError & { readonly role: ModelRole });
 
-const DEFAULT_TIMEOUT_MS = 60_000;
-
+/** The role's API at `path`, under the configured base URL. */
 function apiUrl(model: PermittedModel, path: string): string {
   return `${model.endpoint.url.replace(/\/+$/, '')}/${path}`;
 }
 
-async function postJson(client: ModelClient, model: PermittedModel, path: string, token: string, body: unknown): Promise<Result<unknown, ModelError>> {
-  const { role } = model;
-  let response: Response;
-  try {
-    response = await client.fetch(apiUrl(model, path), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(client.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-    });
-  } catch (error) {
-    return err((error as Error).name === 'TimeoutError' ? { reason: 'timed-out', role } : { reason: 'unreachable', role });
-  }
-  if (!response.ok) {
-    await response.body?.cancel();
-    return err({ reason: 'http-error', role, status: response.status });
-  }
-  try {
-    return ok(await response.json());
-  } catch (error) {
-    return err((error as Error).name === 'TimeoutError' ? { reason: 'timed-out', role } : { reason: 'bad-response', role, detail: 'not JSON' });
-  }
+/** POSTs `body` as JSON to the role's API with its bearer token; the response's JSON, or why not. */
+export async function postJson(client: ModelClient, model: PermittedModel, path: string, token: string, body: unknown): Promise<Result<unknown, ModelError>> {
+  const posted = await requestJson(client, { method: 'POST', url: apiUrl(model, path), headers: { authorization: `Bearer ${token}` }, body });
+  return posted.ok ? ok(posted.value.body) : err({ ...posted.error, role: model.role });
+}
+
+/** The role's token, resolved now; an error names only the config field. */
+export async function roleToken(client: ModelClient, model: PermittedModel): Promise<Result<string, ModelError>> {
+  const token = await resolveSecret(model.endpoint.token, client.secrets);
+  return token.ok ? token : err({ reason: 'token', role: model.role, where: token.error.where });
 }
 
 /** Resolves the token once, then sends the inputs in batches. */
@@ -66,8 +49,8 @@ async function batched<I, O>(
   send: (token: string, batch: readonly I[]) => Promise<Result<readonly O[], ModelError>>,
 ): Promise<Result<O[], ModelError>> {
   if (inputs.length === 0) return ok([]);
-  const token = await resolveSecret(model.endpoint.token, client.secrets);
-  if (!token.ok) return err({ reason: 'token', role: model.role, where: token.error.where });
+  const token = await roleToken(client, model);
+  if (!token.ok) return token;
   return inBatches(inputs, model.endpoint, (batch) => send(token.value, batch));
 }
 

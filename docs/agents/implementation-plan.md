@@ -23,7 +23,7 @@ progress log.
 
 ```mermaid
 flowchart BT
-  L0[L0 Foundations<br/>result types, clock and IDs, processes, platform paths, config, store, git, documents]
+  L0[L0 Foundations<br/>result types, clock and IDs, processes, HTTP requests, platform paths, config, store, git, documents]
   L1[L1 Vault model<br/>registry, contracts, conditions, events, attestations, policy, integrity, actors, scripts]
   L2[L2 Work machinery<br/>traces, budgets, queue, models, search and judgements, notify, templates, forge]
   L3[L3 Operations<br/>the catalogue and permission sets]
@@ -44,7 +44,7 @@ propose a documentation change rather than diverging silently.
 | Stage | Builds | Done when |
 |---|---|---|
 | **0. Scaffold** | `package.json` (Node ≥ 22.18, ESM, `pi` manifest, `vault` bin, Pi packages as peer dependencies), TypeScript strict with `erasableSyntaxOnly` so tests run directly under Node's type stripping, `npm test` (`node --test`) and `npm run check` (`tsc --noEmit`); the layer-import test; shared test support: temporary Git repositories, an injectable clock and ID source, a local HTTP stub server | `npm test` and `npm run check` pass on an empty core |
-| **1. Foundations** (L0) | Result and error types; clock and IDs (time-sortable trace IDs); `process` (the one way to start processes); platform directories for Linux, macOS and Windows; installation config with secret resolution; `store` with migrations and transactions; `git`; `documents` | Each module's documented behaviour is tested, including each platform's path branch |
+| **1. Foundations** (L0) | Result and error types; clock and IDs (time-sortable trace IDs); `process` (the one way to start processes); `http` (the one way to make a request; added in Stage 3b); platform directories for Linux, macOS and Windows; installation config with secret resolution; `store` with migrations and transactions; `git`; `documents` | Each module's documented behaviour is tested, including each platform's path branch |
 | **2. Vault model** (L1) | `registry`, `contracts` (all five merge strategies, key origins), `conditions`, `events`, `attestations`, `policy` (including the owner floor for control changes and `when-tainted`), `integrity` (accepted `main`, unaccepted-change detection, adopt), `actors` (worktrees, review, SHA-bound accept, trailers), `scripts` (headers, built-in namespace, resolution from the accepted `main`, interpreter handling per platform) | All security behaviours of these modules have fail-closed tests; whole-codebase consolidation pass done |
 | **3. Work machinery** (L2) | `traces` (compact records, provenance, log rotation), `budgets`, `queue`, `models` (batch × parallel; the three role APIs), `search` (FTS5, `sqlite-vec`, rank fusion, rerank, freshness verdicts), judgements (System One client, `pass-when`), `notify`, `templates`, `forge` (one adapter interface; Gitea, GitHub and GitLab against stub servers) | Each module tested without network; search degrades to keyword-only without an embedding model |
 | **4. Operations and CLI** | `operations` catalogue and permission sets; the `vault` CLI generated from it, plus CLI-only commands (`init`, `doctor`, `daemon …`, `whoami`) | Every documented command works against temporary vaults; the unaccepted-change notice appears on every command |
