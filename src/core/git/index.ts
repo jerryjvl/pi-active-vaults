@@ -20,6 +20,7 @@ export {
   type Sha,
 } from './refs.ts';
 export {
+  TREE_MODES,
   changedPaths,
   commitsBetween,
   diffText,

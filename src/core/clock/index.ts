@@ -6,3 +6,8 @@ export interface Clock {
 }
 
 export const systemClock: Clock = { now: () => new Date() };
+
+/** The UTC date of `date`, `yyyy-mm-dd`: days that do not depend on the machine's time zone. */
+export function utcDay(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}

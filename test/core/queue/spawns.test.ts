@@ -28,7 +28,8 @@ import {
 } from '../../../src/core/queue/index.ts';
 import { STATE_FILE, openStore, type Store } from '../../../src/core/store/index.ts';
 import { fakeClock, type FakeClock } from '../../support/clock.ts';
-import { withTempDir, type TempDir } from '../../support/temp-dir.ts';
+import { withStore } from '../../support/store.ts';
+import type { TempDir } from '../../support/temp-dir.ts';
 
 const LIMITS: BudgetLimits = { cascadePool: 300_000, depthDecay: 0.5, maxDepth: 4 };
 const BUDGET = { tokens: 50_000, ttlMs: 600_000 };
@@ -41,15 +42,9 @@ interface Queue {
 }
 
 function withQueue(run: (q: Queue) => void): () => Promise<void> {
-  return withTempDir((dir) => {
-    const opened = openStore(dir.file('state.sqlite'), STATE_FILE, [budgetsSchema, queueSchema]);
-    assert.ok(opened.ok);
+  return withStore([budgetsSchema, queueSchema], (store, dir) => {
     const clock = fakeClock();
-    try {
-      run({ store: opened.value, clock, context: { ids: createIdSource({ clock, randomBytes: (n) => new Uint8Array(n) }), clock, limits: LIMITS }, dir });
-    } finally {
-      opened.value.close();
-    }
+    run({ store, clock, context: { ids: createIdSource({ clock, randomBytes: (n) => new Uint8Array(n) }), clock, limits: LIMITS }, dir });
   });
 }
 
@@ -73,7 +68,7 @@ test('a spawn is claimed once per document and event; a second claim yields the 
 }));
 
 test('a claim made through another connection to the same file is seen, never duplicated', withQueue(({ store, context, dir }) => {
-  const second = openStore(dir.file('state.sqlite'), STATE_FILE, [budgetsSchema, queueSchema]);
+  const second = openStore(dir.file('store.sqlite'), STATE_FILE, [budgetsSchema, queueSchema]);
   assert.ok(second.ok);
   try {
     const mine = enqueueSpawn(store, context, request('jobs/digest.md'));

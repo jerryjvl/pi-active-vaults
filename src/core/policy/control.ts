@@ -10,7 +10,7 @@
 
 import { isDeepStrictEqual } from 'node:util';
 import { ROOT_CONTRACT } from '../contracts/index.ts';
-import { isDocumentPath, readDocumentAt } from '../documents/index.ts';
+import { inPackageDirectory, isDocumentPath, readDocumentAt } from '../documents/index.ts';
 import type { FileChange, Git, GitError, Sha } from '../git/index.ts';
 import { ok, type Result } from '../result/index.ts';
 
@@ -24,9 +24,8 @@ export interface ControlChange {
 
 /** Why a path is control by its name alone, if it is. */
 export function controlPathReason(path: string): 'contract' | 'vault-directory' | undefined {
-  const segments = path.toLowerCase().split('/');
-  if (segments[0] === '.vault') return 'vault-directory';
-  if (segments.at(-1) === ROOT_CONTRACT) return 'contract';
+  if (inPackageDirectory(path)) return 'vault-directory';
+  if (path.toLowerCase().split('/').at(-1) === ROOT_CONTRACT) return 'contract';
   return undefined;
 }
 

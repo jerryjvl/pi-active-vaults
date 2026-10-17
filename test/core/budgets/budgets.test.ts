@@ -20,23 +20,15 @@ import {
   type AllotRequest,
   type BudgetLimits,
 } from '../../../src/core/budgets/index.ts';
-import { STATE_FILE, openStore, type Store } from '../../../src/core/store/index.ts';
+import type { Store } from '../../../src/core/store/index.ts';
 import { fakeClock, type FakeClock } from '../../support/clock.ts';
-import { withTempDir } from '../../support/temp-dir.ts';
+import { withStore } from '../../support/store.ts';
 
 const LIMITS: BudgetLimits = { cascadePool: 300_000, depthDecay: 0.5, maxDepth: 4 };
 const BIG = { tokens: 1_000_000, ttlMs: 60_000 };
 
 function withBudgets(run: (store: Store, clock: FakeClock) => void): () => Promise<void> {
-  return withTempDir((dir) => {
-    const opened = openStore(dir.file('state.sqlite'), STATE_FILE, [budgetsSchema]);
-    assert.ok(opened.ok);
-    try {
-      run(opened.value, fakeClock());
-    } finally {
-      opened.value.close();
-    }
-  });
+  return withStore([budgetsSchema], (store) => run(store, fakeClock()));
 }
 
 function allotIn(store: Store, clock: FakeClock, request: AllotRequest, limits: BudgetLimits = LIMITS) {

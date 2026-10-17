@@ -16,9 +16,9 @@
 // recorded drops every vector first (a different model needs a rebuild). A
 // failure to embed leaves keyword search intact and is retried next time.
 
-import { isDocumentPath } from '../documents/index.ts';
 import { contractReader } from '../contracts/index.ts';
-import { listTree, readTextAt, type GitError, type Sha } from '../git/index.ts';
+import { inPackageDirectory, isDocumentPath } from '../documents/index.ts';
+import { TREE_MODES, listTree, readTextAt, type GitError, type Sha } from '../git/index.ts';
 import { requireNoUnacceptedChange, type UnacceptedChangeError, type VaultLocation } from '../integrity/index.ts';
 import { embed, type ModelError } from '../models/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
@@ -45,9 +45,6 @@ export interface IndexReport {
 }
 
 export type IndexError = UnacceptedChangeError | GitError;
-
-const PACKAGE_DIRECTORY = '.vault/';
-const SYMLINK_MODE = '120000';
 
 interface Wanted {
   readonly path: string;
@@ -121,7 +118,7 @@ export async function updateIndex(context: SearchContext, vault: VaultLocation):
   const wanted: Wanted[] = [];
   const skipped: { path: string; reason: 'invalid-contract' }[] = [];
   for (const entry of tree.value) {
-    if (!isDocumentPath(entry.path) || entry.path.startsWith(PACKAGE_DIRECTORY) || entry.mode === SYMLINK_MODE) continue;
+    if (!isDocumentPath(entry.path) || inPackageDirectory(entry.path) || entry.mode === TREE_MODES.symlink) continue;
     const contract = await contracts.forFile(entry.path);
     if (!contract.ok) {
       if (contract.error.reason !== 'invalid-contract') return err(contract.error);

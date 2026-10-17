@@ -6,21 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { advanceCursor, gitStream, queueSchema, readCursor, timerStream } from '../../../src/core/queue/index.ts';
-import { STATE_FILE, openStore, type Store } from '../../../src/core/store/index.ts';
 import { fakeClock } from '../../support/clock.ts';
-import { withTempDir } from '../../support/temp-dir.ts';
-
-function withStore(run: (store: Store) => void): () => Promise<void> {
-  return withTempDir((dir) => {
-    const opened = openStore(dir.file('state.sqlite'), STATE_FILE, [queueSchema]);
-    assert.ok(opened.ok);
-    try {
-      run(opened.value);
-    } finally {
-      opened.value.close();
-    }
-  });
-}
+import { withStore } from '../../support/store.ts';
 
 const key = { vault: 'home', document: 'jobs/digest.md', stream: gitStream('merged', 'home') };
 
@@ -29,7 +16,7 @@ test('streams are named by event kind and source vault, or by timer condition', 
   assert.equal(timerStream(2), 'timer:2');
 });
 
-test('a cursor starts unset and advances from where it was', withStore((store) => {
+test('a cursor starts unset and advances from where it was', withStore([queueSchema], (store) => {
   const clock = fakeClock();
   assert.equal(readCursor(store, key), undefined);
   assert.ok(advanceCursor(store, clock, key, null, 'a'.repeat(40)).ok);
@@ -39,7 +26,7 @@ test('a cursor starts unset and advances from where it was', withStore((store) =
   assert.equal(readCursor(store, { ...key, stream: gitStream('merged', 'other') }), undefined, 'cursors are per stream');
 }));
 
-test('a cursor that moved meanwhile is not moved again', withStore((store) => {
+test('a cursor that moved meanwhile is not moved again', withStore([queueSchema], (store) => {
   const clock = fakeClock();
   assert.ok(advanceCursor(store, clock, key, null, 'a'.repeat(40)).ok);
   const stale = advanceCursor(store, clock, key, null, 'c'.repeat(40));

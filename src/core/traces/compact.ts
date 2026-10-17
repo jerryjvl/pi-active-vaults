@@ -15,13 +15,13 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { EventKind } from '../conditions/index.ts';
-import { EVENT_KINDS } from '../conditions/index.ts';
+import { EVENT_KINDS, type EventKind } from '../conditions/index.ts';
+import { PACKAGE_DIRECTORY } from '../documents/index.ts';
 import { isTraceId, traceIdTime, type IdSource } from '../ids/index.ts';
 import { DataReader, err, issuePath, ok, type Issue, type Result } from '../result/index.ts';
 
 /** Where the compact records live in a vault. */
-export const TRACES_DIRECTORY = '.vault/traces';
+const TRACES_DIRECTORY = `${PACKAGE_DIRECTORY}/traces`;
 
 export interface TraceTrigger {
   /** The event that started the run, or `manual` for `vault run`. */

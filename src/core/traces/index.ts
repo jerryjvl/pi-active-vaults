@@ -2,7 +2,6 @@
 // the vault, provenance in produced documents, and full logs on the machine.
 
 export {
-  TRACES_DIRECTORY,
   compactTracePath,
   newTraceId,
   opaqueReference,
@@ -13,5 +12,5 @@ export {
   type TraceSession,
   type TraceTrigger,
 } from './compact.ts';
-export { PROVENANCE_KEY, provenanceOf, withProvenance, type Provenance } from './provenance.ts';
+export { provenanceOf, withProvenance, type Provenance } from './provenance.ts';
 export { appendFullLog, readFullLog, rotateLogs, type LogEntry, type LogError } from './logs.ts';

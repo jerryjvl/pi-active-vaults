@@ -12,7 +12,7 @@
 import { appendFileSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import type { Clock } from '../clock/index.ts';
+import { utcDay, type Clock } from '../clock/index.ts';
 import { ensurePrivateDir } from '../config/index.ts';
 import { isTraceId } from '../ids/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
@@ -32,10 +32,6 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const LOG_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 const COMPRESSED = '.gz';
 
-function dayOf(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
 function validName(name: string): boolean {
   return LOG_NAME.test(name) && !name.endsWith(COMPRESSED);
 }
@@ -43,10 +39,10 @@ function validName(name: string): boolean {
 /** Appends one JSON line to the trace's log `name` for today. */
 export function appendFullLog(logs: string, clock: Clock, trace: string, name: string, record: unknown): Result<void, LogError> {
   if (!isTraceId(trace) || !validName(name)) return err({ reason: 'invalid-name' });
-  const directory = join(logs, dayOf(clock.now()), trace);
+  const directory = join(logs, utcDay(clock.now()), trace);
   try {
     ensurePrivateDir(logs);
-    ensurePrivateDir(join(logs, dayOf(clock.now())));
+    ensurePrivateDir(join(logs, utcDay(clock.now())));
     ensurePrivateDir(directory);
     appendFileSync(join(directory, name), `${JSON.stringify(record)}\n`, { mode: 0o600 });
     return ok(undefined);
@@ -88,7 +84,7 @@ function compress(file: string): void {
 
 /** Applies the retention: returns the files compressed (relative to `logs`) and the days deleted. */
 export function rotateLogs(logs: string, clock: Clock, keepDays: number): { compressed: string[]; deleted: string[] } {
-  const today = Date.parse(dayOf(clock.now()));
+  const today = Date.parse(utcDay(clock.now()));
   const compressed: string[] = [];
   const deleted: string[] = [];
   for (const day of dayDirectories(logs)) {

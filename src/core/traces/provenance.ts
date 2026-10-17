@@ -10,7 +10,7 @@ import { parseDocument, updateFrontmatter, type DocumentError } from '../documen
 import { isTraceId } from '../ids/index.ts';
 import type { Result } from '../result/index.ts';
 
-export const PROVENANCE_KEY = 'provenance';
+const PROVENANCE_KEY = 'provenance';
 
 export interface Provenance {
   readonly trace: string;

@@ -4,5 +4,5 @@
 
 export { describeDocumentError, parseDocument, type DocumentError, type ParsedDocument } from './frontmatter.ts';
 export { updateFrontmatter, type FrontmatterChanges, type FrontmatterValue } from './update.ts';
-export { isDocumentPath, labelsOf } from './standard.ts';
+export { PACKAGE_DIRECTORY, inPackageDirectory, isDocumentPath, labelsOf } from './standard.ts';
 export { readDocumentAt, type CommittedDocument } from './committed.ts';

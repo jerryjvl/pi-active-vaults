@@ -143,10 +143,13 @@ export async function diffText(git: Git, repo: string, from: string | null, to: 
   return ran.ok ? ok(ran.value.stdout.toString('utf8')) : ran;
 }
 
+/** The modes a file can have in a tree. */
+export const TREE_MODES = { file: '100644', executable: '100755', symlink: '120000' } as const;
+
 export interface TreeEntry {
   /** Slash-separated, from the root of the tree. */
   readonly path: string;
-  /** `100644`, `100755` (executable) or `120000` (symbolic link). */
+  /** One of `TREE_MODES`. */
   readonly mode: string;
   /** The blob's object name: the content hash of this exact content. */
   readonly sha: Sha;

@@ -17,7 +17,7 @@ export interface Chunk {
   readonly body: string;
 }
 
-export const MAX_CHUNK_CHARS = 1500;
+const MAX_CHUNK_CHARS = 1500;
 
 const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;

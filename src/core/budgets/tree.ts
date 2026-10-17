@@ -17,7 +17,7 @@
 // pool is bounded by its documents' budgets, max-depth, once-per-tree and the
 // daily ceiling.
 
-import type { Clock } from '../clock/index.ts';
+import { utcDay, type Clock } from '../clock/index.ts';
 import type { InstallationConfig } from '../config/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import type { ModuleSchema, Queryable } from '../store/index.ts';
@@ -107,16 +107,12 @@ interface SessionRow {
 
 const SESSION_COLUMNS = 'trace, root, depth, pool, allotted, ttl_ms, used, started, finished';
 
-function dayOf(clock: Clock): string {
-  return clock.now().toISOString().slice(0, 10);
-}
-
 function session(tx: Queryable, trace: string): SessionRow | undefined {
   return tx.get<SessionRow>(`SELECT ${SESSION_COLUMNS} FROM budgets_sessions WHERE trace = ?`, [trace]);
 }
 
 function usedToday(tx: Queryable, clock: Clock): number {
-  return tx.get<{ used: number }>('SELECT used FROM budgets_daily WHERE day = ?', [dayOf(clock)])?.used ?? 0;
+  return tx.get<{ used: number }>('SELECT used FROM budgets_daily WHERE day = ?', [utcDay(clock.now())])?.used ?? 0;
 }
 
 /** The root's pool less what its tree holds: the larger of allotment and use until finished, then use. */
@@ -216,7 +212,7 @@ export function accountUsage(tx: Queryable, limits: BudgetLimits, clock: Clock, 
   if (!row.ok) return row;
   const tokens = workTokens(usage);
   tx.run('UPDATE budgets_sessions SET used = used + ? WHERE trace = ?', [tokens, trace]);
-  tx.run('INSERT INTO budgets_daily (day, used) VALUES (?, ?) ON CONFLICT (day) DO UPDATE SET used = used + excluded.used', [dayOf(clock), tokens]);
+  tx.run('INSERT INTO budgets_daily (day, used) VALUES (?, ?) ON CONFLICT (day) DO UPDATE SET used = used + excluded.used', [utcDay(clock.now()), tokens]);
   return ok(stateOf({ ...row.value, used: row.value.used + tokens }, limits, clock, usedToday(tx, clock)));
 }
 

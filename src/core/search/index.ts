@@ -2,7 +2,7 @@
 // `main`, hybrid search over it, and each hit's freshness.
 
 export { searchSchema } from './schema.ts';
-export { MAX_CHUNK_CHARS, chunkDocument, type Chunk } from './chunks.ts';
+export { chunkDocument, type Chunk } from './chunks.ts';
 export type { SearchContext } from './context.ts';
 export { updateIndex, type IndexError, type IndexReport, type IndexScope, type VectorState } from './update.ts';
 export { search, type SearchError, type SearchHit, type SearchNote, type SearchRequest, type SearchResult } from './query.ts';

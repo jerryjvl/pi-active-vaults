@@ -17,7 +17,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { PlatformKind } from '../config/index.ts';
-import { gitExecPath, listTree, readFileAt, type Git, type GitError, type Sha } from '../git/index.ts';
+import { TREE_MODES, gitExecPath, listTree, readFileAt, type Git, type GitError, type Sha } from '../git/index.ts';
 import { requireNoUnacceptedChange, type UnacceptedChangeError, type VaultLocation } from '../integrity/index.ts';
 import { runProcess } from '../process/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
@@ -52,7 +52,6 @@ export type ScriptRunError = ScriptError | UnacceptedChangeError | { readonly re
 
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
 const MAX_STDERR_BYTES = 64 * 1024;
-const SYMLINK_MODE = '120000';
 
 /** Runs a command with no input, bounded output and a time limit; a timed-out run is killed with its process group. */
 async function runBounded(
@@ -77,7 +76,7 @@ async function materialise(git: Git, repo: string, sha: Sha, directory: string):
   if (!entries.ok) return entries;
   const root = mkdtempSync(join(tmpdir(), 'pav-script-'));
   for (const entry of entries.value) {
-    if (entry.mode === SYMLINK_MODE) continue;
+    if (entry.mode === TREE_MODES.symlink) continue;
     const bytes = await readFileAt(git, repo, sha, entry.path);
     if (!bytes.ok) {
       rmSync(root, { recursive: true, force: true });
@@ -86,7 +85,7 @@ async function materialise(git: Git, repo: string, sha: Sha, directory: string):
     const target = join(root, ...entry.path.split('/'));
     mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
     writeFileSync(target, bytes.value, { mode: 0o600 });
-    if (entry.mode === '100755') chmodSync(target, 0o700);
+    if (entry.mode === TREE_MODES.executable) chmodSync(target, 0o700);
   }
   return ok(root);
 }

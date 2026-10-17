@@ -12,14 +12,18 @@
 // make a name mean more than one thing or run something other than a file the
 // owner accepted: two files of one name, a symbolic link, an invalid header.
 
-import { listTree, readTextAt, type Git, type GitError, type Sha, type TreeEntry } from '../git/index.ts';
+import { PACKAGE_DIRECTORY } from '../documents/index.ts';
+import { TREE_MODES, listTree, readTextAt, type Git, type GitError, type Sha, type TreeEntry } from '../git/index.ts';
 import type { AcceptedMain } from '../integrity/index.ts';
 import { err, ok, type Issue, type Result } from '../result/index.ts';
 import { parseScriptHeader, scriptNameOf, type ScriptHeader } from './header.ts';
 
 export type ScriptKind = 'script' | 'check';
 
-export const SCRIPT_DIRECTORIES: Readonly<Record<ScriptKind, string>> = { script: '.vault/scripts', check: '.vault/checks' };
+export const SCRIPT_DIRECTORIES: Readonly<Record<ScriptKind, string>> = {
+  script: `${PACKAGE_DIRECTORY}/scripts`,
+  check: `${PACKAGE_DIRECTORY}/checks`,
+};
 
 export const BUILTIN_PREFIX = 'builtin:';
 
@@ -68,8 +72,6 @@ export interface ResolveOptions {
   readonly builtins: readonly BuiltinScript[];
 }
 
-const SYMLINK_MODE = '120000';
-
 /** The top-level, non-hidden files of the kind's directory, grouped by script name, names sorted. */
 async function candidates(git: Git, repo: string, accepted: AcceptedMain, kind: ScriptKind): Promise<Result<Map<string, TreeEntry[]>, GitError>> {
   const directory = SCRIPT_DIRECTORIES[kind];
@@ -93,7 +95,7 @@ async function classify(
   if (entry === undefined) return err({ reason: 'no-such-script', name });
   if (options.kind === 'script' && options.builtins.some((b) => b.name === name)) return err({ reason: 'shadows-builtin', name });
   if (others.length > 0) return err({ reason: 'ambiguous-script', name, paths: files.map((f) => f.path) });
-  if (entry.mode === SYMLINK_MODE) {
+  if (entry.mode === TREE_MODES.symlink) {
     return err({ reason: 'invalid-script', name, issues: [{ path: entry.path, message: 'is a symbolic link, not a script' }] });
   }
   const text = await readTextAt(git, repo, accepted.sha, entry.path);
