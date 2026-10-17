@@ -91,6 +91,17 @@ contract's axes, to the judgement model, applies each axis's `pass-when` (see
 attestation. The content hash, model and axes version are part of the record. A
 judgement whose content has since changed is treated as missing.
 
+- **One attestation per axis**, named after it — so `judgement:<axis>` requires
+  that axis: `subject` is the content's blob, `by` the model ID, `version` the
+  axis's version, `evidence` the probability or level against what was needed.
+- **The axes and the vault's purpose come from the accepted `main`**; the
+  commit judged supplies only the content. Judging is refused while `main` has
+  an unaccepted change, like any check.
+- **An axis already judged** for that content, by that model under that version,
+  is not asked again.
+- **A judgement that cannot be made records nothing**: the requirement stays
+  unmet.
+
 The model speaks the System One protocol, as served by llama.cpp's decision
 models and by TypeSafe. One request answers every axis:
 

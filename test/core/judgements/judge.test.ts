@@ -154,17 +154,15 @@ test('content judged before, by the same model under the same axes, is not sent 
   });
 }, { extra: axesYaml() }));
 
-test('a judgement that cannot be made fails and records nothing: no permitted model, a failing or overwhelmed model, no axes, no such document', withTestVault(async (v) => {
+test('a judgement that cannot be made fails and records nothing: no permitted model, a failing or overwhelmed model, no such document', withTestVault(async (v) => {
   v.accept();
-  const head = v.propose({ 'topics/a.md': TOPIC, 'notes/n.md': 'Plain.\n' });
+  const head = v.propose({ 'topics/a.md': TOPIC });
   const blob = v.repo.git('rev-parse', `${head}:topics/a.md`);
   const request = { vault: v.vault, commit: head, path: 'topics/a.md' };
   await withJudge(async (judge) => {
     const refused = await judgeDocument(deps(v, judge.url, { policy: [] }), request);
     assert.deepEqual(!refused.ok && refused.error, { reason: 'not-allowed', role: 'judgement', vault: 'home' });
     assert.equal(judge.requests.length, 0, 'no content sent where the policy does not allow it');
-    const noAxes = await judgeDocument(deps(v, judge.url), { ...request, path: 'notes/n.md' });
-    assert.equal(!noAxes.ok && noAxes.error.reason, 'no-axes');
     const missing = await judgeDocument(deps(v, judge.url), { ...request, path: 'topics/none.md' });
     assert.equal(!missing.ok && missing.error.reason, 'not-found');
   });
@@ -176,6 +174,16 @@ test('a judgement that cannot be made fails and records nothing: no permitted mo
   }
   assert.deepEqual(await readAttestations(v.git, v.repo.path, blob), { ok: true, value: [] });
 }, { extra: axesYaml() }));
+
+test('a document with no axes in effect cannot be judged', withTestVault(async (v) => {
+  v.accept();
+  const head = v.propose({ 'topics/a.md': TOPIC });
+  await withJudge(async (judge) => {
+    const noAxes = await judgeDocument(deps(v, judge.url), { vault: v.vault, commit: head, path: 'topics/a.md' });
+    assert.deepEqual(!noAxes.ok && noAxes.error, { reason: 'no-axes', path: 'topics/a.md' });
+    assert.equal(judge.requests.length, 0);
+  });
+}));
 
 test('judging is refused while main has an unaccepted change, and nothing is sent', withTestVault(async (v) => {
   v.accept();

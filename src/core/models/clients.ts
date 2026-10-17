@@ -1,6 +1,7 @@
 // Clients for the model roles' HTTP APIs (concepts.md "Installation"):
-//   embed  — OpenAI-compatible POST <url>/embeddings
-//   rerank — POST <url>/rerank, Jina / Cohere style
+//   embed     — OpenAI-compatible POST <url>/embeddings
+//   rerank    — POST <url>/rerank, Jina / Cohere style
+//   judgement — POST <url>/systemone (see `systemone.ts`)
 // The configured `url` is the API base (`…/v1`).
 //
 // Invariants: a client accepts only a `PermittedModel`, so the installation's

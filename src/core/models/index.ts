@@ -4,3 +4,4 @@
 export { modelFor, type PermittedModel, type RoleUnavailable } from './roles.ts';
 export { inBatches } from './batches.ts';
 export { embed, rerank, type ModelClient, type ModelError } from './clients.ts';
+export { askSystemOne, type SystemOneAnswer, type SystemOneQuestion, type SystemOneRequest, type SystemOneResult } from './systemone.ts';
