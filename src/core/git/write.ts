@@ -1,18 +1,24 @@
-// Writing history: commits with trailers, and merging a reviewed commit.
+// Writing history: commits with trailers — prepared first, so blocking
+// checks can assess one before it lands — and merging a reviewed commit.
 //
 // Invariants:
 //  - package commits are made as the identity and at the time the caller gives,
 //    never silently as whoever the machine's Git config names;
 //  - they run none of the repository's hooks and ask for no signature, so a
 //    stray hook or signing prompt cannot block or alter an actor's commit;
+//  - a prepared commit is on no branch until it lands, and it lands only on
+//    the branch it was prepared on, if that branch has not moved since;
 //  - a merge takes a full SHA, never a name that could move between review and
 //    accept; it refuses a tree with tracked changes, and a conflict is undone so
 //    the repository is left as it was.
 
+import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { err, ok, type Result } from '../result/index.ts';
 import { failure, runChecked, runForSuccess, runForText, runGit, type Git, type GitError } from './exec.ts';
 import type { Trailer } from './history.ts';
-import { isAncestor, resolveRevision, type Sha } from './refs.ts';
+import { isAncestor, resolveRevision, updateRef, type Sha } from './refs.ts';
 import { checkIdentity, checkSha, checkTreePath, checkTrailer } from './validate.ts';
 
 export interface Identity {
@@ -78,36 +84,99 @@ export async function hasTrackedChanges(git: Git, repo: string): Promise<Result<
   return text.ok ? ok(text.value !== '') : text;
 }
 
-export async function createCommit(git: Git, repo: string, options: CommitOptions): Promise<Result<Sha, GitError>> {
+/** A commit made but not yet on any branch: what a blocking check assesses before it lands. */
+export interface PreparedCommit {
+  readonly sha: Sha;
+  /** The branch it is for, and the commit that branch held; null in a repository with no commits yet. */
+  readonly ref: string;
+  readonly parent: Sha | null;
+  readonly stage: 'all' | readonly string[];
+}
+
+/** Runs `work` with a private index file, removed afterwards; the repository's own index is never touched. */
+async function withScratchIndex<T>(work: (env: Record<string, string>) => Promise<Result<T, GitError>>): Promise<Result<T, GitError>> {
+  const dir = mkdtempSync(join(tmpdir(), 'pav-index-'));
+  try {
+    return await work({ GIT_INDEX_FILE: join(dir, 'index') });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Makes the commit `git commit` would make in `repo` — the same staging,
+ * trailers, identity and time — without moving its branch, HEAD or index:
+ * staging happens in a private index (starting from the repository's own
+ * when everything is staged, from the parent when only some paths are).
+ */
+export async function prepareCommit(git: Git, repo: string, options: CommitOptions): Promise<Result<PreparedCommit, GitError>> {
   const env = attributionEnv(options);
   if (!env.ok) return env;
-  const paths = options.stage === undefined || options.stage === 'all' ? undefined : options.stage;
-  for (const path of paths ?? []) {
+  const stage = options.stage ?? 'all';
+  for (const path of stage === 'all' ? [] : stage) {
     const checked = checkTreePath(path);
     if (!checked.ok) return checked;
   }
-  const pathspec = paths === undefined ? [] : ['--', ...paths];
+  const ref = await runGit(git, ['symbolic-ref', '--quiet', 'HEAD'], { cwd: repo });
+  if (!ref.ok) return ref;
+  if (ref.value.exitCode !== 0) return err({ reason: 'invalid-argument', argument: 'HEAD (detached)' });
+  const head = await resolveRevision(git, repo, 'HEAD');
+  if (!head.ok && head.error.reason !== 'unknown-revision') return head;
+  const parent = head.ok ? head.value : null;
 
-  const staged = await runForSuccess(git, ['add', '--all', ...(paths === undefined ? ['--', '.'] : pathspec)], { cwd: repo });
-  if (!staged.ok) return staged;
-
+  const tree = await withScratchIndex(async (index) => {
+    if (stage === 'all') {
+      const own = await runForText(git, ['rev-parse', '--git-path', 'index'], { cwd: repo });
+      if (!own.ok) return own;
+      const ownIndex = resolve(repo, own.value);
+      if (existsSync(ownIndex)) copyFileSync(ownIndex, index['GIT_INDEX_FILE'] ?? '');
+    } else if (parent !== null) {
+      const read = await runForSuccess(git, ['read-tree', parent], { cwd: repo, env: index });
+      if (!read.ok) return read;
+    }
+    const staged = await runForSuccess(git, ['add', '--all', '--', ...(stage === 'all' ? ['.'] : stage)], { cwd: repo, env: index });
+    if (!staged.ok) return staged;
+    return runForText(git, ['write-tree'], { cwd: repo, env: index });
+  });
+  if (!tree.ok) return tree;
   if (options.allowEmpty !== true) {
-    const diff = await runGit(git, ['diff', '--cached', '--quiet', ...pathspec], { cwd: repo });
-    if (!diff.ok) return diff;
-    if (diff.value.exitCode === 0) return err({ reason: 'nothing-to-commit' });
+    // The parent's tree, or the empty tree (in the repository's own object format).
+    const before = parent === null
+      ? await runForText(git, ['hash-object', '-t', 'tree', '--stdin'], { cwd: repo, input: '' })
+      : await runForText(git, ['rev-parse', `${parent}^{tree}`], { cwd: repo });
+    if (!before.ok) return before;
+    if (before.value === tree.value) return err({ reason: 'nothing-to-commit' });
   }
 
-  const message = options.trailers === undefined || options.trailers.length === 0
+  const withTrailers = options.trailers === undefined || options.trailers.length === 0
     ? ok(options.message)
     : await addTrailers(git, repo, options.message, options.trailers);
+  if (!withTrailers.ok) return withTrailers;
+  // As `git commit --cleanup=whitespace`: surrounding blank lines and trailing spaces go; lines starting with # stay.
+  const message = await runChecked(git, ['stripspace'], { cwd: repo, input: withTrailers.value });
   if (!message.ok) return message;
+  const args = ['-c', 'commit.gpgsign=false', 'commit-tree', '--no-gpg-sign', tree.value, ...(parent === null ? [] : ['-p', parent]), '-F', '-'];
+  const sha = await runForText(git, args, { cwd: repo, input: message.value.stdout, env: env.value });
+  if (!sha.ok) return sha;
+  return ok({ sha: sha.value, ref: ref.value.stdout.toString('utf8').trim(), parent, stage });
+}
 
-  const args = [
-    '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '--no-gpg-sign', '--quiet', '--cleanup=whitespace',
-    ...(options.allowEmpty === true ? ['--allow-empty'] : []), '-F', '-', ...pathspec,
-  ];
-  const committed = await runChecked(git, args, { cwd: repo, input: message.value, env: env.value });
-  return committed.ok ? resolveRevision(git, repo, 'HEAD') : committed;
+/**
+ * Moves the prepared commit's branch to it, only if the branch still holds
+ * the commit it was prepared on, then brings the checkout's index up to it
+ * for what was staged (the working tree is never touched).
+ */
+export async function landCommit(git: Git, repo: string, prepared: PreparedCommit): Promise<Result<Sha, GitError>> {
+  const moved = await updateRef(git, repo, prepared.ref, prepared.sha, prepared.parent);
+  if (!moved.ok) return moved;
+  const synced = await runForSuccess(git, ['reset', '--quiet', ...(prepared.stage === 'all' ? [] : ['--', ...prepared.stage])], { cwd: repo });
+  return synced.ok ? ok(prepared.sha) : synced;
+}
+
+/** Commits in `repo` on its checked-out branch: `prepareCommit`, then `landCommit`. */
+export async function createCommit(git: Git, repo: string, options: CommitOptions): Promise<Result<Sha, GitError>> {
+  const prepared = await prepareCommit(git, repo, options);
+  return prepared.ok ? landCommit(git, repo, prepared.value) : prepared;
 }
 
 async function unmergedPaths(git: Git, repo: string): Promise<string[]> {

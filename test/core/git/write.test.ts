@@ -242,7 +242,8 @@ test('a prepared commit moves nothing: the branch, HEAD and index stay as they w
   assert.deepEqual([prepared.value.parent, prepared.value.ref], [base, 'refs/heads/main']);
   assert.equal(repo.git('rev-parse', 'HEAD'), base);
   assert.equal(repo.git('status', '--porcelain'), '?? b.md', 'the index is untouched');
-  assert.equal(repo.git('show', '--name-only', '--format=%an%n%(trailers:key=Vault-Trace,valueonly)', prepared.value.sha), 'Bob Builder\nT1\n\nb.md');
+  assert.equal(repo.git('log', '-1', '--format=%an %(trailers:key=Vault-Trace,valueonly,separator=)', prepared.value.sha), 'Bob Builder T1');
+  assert.equal(repo.git('show', '--name-only', '--format=', prepared.value.sha), 'b.md');
 
   const landed = await landCommit(git, repo.path, prepared.value);
   assert.deepEqual(landed, { ok: true, value: prepared.value.sha });
@@ -290,8 +291,7 @@ test('a commit\'s tree is exported as committed — not the working tree — wit
   const git = gitFor(repo);
   repo.write('notes/a.md', 'committed');
   repo.write('.vault/checks/run.sh', '#!/bin/sh\n');
-  repo.git('add', '--all');
-  repo.git('update-index', '--chmod=+x', '.vault/checks/run.sh');
+  chmodSync(join(repo.path, '.vault', 'checks', 'run.sh'), 0o755);
   const sha = repo.commit('base');
   repo.write('notes/a.md', 'edited, not committed');
   repo.write('stray.md', 'untracked');
@@ -306,7 +306,7 @@ test('a commit\'s tree is exported as committed — not the working tree — wit
     assert.equal(existsSync(join(target, 'stray.md')), false);
     if (process.platform !== 'win32') assert.equal(statSync(join(target, '.vault', 'checks', 'run.sh')).mode & 0o100, 0o100);
     assert.equal(existsSync(marker), false);
-    assert.equal(repo.git('status', '--porcelain'), ' M notes/a.md\n?? stray.md', 'the repository itself is untouched');
+    assert.equal(repo.git('status', '--porcelain'), 'M notes/a.md\n?? stray.md', 'the repository itself is untouched (output trimmed)');
   } finally {
     rmSync(target, { recursive: true, force: true });
   }

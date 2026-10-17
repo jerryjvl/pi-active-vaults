@@ -1,7 +1,10 @@
 // Worktrees: each actor writes in its own checkout on its own branch, so work in
-// progress never touches the vault's main checkout.
+// progress never touches the vault's main checkout. And plain exports of a
+// commit's tree, for checks to read exactly what was committed.
 
-import { isAbsolute } from 'node:path';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join, sep } from 'node:path';
 import { err, ok, type Result } from '../result/index.ts';
 import { runChecked, runForSuccess, type Git, type GitError } from './exec.ts';
 import type { Sha } from './refs.ts';
@@ -61,4 +64,24 @@ export async function listWorktrees(git: Git, repo: string): Promise<Result<Work
   }
   flush();
   return ok(worktrees);
+}
+
+/**
+ * Writes the files of `sha`'s tree into the existing directory `dir`, as
+ * committed. Only plumbing runs — a private index and `checkout-index` — so
+ * no hook runs and the repository's own checkout and index are untouched.
+ */
+export async function exportTree(git: Git, repo: string, sha: Sha, dir: string): Promise<Result<void, GitError>> {
+  const checked = checkSha(sha);
+  if (!checked.ok) return checked;
+  if (!isAbsolute(dir)) return err({ reason: 'invalid-argument', argument: 'directory' });
+  const scratch = mkdtempSync(join(tmpdir(), 'pav-index-'));
+  try {
+    const env = { GIT_INDEX_FILE: join(scratch, 'index') };
+    const read = await runForSuccess(git, ['read-tree', sha], { cwd: repo, env });
+    if (!read.ok) return read;
+    return await runForSuccess(git, ['checkout-index', '--all', '--force', `--prefix=${dir.endsWith(sep) ? dir : dir + sep}`], { cwd: repo, env });
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }
