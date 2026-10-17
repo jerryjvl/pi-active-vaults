@@ -4,7 +4,7 @@
 // calling process (for example inside a hook) never redirects an operation.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -16,12 +16,14 @@ import {
   isAncestor,
   meetsMinimumGitVersion,
   listRefs,
+  readFileAt,
   repositoryRoot,
   resolveRevision,
   updateRef,
 } from '../../../src/core/git/index.ts';
 import { redactUrlCredentials } from '../../../src/core/git/exec.ts';
 import { gitFor, withTempRepo } from '../../support/git-repo.ts';
+import { withTempDir } from '../../support/temp-dir.ts';
 
 test('the installed git reports its version; a missing git is reported, not thrown', async () => {
   const version = await gitVersion(createGit());
@@ -29,6 +31,20 @@ test('the installed git reports its version; a missing git is reported, not thro
   const missing = await gitVersion(createGit({ binary: 'no-such-git-binary' }));
   assert.deepEqual(missing, { ok: false, error: { reason: 'git-unavailable' } });
 });
+
+test('a git that runs past its time limit is stopped and reported, never waited on', { skip: process.platform === 'win32' }, withTempDir(async (dir) => {
+  const hung = dir.file('hung-git');
+  writeFileSync(hung, '#!/bin/sh\nsleep 30\n', { mode: 0o755 });
+  const ran = await gitVersion(createGit({ binary: hung, timeoutMs: 100 }));
+  assert.deepEqual(ran, { ok: false, error: { reason: 'timed-out', command: 'version' } });
+}));
+
+test('output beyond the limit is an error, never a silently shortened result', withTempRepo(async (repo) => {
+  repo.write('big.md', 'x'.repeat(100));
+  const sha = repo.commit('big');
+  const read = await readFileAt(createGit({ env: repo.env, maxOutputBytes: 50 }), repo.path, sha, 'big.md');
+  assert.deepEqual(read, { ok: false, error: { reason: 'output-too-large', command: 'cat-file' } });
+}));
 
 test('a repository can be initialised with a chosen initial branch and its root found from a subdirectory', withTempRepo(async (repo) => {
   const git = gitFor(repo);

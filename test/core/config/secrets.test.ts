@@ -53,12 +53,14 @@ test('an unset or empty variable fails closed, naming the config field but not a
   }
 });
 
-test('a command resolves to its output with the trailing newline removed', async () => {
-  const runCommand: CommandRunner = async (command) => {
+test('a command resolves to its output with the trailing newline removed, run with the given environment', async () => {
+  const env = { KEYRING: 'login' };
+  const runCommand: CommandRunner = async (command, options) => {
     assert.equal(command, 'print-it');
+    assert.equal(options.env, env);
     return { exitCode: 0, stdout: 's3cret\r\n' };
   };
-  const result = await resolveSecret(ref('!print-it'), { env: {}, runCommand });
+  const result = await resolveSecret(ref('!print-it'), { env, runCommand });
   assert.deepEqual(result, { ok: true, value: 's3cret' });
 });
 
@@ -87,14 +89,21 @@ test('a command that cannot be started is a failure value, not an exception', as
   assert.deepEqual(result, { ok: false, error: { reason: 'command-failed', where: 'models.embed.token' } });
 });
 
-test('the real shell runner returns output and exit status, and enforces the timeout', { skip: process.platform === 'win32' }, async () => {
+test('the real shell runner returns output and exit status, sees only the given environment, and enforces the timeout', { skip: process.platform === 'win32' }, async () => {
   const node = JSON.stringify(process.execPath);
-  assert.deepEqual(await shellCommandRunner(`${node} -e "process.stdout.write('abc')"`, { timeoutMs: 10_000 }), {
+  const env = { ONLY: 'abc' };
+  assert.deepEqual(await shellCommandRunner(`${node} -e "process.stdout.write(Object.keys(process.env).filter((k) => k !== 'PWD').join() + '=' + process.env.ONLY)"`, { timeoutMs: 10_000, env }), {
     exitCode: 0,
-    stdout: 'abc',
+    stdout: 'ONLY=abc',
   });
-  const failed = await shellCommandRunner(`${node} -e "process.exit(3)"`, { timeoutMs: 10_000 });
+  const failed = await shellCommandRunner(`${node} -e "process.exit(3)"`, { timeoutMs: 10_000, env });
   assert.equal(failed.exitCode, 3);
-  const slow = await shellCommandRunner(`${node} -e "setTimeout(()=>{},5000)"`, { timeoutMs: 100 });
+  const slow = await shellCommandRunner(`${node} -e "setTimeout(()=>{},5000)"`, { timeoutMs: 100, env });
   assert.equal(slow.exitCode, null);
+});
+
+test('a command printing more than a secret could be fails rather than yielding a cut-off value', { skip: process.platform === 'win32' }, async () => {
+  const node = JSON.stringify(process.execPath);
+  const loud = await shellCommandRunner(`${node} -e "process.stdout.write('x'.repeat(100000))"`, { timeoutMs: 10_000, env: {} });
+  assert.deepEqual(loud, { exitCode: null, stdout: '' });
 });

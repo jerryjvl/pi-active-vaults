@@ -1,6 +1,6 @@
 // Documented behaviour: one access path per external system (AGENTS.md §4,
-// core.md "Rules") — SQLite only through `store`, process spawning only where
-// it is deliberate. Enforced by reading the import graph, like the layer test.
+// core.md "Rules") — SQLite only through `store`, processes only through
+// `process`. Enforced by reading the import graph, like the layer test.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -27,8 +27,8 @@ test('node:sqlite is imported only by the store module', () => {
   assert.deepEqual(importersOf('node:sqlite'), ['core/store/index.ts']);
 });
 
-test('processes are spawned only by the git module, for secret commands, and to run scripts', () => {
-  assert.deepEqual(importersOf('node:child_process'), ['core/config/secrets.ts', 'core/git/exec.ts', 'core/scripts/run.ts']);
+test('processes are started only by the process module', () => {
+  assert.deepEqual([...importersOf('node:child_process'), ...importersOf('child_process')], ['core/process/index.ts']);
 });
 
 test('only the git module knows how to talk to git', () => {
