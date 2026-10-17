@@ -45,12 +45,12 @@ propose a documentation change rather than diverging silently.
 |---|---|---|
 | **0. Scaffold** | `package.json` (Node ≥ 22.18, ESM, `pi` manifest, `vault` bin, Pi packages as peer dependencies), TypeScript strict with `erasableSyntaxOnly` so tests run directly under Node's type stripping, `npm test` (`node --test`) and `npm run check` (`tsc --noEmit`); the layer-import test; shared test support: temporary Git repositories, an injectable clock and ID source, a local HTTP stub server | `npm test` and `npm run check` pass on an empty core |
 | **1. Foundations** (L0) | Result and error types; clock and IDs (time-sortable trace IDs); platform directories for Linux, macOS and Windows; installation config with secret resolution; `store` with migrations and transactions; `git`; `documents` | Each module's documented behaviour is tested, including each platform's path branch |
-| **2. Vault model** (L1) | `registry`, `contracts` (all five merge strategies, key origins), `conditions`, `events`, `attestations`, `policy` (including the owner floor for control changes and `when-tainted`), `integrity` (accepted `main`, unaccepted-change detection, adopt), `actors` (worktrees, review, SHA-bound accept, trailers), `scripts` (headers, built-in namespace, resolution from the accepted `main`, interpreter handling per platform) | All security behaviours of these modules have fail-closed tests. **Checkpoint A.** |
+| **2. Vault model** (L1) | `registry`, `contracts` (all five merge strategies, key origins), `conditions`, `events`, `attestations`, `policy` (including the owner floor for control changes and `when-tainted`), `integrity` (accepted `main`, unaccepted-change detection, adopt), `actors` (worktrees, review, SHA-bound accept, trailers), `scripts` (headers, built-in namespace, resolution from the accepted `main`, interpreter handling per platform) | All security behaviours of these modules have fail-closed tests; whole-codebase consolidation pass done |
 | **3. Work machinery** (L2) | `traces` (compact records, provenance, log rotation), `budgets`, `queue`, `models` (batch × parallel; the three role APIs), `search` (FTS5, `sqlite-vec`, rank fusion, rerank, freshness verdicts), judgements, `notify`, `templates`, `forge` (one adapter interface; Gitea, GitHub and GitLab against stub servers) | Each module tested without network; search degrades to keyword-only without an embedding model |
 | **4. Operations and CLI** | `operations` catalogue and permission sets; the `vault` CLI generated from it, plus CLI-only commands (`init`, `doctor`, `daemon …`, `whoami`) | Every documented command works against temporary vaults; the unaccepted-change notice appears on every command |
 | **5. Pi extension** | Tools generated from the catalogue, `vault_fan_out`, commands, flags, hooks (write guard, session events, injection, taint, budgets), events | Tested against Pi's SDK in-memory sessions from the dev-dependency, not a global Pi |
 | **6. Daemon and MCP** | Git-event monitoring and polling, timers and catch-up, matching, claims, scheduler, execution via `pi --mode rpc` (a fake `pi` in tests), forge sync, outbox retry, log rotation, socket protocol, MCP profiles (HTTP and standard I/O), service definitions per platform | Spawn lifecycle and crash recovery tested; MCP permission evaluation tested exhaustively |
-| **7. End to end** | Scenario tests across components: a scheduled job producing a proposal; accept and adopt; an unaccepted change pausing automation; a forge-mode proposal against a stub forge; an MCP read-only profile | Scenarios pass; final consolidation pass done. **Checkpoint B.** |
+| **7. End to end** | Scenario tests across components: a scheduled job producing a proposal; accept and adopt; an unaccepted change pausing automation; a forge-mode proposal against a stub forge; an MCP read-only profile | Scenarios pass; final consolidation pass done |
 
 ## The loop inside each stage
 
@@ -120,12 +120,18 @@ else needs a one-line justification in the commit message and the progress log.
 
 ## Checkpoints
 
-At **Checkpoint A** (after Stage 2) and **Checkpoint B** (after Stage 7): make
-sure all tests and the type check pass, the progress log is current, then stop
-and summarise for review — what was built, decisions taken, proposals awaiting
-approval, and known gaps. Continue past a checkpoint only when told to.
+**Every stage ends at a checkpoint.** Make sure all tests and the type check
+pass and the progress log is current, then stop and summarise for review: what
+was built, decisions taken, proposals awaiting approval, and known gaps. Do not
+start the next stage until told to.
 
-## Long sessions
+Review findings arrive as instructions for the next session; address them
+before starting the stage they are given with.
 
-If context runs short, finish the current step, commit, and update the progress
-log so that a fresh session can resume from it and this plan alone.
+## Sessions
+
+Each stage may be done by a fresh session, possibly with a different model. The
+progress log and this plan are the handoff: a new session reads AGENTS.md, this
+plan, the progress log, and the documents its stage implements, then continues
+from the recorded state. If context runs short mid-stage, finish the current
+step, commit, and update the progress log so another session can resume.
