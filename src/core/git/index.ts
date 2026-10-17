@@ -46,4 +46,4 @@ export {
 } from './write.ts';
 export { isSha } from './validate.ts';
 export { addWorktree, listWorktrees, removeWorktree, type AddWorktreeOptions, type Worktree } from './worktrees.ts';
-export { notesAdd, notesAppend, notesList, notesRemove, notesShow, type NoteWriteOptions } from './notes.ts';
+export { notesAdd, notesAppend, notesList, notesMergeLines, notesRemove, notesShow, type NoteWriteOptions } from './notes.ts';

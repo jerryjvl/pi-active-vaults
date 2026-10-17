@@ -78,3 +78,20 @@ export async function notesList(git: Git, repo: string, ref: string): Promise<Re
       }),
   );
 }
+
+/**
+ * Merges the notes under `other` into `ref`, concatenating each object's notes
+ * from both sides line by line, sorted and without duplicates (Git's
+ * `cat_sort_uniq`): nothing either side recorded is lost, whatever the order
+ * in which machines wrote or met.
+ */
+export async function notesMergeLines(git: Git, repo: string, ref: string, other: string, options: NoteWriteOptions): Promise<Result<void, GitError>> {
+  for (const name of [ref, other]) {
+    const checked = checkNotesRef(name);
+    if (!checked.ok) return checked;
+  }
+  const env = attributionEnv(options);
+  if (!env.ok) return env;
+  const ran = await runChecked(git, notesArgs(ref, 'merge', '--quiet', '--strategy=cat_sort_uniq', other), { cwd: repo, env: env.value });
+  return ran.ok ? ok(undefined) : ran;
+}

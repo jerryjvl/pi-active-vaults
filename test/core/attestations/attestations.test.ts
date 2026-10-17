@@ -115,7 +115,7 @@ test('notes from two clones merge line by line: every record from both sides is 
   const sha = repo.commit('c');
   const clone = createTempRepo();
   try {
-    clone.git('fetch', '--quiet', repo.path, 'main:main');
+    clone.git('fetch', '--quiet', repo.path, 'main:refs/remotes/origin/main');
     const ours = check(sha, 'fail', { at: '2026-01-01T00:00:00.000Z' });
     const shared = check(sha, 'pass', { name: 'spelling', at: '2026-01-01T00:00:00.000Z' });
     const theirs = check(sha, 'pass', { at: '2026-01-02T00:00:00.000Z' });
@@ -141,7 +141,7 @@ test('merging into a repository with no attestations yet takes the other side\'s
   const sha = repo.commit('c');
   const clone = createTempRepo();
   try {
-    clone.git('fetch', '--quiet', repo.path, 'main:main');
+    clone.git('fetch', '--quiet', repo.path, 'main:refs/remotes/origin/main');
     await record(clone, check(sha, 'pass'));
     clone.git('push', '--quiet', repo.path, `${ATTESTATIONS_REF}:refs/notes/vault/incoming`);
     assert.ok((await mergeAttestations(gitFor(repo), repo.path, 'refs/notes/vault/incoming', TEST_ATTRIBUTION)).ok);

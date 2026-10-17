@@ -275,13 +275,14 @@ An attestation records a verdict about an exact subject:
 | `by` | Script, model, or person |
 | `version` | The check's blob SHA or the judgement's axes version; absent for approvals |
 | `evidence` | Short supporting detail |
-| `at` | When it was recorded |
+| `at` | When it was recorded (UTC, ISO 8601) |
 
 Attestations are stored as Git notes on `refs/notes/vault/attestations`, so they
 travel with the repository: one JSON object per line in the note on the subject.
 When notes written on different machines meet, they are merged line by line
 (Git's `cat_sort_uniq` strategy), so every record from both sides is kept. For
-each kind and name the latest record counts. Accepting a proposal evaluates
+each kind and name the latest record by `at` counts; of records equally late,
+one that is not `pass`. Accepting a proposal evaluates
 the merge policy against the attestations for the exact commit under review; a
 check counts only at its version on the accepted `main`, and a judgement only
 for the current content and axes.
