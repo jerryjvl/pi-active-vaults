@@ -64,13 +64,13 @@ function domainOf(address: string): string {
 
 async function attempt(deps: NotifyDeps, entry: OutboxEntry): Promise<NotificationRecord> {
   const record = { alias: entry.alias, subject: entry.subject, messageId: entry.messageId };
-  const address = Object.hasOwn(deps.config.recipients, entry.alias) ? deps.config.recipients[entry.alias] : undefined;
-  if (address === undefined) {
+  const address = recipient(deps.config, entry.alias);
+  if (!address.ok) {
     markFailed(deps.store, deps.clock, entry.id, { reason: 'unknown-recipient', retry: false });
     return { ...record, outcome: 'undeliverable' };
   }
   const delivered = await deliver(deps.config.transport, deps, {
-    from: deps.config.from, to: address, subject: entry.subject, body: entry.body, messageId: entry.messageId, date: new Date(entry.created),
+    from: deps.config.from, to: address.value, subject: entry.subject, body: entry.body, messageId: entry.messageId, date: new Date(entry.created),
   });
   if (delivered.ok) {
     markSent(deps.store, deps.clock, entry.id);
