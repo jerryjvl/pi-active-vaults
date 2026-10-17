@@ -197,8 +197,9 @@ test('a tree listing gives each file with its mode and blob SHA, optionally unde
   repo.write('.vault/scripts/lib/util.sh', 'x');
   repo.write('notes/a.md', 'a');
   repo.git('add', '--all');
-  repo.git('update-index', '--chmod=+x', '.vault/scripts/run.sh');
-  const sha = repo.commit('scripts');
+  repo.git('update-index', '--chmod=+x', '.vault/scripts/run.sh'); // works where the file system has no modes
+  repo.git('commit', '--quiet', '--message', 'scripts');
+  const sha = repo.git('rev-parse', 'HEAD');
   repo.write('.vault/scripts/uncommitted.sh', 'not in the revision');
   const listed = await listTree(git, repo.path, sha, '.vault/scripts');
   assert.ok(listed.ok);

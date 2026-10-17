@@ -106,6 +106,19 @@ export async function listRefs(git: Git, repo: string, prefix: string): Promise<
   );
 }
 
+/** The latest commit both revisions descend from, or undefined when their histories are unrelated. */
+export async function mergeBase(git: Git, repo: string, a: string, b: string): Promise<Result<Sha | undefined, GitError>> {
+  const first = await resolveRevision(git, repo, a);
+  if (!first.ok) return first;
+  const second = await resolveRevision(git, repo, b);
+  if (!second.ok) return second;
+  const args = ['merge-base', first.value, second.value];
+  const ran = await runGit(git, args, { cwd: repo });
+  if (!ran.ok) return ran;
+  if (ran.value.exitCode === 0) return ok(ran.value.stdout.toString('utf8').trim());
+  return ran.value.exitCode === 1 ? ok(undefined) : err(failure(args, ran.value));
+}
+
 /** Whether `ancestor` is part of `descendant`'s history — false after a reset or rewrite. */
 export async function isAncestor(git: Git, repo: string, ancestor: string, descendant: string): Promise<Result<boolean, GitError>> {
   const a = await resolveRevision(git, repo, ancestor);

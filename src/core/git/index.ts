@@ -11,6 +11,7 @@ export {
   initRepository,
   isAncestor,
   listRefs,
+  mergeBase,
   meetsMinimumGitVersion,
   repositoryRoot,
   resolveRevision,
@@ -22,9 +23,14 @@ export {
   commitsBetween,
   diffText,
   listFiles,
+  listTree,
+  pathTypeAt,
   readFileAt,
+  readTextAt,
   type CommitInfo,
   type FileChange,
+  type RangeOptions,
+  type TreeEntry,
   type Trailer,
 } from './history.ts';
 export {

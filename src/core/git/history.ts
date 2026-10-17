@@ -84,12 +84,22 @@ async function diffEnds(git: Git, repo: string, from: string | null, to: string)
   return before.ok ? ok({ from: before.value, to: ends.value.to }) : before;
 }
 
+export interface RangeOptions {
+  /** Follow only first parents: a merge is one step and the commits it brought are skipped. */
+  readonly firstParent?: boolean;
+}
+
 /** Commits reachable from `to` but not from `from` (or all of `to`'s history when `from` is null), oldest first. */
-export async function commitsBetween(git: Git, repo: string, from: string | null, to: string): Promise<Result<CommitInfo[], GitError>> {
+export async function commitsBetween(
+  git: Git, repo: string, from: string | null, to: string, options: RangeOptions = {},
+): Promise<Result<CommitInfo[], GitError>> {
   const ends = await rangeEnds(git, repo, from, to);
   if (!ends.ok) return ends;
   const spec = ends.value.from === null ? ends.value.to : `${ends.value.from}..${ends.value.to}`;
-  const args = ['log', '--reverse', '--topo-order', '-z', '--no-show-signature', '--encoding=UTF-8', COMMIT_FORMAT, spec, '--'];
+  const args = [
+    'log', '--reverse', '--topo-order', ...(options.firstParent === true ? ['--first-parent'] : []),
+    '-z', '--no-show-signature', '--encoding=UTF-8', COMMIT_FORMAT, spec, '--',
+  ];
   const ran = await runChecked(git, args, { cwd: repo });
   return ran.ok ? ok(parseCommits(ran.value.stdout.toString('utf8'))) : ran;
 }
@@ -133,14 +143,43 @@ export async function diffText(git: Git, repo: string, from: string | null, to: 
   return ran.ok ? ok(ran.value.stdout.toString('utf8')) : ran;
 }
 
-/** Every file in the revision's tree, as slash-separated paths. */
-export async function listFiles(git: Git, repo: string, revision: string): Promise<Result<string[], GitError>> {
+export interface TreeEntry {
+  /** Slash-separated, from the root of the tree. */
+  readonly path: string;
+  /** `100644`, `100755` (executable) or `120000` (symbolic link). */
+  readonly mode: string;
+  /** The blob's object name: the content hash of this exact content. */
+  readonly sha: Sha;
+}
+
+/** Every file in the revision's tree, or only those under the directory `under`; submodules are not files. */
+export async function listTree(git: Git, repo: string, revision: string, under?: string): Promise<Result<TreeEntry[], GitError>> {
+  if (under !== undefined) {
+    const checked = checkTreePath(under);
+    if (!checked.ok) return checked;
+  }
   const sha = await resolveRevision(git, repo, revision);
   if (!sha.ok) return sha;
-  const args = ['ls-tree', '-r', '-z', '--name-only', sha.value];
+  const args = ['ls-tree', '-r', '-z', '--full-tree', sha.value, ...(under === undefined ? [] : ['--', under])];
   const ran = await runChecked(git, args, { cwd: repo });
-  return ran.ok ? ok(ran.value.stdout.toString('utf8').split('\0').filter((p) => p !== '')) : ran;
+  if (!ran.ok) return ran;
+  // Each record is "<mode> <type> <object>\t<path>".
+  const entries: TreeEntry[] = [];
+  for (const record of ran.value.stdout.toString('utf8').split('\0')) {
+    const tab = record.indexOf('\t');
+    const [mode = '', type = '', object = ''] = record.slice(0, tab).split(' ');
+    if (tab > 0 && type === 'blob') entries.push({ path: record.slice(tab + 1), mode, sha: object });
+  }
+  return ok(entries);
 }
+
+/** Every file in the revision's tree, as slash-separated paths. */
+export async function listFiles(git: Git, repo: string, revision: string): Promise<Result<string[], GitError>> {
+  const entries = await listTree(git, repo, revision);
+  return entries.ok ? ok(entries.value.map((e) => e.path)) : entries;
+}
+
+const MISSING_PATH = /Not a valid object name|bad file|does not exist in/i;
 
 /** A file's bytes as committed in `revision`. */
 export async function readFileAt(git: Git, repo: string, revision: string, path: string): Promise<Result<Buffer, GitError>> {
@@ -152,5 +191,29 @@ export async function readFileAt(git: Git, repo: string, revision: string, path:
   const ran = await runGit(git, args, { cwd: repo });
   if (!ran.ok) return ran;
   if (ran.value.exitCode === 0) return ok(ran.value.stdout);
-  return err(/Not a valid object name|bad file|does not exist in/i.test(ran.value.stderr) ? { reason: 'not-found', path } : failure(args, ran.value));
+  return err(MISSING_PATH.test(ran.value.stderr) ? { reason: 'not-found', path } : failure(args, ran.value));
+}
+
+/** A file's UTF-8 text as committed in `revision`, or undefined when the revision has no such file. */
+export async function readTextAt(git: Git, repo: string, revision: string, path: string): Promise<Result<string | undefined, GitError>> {
+  const read = await readFileAt(git, repo, revision, path);
+  if (read.ok) return ok(read.value.toString('utf8'));
+  return read.error.reason === 'not-found' ? ok(undefined) : read;
+}
+
+/** Whether `path` is a file or a directory in `revision`; `''` is the root directory. */
+export async function pathTypeAt(
+  git: Git, repo: string, revision: string, path: string,
+): Promise<Result<'file' | 'directory' | undefined, GitError>> {
+  const sha = await resolveRevision(git, repo, revision);
+  if (!sha.ok) return sha;
+  if (path === '') return ok('directory');
+  const checked = checkTreePath(path);
+  if (!checked.ok) return checked;
+  const args = ['cat-file', '-t', `${sha.value}:${path}`];
+  const ran = await runGit(git, args, { cwd: repo });
+  if (!ran.ok) return ran;
+  if (ran.value.exitCode !== 0) return MISSING_PATH.test(ran.value.stderr) ? ok(undefined) : err(failure(args, ran.value));
+  const type = ran.value.stdout.toString('utf8').trim();
+  return ok(type === 'tree' ? 'directory' : type === 'blob' ? 'file' : undefined);
 }
