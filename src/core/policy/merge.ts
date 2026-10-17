@@ -17,7 +17,7 @@ import { readVaultIdentity, type IdentityError } from '../registry/index.ts';
 import { err, ok, type Issue, type Result } from '../result/index.ts';
 import { listScripts } from '../scripts/index.ts';
 import { findControlChanges, type ControlChange } from './control.ts';
-import { axesVersion, evaluatePolicy, type PolicyChange, type PolicyVerdict } from './evaluate.ts';
+import { axesVersion, checkStatuses, evaluatePolicy, type CheckStatus, type PolicyChange, type PolicyInput, type PolicyVerdict } from './evaluate.ts';
 import { isJudgement, parseMergeRules } from './rules.ts';
 
 export type PolicyError =
@@ -38,6 +38,8 @@ export interface MergeRequest {
 
 export interface MergeEvaluation {
   readonly verdict: PolicyVerdict;
+  /** Every check on the accepted main, whether a rule requires it or not. */
+  readonly checks: readonly CheckStatus[];
   readonly changes: readonly FileChange[];
   readonly control: readonly ControlChange[];
 }
@@ -103,7 +105,7 @@ export async function evaluateMerge(git: Git, repo: string, request: MergeReques
     contentAttestations.set(change.content, read.value);
   }
 
-  const verdict = evaluatePolicy({
+  const input: PolicyInput = {
     subject: head,
     changes: policyChanges,
     tainted: request.tainted,
@@ -111,6 +113,6 @@ export async function evaluateMerge(git: Git, repo: string, request: MergeReques
     checks: checks.value.scripts.map((check) => ({ name: check.name, version: check.version })),
     invalidChecks: checks.value.invalid.map((check) => check.name),
     attestations: { commit: commitAttestations.value, content: contentAttestations },
-  });
-  return ok({ verdict, changes: changes.value, control: control.value });
+  };
+  return ok({ verdict: evaluatePolicy(input), checks: checkStatuses(input), changes: changes.value, control: control.value });
 }

@@ -86,15 +86,37 @@ export function requirementsFor(change: PolicyChange, tainted: boolean): Set<Req
   return needed;
 }
 
-function checkReasons(input: PolicyInput): string[] {
-  const reasons = input.invalidChecks.map((name) => `${name}: cannot run`);
+export interface CheckStatus {
+  readonly name: string;
+  /**
+   * `missing` (no result for this commit), `stale` (a result from another
+   * version of the check), `unusable` (the check cannot run), or the result
+   * itself: `pass`, `fail` or a named outcome.
+   */
+  readonly status: string;
+}
+
+/** Where each check on the accepted main stands for the commit under review, by name. */
+export function checkStatuses(input: Pick<PolicyInput, 'subject' | 'checks' | 'invalidChecks' | 'attestations'>): CheckStatus[] {
+  const statuses: CheckStatus[] = input.invalidChecks.map((name) => ({ name, status: 'unusable' }));
   for (const { name, version } of input.checks) {
     const latest = latestAttestation(input.attestations.commit, 'check', name);
-    if (latest === undefined || latest.subject !== input.subject) reasons.push(`${name}: no result for this commit`);
-    else if (latest.version !== version) reasons.push(`${name}: the result is for another version of the check`);
-    else if (latest.result !== 'pass') reasons.push(`${name}: ${latest.result}`);
+    const status = latest === undefined || latest.subject !== input.subject ? 'missing' : latest.version !== version ? 'stale' : latest.result;
+    statuses.push({ name, status });
   }
-  return reasons;
+  return statuses.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+const CHECK_REASONS: Readonly<Record<string, string>> = {
+  missing: 'no result for this commit',
+  stale: 'the result is for another version of the check',
+  unusable: 'cannot run',
+};
+
+function checkReasons(input: PolicyInput): string[] {
+  return checkStatuses(input)
+    .filter((check) => check.status !== 'pass')
+    .map((check) => `${check.name}: ${CHECK_REASONS[check.status] ?? check.status}`);
 }
 
 function ownerReasons(input: PolicyInput): string[] {

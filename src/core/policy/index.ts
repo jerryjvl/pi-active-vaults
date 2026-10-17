@@ -12,8 +12,10 @@ export {
 export { CONTROL_KEYS, controlPathReason, findControlChanges, type ControlChange } from './control.ts';
 export {
   axesVersion,
+  checkStatuses,
   evaluatePolicy,
   requirementsFor,
+  type CheckStatus,
   type PolicyChange,
   type PolicyInput,
   type PolicyVerdict,

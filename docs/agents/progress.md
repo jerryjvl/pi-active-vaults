@@ -15,13 +15,12 @@ Kept current with every commit, so an interrupted session can resume.
   proposal `4efd656` (implemented against; needs owner approval); `git`
   additions (tree listing, merge base, first-parent history, text and
   path-type reads); shared `DataReader`; `conditions`; `contracts`; `registry`; `events`; `attestations`; `integrity`
-  (+ `test/support/vault.ts`); `scripts`; `policy`; actor trailers
-  (`actors/trailers.ts`).
+  (+ `test/support/vault.ts`); `scripts`; `policy`; `actors`. All Stage 2
+  modules are implemented.
 - **In progress:** nothing uncommitted.
-- **Next:** rest of `actors` (worktrees, proposal, review records, accept),
-  tests first; then the refactor and whole-codebase consolidation pass.
-  Modules with tables export a `ModuleSchema` and are added to
-  `STATE_MODULES` in `src/core/operations/stores.ts`.
+- **Next:** the Stage 2 refactoring pass and the whole-codebase
+  consolidation pass (implementation-plan.md "Refactoring passes"), then the
+  Stage 2 progress entry and checkpoint.
 
 ## Stage entries
 
