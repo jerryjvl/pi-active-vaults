@@ -3,19 +3,22 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 3a — complete, awaiting review
+**Current stage:** 3b — in progress
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 3a (the first half of Stage 3: `traces`, `budgets`,
-  `queue`, `models`, `search`), with the Stage 2 review findings; see its
-  entry below.
-- **In progress:** nothing.
-- **Next:** review of Stage 3a. Then, when told, Stage 3b: judgements (and the
-  judgement model's client, once its API shape is known), `notify`,
-  `templates`, `forge`.
+- **Done:** Stage 3a, reviewed and approved. `impl/v1` fast-forwarded to
+  `ce1c0ce` (design changes from the concurrency stress test).
+- **In progress:** Stage 3b, in this order: (1) review finding — model
+  requests never follow redirects; (2) bring built modules in line with
+  `ce1c0ce`: conditions (`actor`, `script`), events (attribution per change),
+  attestations (line-by-line notes merge), adopt (concerns first), actors
+  (the hold), queue (`no-change`, `restart`); (3) judgements, `notify`,
+  `templates`, `forge` (with `vault/policy`); (4) refactoring pass, docs
+  proposal, this log.
+- **Next:** step (1).
 
 ## Stage entries
 
