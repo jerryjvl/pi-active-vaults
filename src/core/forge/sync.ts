@@ -38,7 +38,7 @@ import { evaluateMerge, type CheckStatus, type PolicyError } from '../policy/ind
 import { readVaultIdentity, type IdentityError } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import type { Store } from '../store/index.ts';
-import type { CommitStatus, ForgeAdapter, ForgeDepsBase, ForgeError, PullRequest, StatusState } from './adapter.ts';
+import { POLICY_CONTEXT, type CommitStatus, type ForgeAdapter, type ForgeDepsBase, type ForgeError, type PullRequest, type StatusState } from './adapter.ts';
 import { forgeAdapter, forgeProject } from './project.ts';
 
 export interface ForgeDeps extends ForgeDepsBase {
@@ -69,7 +69,6 @@ const FORGE_MAIN = `refs/remotes/${REMOTE}/${MAIN_BRANCH}`;
 // The forge's notes are fetched beside ours, then merged into ours.
 const FORGE_NOTES_PREFIX = 'refs/notes/vault-forge';
 const FORGE_ATTESTATIONS = `${FORGE_NOTES_PREFIX}/attestations`;
-export const POLICY_CONTEXT = 'vault/policy';
 
 /** Only actor branches and the attestation notes, each pushed to its own name, never forced. */
 export async function pushToForge(git: Git, repo: string, refspecs: readonly string[]): Promise<Result<void, ForgeSyncError>> {

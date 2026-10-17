@@ -93,7 +93,11 @@ export function apiBase(entry: ForgeEntry): string {
   }
 }
 
-// Forges cap a status description (GitHub at 140 characters).
+/** The status that carries the vault's merge policy to the forge, and that `main`'s protection must require. */
+export const POLICY_CONTEXT = 'vault/policy';
+
+// Forges cap a status description; GitHub documents it only as "short".
+// 140 characters keeps it short everywhere.
 const MAX_DESCRIPTION = 140;
 const MAX_PAGES = 20;
 

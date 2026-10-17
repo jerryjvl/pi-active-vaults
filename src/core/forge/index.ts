@@ -3,6 +3,7 @@
 // statuses with `vault/policy`, syncing, and the only pushes the package makes.
 
 export {
+  POLICY_CONTEXT,
   UNPROTECTED,
   apiBase,
   protectionProblems,
@@ -17,7 +18,6 @@ export {
 } from './adapter.ts';
 export { forgeAdapter, forgeProject } from './project.ts';
 export {
-  POLICY_CONTEXT,
   proposeToForge,
   publishStatuses,
   pushToForge,
