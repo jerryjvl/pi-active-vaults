@@ -9,10 +9,15 @@ Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 1 review findings 1 (`main` merged, `d8217ac`), 3
-  (trailers added in the repository's directory) and 4 (`prepack` build).
-- **In progress:** Stage 1 review finding 2 (per-module schema ownership).
-- **Next:** Stage 2 — read its documents, then tests first, module by module.
+- **Done:** Stage 1 review findings 1–4 (`main` merged `d8217ac`, trailers in
+  the repository's directory, `prepack` build, per-module schema ownership with
+  `operations/stores.ts` assembling the lists).
+- **In progress:** Stage 2 — nothing started yet.
+- **Next:** Stage 2 modules in dependency order, tests first: `contracts`,
+  `conditions`, `registry`, `events`, `attestations`, `policy`, `integrity`,
+  `actors`, `scripts`; then the refactor and whole-codebase consolidation pass.
+  Modules with tables export a `ModuleSchema` and are added to
+  `STATE_MODULES` in `src/core/operations/stores.ts`.
 
 ## Stage entries
 

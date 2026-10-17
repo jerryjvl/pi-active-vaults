@@ -36,12 +36,12 @@ it; no vault logic lives anywhere else.
 | `notify` | Validate recipients and messages, write to the outbox, deliver through the configured transport, retry |
 | `budgets` | Allot budgets down a session tree; account for tokens; enforce limits |
 | `traces` | Issue trace IDs; write compact records and provenance; write and rotate full logs |
-| `store` | The only access to `state.sqlite` and `index.sqlite`: connections, pragmas, transactions, schema migrations |
+| `store` | The only access to `state.sqlite` and `index.sqlite`: connections, pragmas, transactions, and applying the schema migrations each module supplies for its own tables |
 | `queue` | Spawn queue, claims and cursors, on top of `store` |
 | `search` | Index documents per vault; keyword, vector and hybrid search; rerank; check each hit against the current content |
 | `models` | Clients for configured model roles: embeddings, rerank, judgement. Splits work into batches of the role's `batch` size and sends up to `parallel` requests at a time |
 | `forge` | Forge adapters (Gitea, GitHub, GitLab): push actor branches, open or update pull requests, publish commit statuses, read approvals and merges, check branch protection |
-| `operations` | The catalogue of operations — name (also its permission), parameters, implementation, and which surfaces expose it (Pi tool, Pi command, CLI, MCP) — from which every surface is generated; permission sets and their evaluation |
+| `operations` | The catalogue of operations — name (also its permission), parameters, implementation, and which surfaces expose it (Pi tool, Pi command, CLI, MCP) — from which every surface is generated; permission sets and their evaluation; the complete list of module schemas each local store is opened with |
 
 ## Key interfaces
 
