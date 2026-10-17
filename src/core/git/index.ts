@@ -7,6 +7,7 @@ export {
   MINIMUM_GIT_VERSION,
   currentBranch,
   deleteRef,
+  gitExecPath,
   gitVersion,
   initRepository,
   isAncestor,

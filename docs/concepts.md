@@ -179,10 +179,11 @@ a header comment:
 Scripts take arguments, print results, exit non-zero on failure, and never
 prompt. Header lines are comments (`#` or `//`); `name` and `summary` are
 required, `name` is the file name without its extension, and `net` defaults to
-`yes`. Files in subdirectories are support files, not scripts. A script runs with the
-interpreter in its `#!` line; on Windows the package runs it through that
-interpreter, or through Git for Windows' `sh` for shell scripts. A script
-declaring `net: no` runs without network access where the platform allows it.
+`yes`. Files in subdirectories, and hidden files, are support files, not
+scripts. A script runs with the interpreter in its `#!` line; on Windows the
+package runs it through that interpreter, or through Git for Windows' `sh` for
+shell scripts. A script declaring `net: no` runs without network access where
+the platform allows it.
 
 **Built-in scripts** ship with the package under the `builtin:` prefix and are
 available to every vault. A vault cannot replace or shadow them. The first is

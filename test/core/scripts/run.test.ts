@@ -116,7 +116,7 @@ test('a built-in runs in the package with the arguments given, never from the va
 }));
 
 test('net: no withdraws network access where the platform can, and net: yes keeps it', withTestVault(async (v) => {
-  const sandbox = await probeNetworkSandbox(options(v).os);
+  const sandbox = await probeNetworkSandbox(options(v).os, options(v).env);
   if (sandbox === 'none') return; // nothing to enforce with on this machine; reported as unrestricted instead
   const server = await startStubServer(() => ({ body: 'ok' }));
   const scratch = mkdtempSync(join(tmpdir(), 'pav-net-'));

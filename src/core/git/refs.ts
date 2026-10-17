@@ -16,6 +16,11 @@ export async function gitVersion(git: Git): Promise<Result<string, GitError>> {
   return match?.[1] === undefined ? err({ reason: 'git-failed', command: '--version', exitCode: 0, stderr: '' }) : ok(match[1]);
 }
 
+/** Where git keeps its own programs; on Windows, Git for Windows' `sh` is found relative to it. */
+export function gitExecPath(git: Git): Promise<Result<string, GitError>> {
+  return runForText(git, ['--exec-path'], { cwd: process.cwd() });
+}
+
 export function meetsMinimumGitVersion(version: string): boolean {
   const [major = 0, minor = 0] = version.split('.').map(Number);
   const [wantMajor, wantMinor] = MINIMUM_GIT_VERSION;
