@@ -120,10 +120,17 @@ else needs a one-line justification in the commit message and the progress log.
 
 ## Checkpoints
 
-**Every stage ends at a checkpoint.** Make sure all tests and the type check
-pass and the progress log is current, then stop and summarise for review: what
-was built, decisions taken, proposals awaiting approval, and known gaps. Do not
-start the next stage until told to.
+**Every stage ends at a checkpoint.** At the checkpoint:
+
+1. Make sure all tests and the type check pass.
+2. Complete the stage's entry in `docs/agents/progress.md` — every field of the
+   template, including the commit range and the test and check results — and
+   commit it as the stage's last commit.
+3. Stop, and reply with a short summary: the stage, the last commit, whether
+   tests and checks pass, and anything that needs the owner's decision. The
+   progress log holds the full report; do not repeat it.
+
+Do not start the next stage until told to.
 
 Review findings arrive as instructions for the next session; address them
 before starting the stage they are given with.
