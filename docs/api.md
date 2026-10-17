@@ -1,0 +1,85 @@
+# Pi API surface
+
+Everything the extension registers with Pi. Names are stable; changes are
+versioned. Other packages may call the tools (`ctx.executeTool`) and listen on
+the events.
+
+## Tools
+
+Tools are generated from the core's catalogue of operations; a tool's name is
+`vault_` followed by the operation's name. `vault_fan_out` is the exception: it
+orchestrates sessions, so it exists only in Pi.
+
+All tools take vault paths as `<vault-id>:<path>`. Results carry text for the
+model and `structuredContent` for programmatic callers.
+
+| Tool | Exposure | Parameters | Returns |
+|---|---|---|---|
+| `vault_search` | `direct` | `query`, `vaults?`, `scope?`, `limit?` | Ranked hits: path, heading, excerpt, freshness |
+| `vault_read` | `direct` | `path`, `range?` | Content, freshness against the accepted `main` |
+| `vault_contract` | `codemode` | `path` | Effective contract with the origin of each key |
+| `vault_commit` | `direct` | `message`, `paths?` | Commit SHA, or the checks that blocked it |
+| `vault_script` | `direct` | `name`, `args?` | Exit status and output of an approved script |
+| `vault_fan_out` | `direct` | `items`, `each`, `gather` | The gathered result, and each item's outcome |
+| `vault_jobs` | `codemode` | `vault?` | Jobs, conditions, last and next run |
+
+Judgements and acceptance are deliberately not tools: the model must not judge
+or approve its own work.
+
+### Tool contract
+
+- Parameters are TypeBox schemas; every parameter has a description.
+- Each tool has a one-line `promptSnippet` and `promptGuidelines` that name the
+  tool explicitly.
+- Failures that carry information return `isError: true` with an explanation the
+  model can act on.
+- Large results are truncated with a note saying how to read the rest.
+- Descriptions and schemas contain no values computed at runtime.
+
+## Commands
+
+Commands are typed by the person using Pi, so they may perform owner actions.
+
+| Command | Does |
+|---|---|
+| `/vault status` | Pending proposals, checks, queued work |
+| `/vault review <actor>` | Review a proposal and record the reviewed SHA |
+| `/vault accept <actor>` | Accept the reviewed SHA if policy is satisfied |
+| `/vault accept --adopt <sha>` | Show the delta from the accepted `main` and, once confirmed, accept it |
+| `/vault contract <path>` | Effective contract for a path |
+| `/vault jobs` | Jobs and their state |
+| `/vault run <document>` | Run a job now |
+| `/vault trace <id>` | Show a trace |
+| `/vault doctor` | Health check |
+| `/vault install-cli` | Put the `vault` launcher on `PATH` |
+
+## Hooks
+
+| Hook | Use |
+|---|---|
+| `session_start`, `session_shutdown` | Start and release resources |
+| `before_agent_start` | Vault catalog in the system prompt |
+| `tool_call` | Write guard, session events, context injection |
+| `tool_result` | Trace capture, taint |
+| `turn_end` | Budget accounting |
+
+## Flags
+
+| Flag | Use |
+|---|---|
+| `--vault-run <file>` | Headless run context written by the daemon: actor, budget, trace, triggering event |
+| `--vault-actor <name>` | Actor for an interactive session (default from configuration) |
+
+## Events
+
+Published on `pi.events`, namespaced `pav:v1:`.
+
+| Channel | Payload |
+|---|---|
+| `pav:v1:ready` | Extension version and capabilities, after `session_start` |
+| `pav:v1:event` | A session or Git event, as matched against conditions |
+| `pav:v1:spawn` | Spawn requested, started, finished or stopped, with trace ID |
+| `pav:v1:request` / `pav:v1:reply:<id>` | Request and reply for `ping`, `search`, `contract`, `status` |
+
+A change that breaks a payload creates a `pav:v2:` channel; `v1` is kept until
+removed in a major release.
