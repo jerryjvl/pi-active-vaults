@@ -9,7 +9,9 @@ export {
   commitAsActor,
   ensureActorWorktree,
   type ActorCommit,
+  type ActorCommitContext,
   type ActorCommitError,
+  type ActorCommitted,
   type WorktreeError,
 } from './worktrees.ts';
 export { readProposal, type Proposal, type ProposalError } from './proposal.ts';

@@ -8,15 +8,26 @@
 // written to. And only by its one writer: while a hold by another session
 // stands, a commit is refused. A commit checks the hold and never takes one —
 // sessions and the scheduler take holds; a command committing once need not.
+//
+// Checks block (extension.md "Commits"): the commit is prepared on no branch,
+// every check on the accepted `main` assesses it, and it lands only if all
+// pass; then their verdicts are recorded as attestations about it. A commit
+// whose checks cannot run — `main` has an unaccepted change — is not made.
 
 import { realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { ensurePrivateDir } from '../config/index.ts';
-import { addWorktree, createCommit, currentBranch, listWorktrees, resolveRevision, type Git, type GitError, type Identity, type Sha } from '../git/index.ts';
-import type { AcceptedMain } from '../integrity/index.ts';
+import type { AttestationError } from '../attestations/index.ts';
+import type { Clock } from '../clock/index.ts';
+import {
+  addWorktree, currentBranch, landCommit, listWorktrees, prepareCommit, resolveRevision,
+  type Attribution, type Git, type GitError, type Identity, type Sha,
+} from '../git/index.ts';
+import type { AcceptedMain, VaultLocation } from '../integrity/index.ts';
 import type { ProcessLiveness } from '../process/index.ts';
 import { isActor, readVaultIdentity, type IdentityError, type RegisteredVault } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
+import { recordCheckResults, runChecks, type CheckResult, type CheckRunOptions, type ScriptRunError } from '../scripts/index.ts';
 import type { Queryable } from '../store/index.ts';
 import { actorHold, sameHolder, type Holder, type HoldError } from './holds.ts';
 import { packageTrailers, type CommitOrigin } from './trailers.ts';
@@ -88,25 +99,60 @@ export interface ActorCommitContext {
   readonly git: Git;
   readonly store: Queryable;
   readonly alive: ProcessLiveness;
+  readonly clock: Clock;
+  /** How the checks run. */
+  readonly checks: CheckRunOptions;
+  /** Who the check attestations are recorded as; the commit's identity when absent. */
+  readonly attribution?: Attribution;
 }
 
-export type ActorCommitError = GitError | HoldError | { readonly reason: 'wrong-branch'; readonly expected: string; readonly actual?: string };
+export interface ActorCommitted {
+  readonly sha: Sha;
+  /** Every check's verdict on it, all passing. */
+  readonly checks: readonly CheckResult[];
+}
 
-/** Commits in `worktree` as `origin.actor` of `vault`, with the package's trailers — only on that actor's branch, and not while another holds it. */
-export async function commitAsActor(context: ActorCommitContext, vault: string, worktree: string, commit: ActorCommit): Promise<Result<Sha, ActorCommitError>> {
+export type ActorCommitError =
+  | GitError
+  | HoldError
+  | ScriptRunError
+  | { readonly reason: 'wrong-branch'; readonly expected: string; readonly actual?: string }
+  /** Not made: these are every check's verdicts, not all of them passing. */
+  | { readonly reason: 'checks-failed'; readonly results: readonly CheckResult[] }
+  /** Made, but its passing verdicts could not be recorded; it needs its checks again. */
+  | { readonly reason: 'checks-not-recorded'; readonly sha: Sha; readonly cause: AttestationError };
+
+/**
+ * Commits in `worktree` as `origin.actor` of `vault`, with the package's
+ * trailers — only on that actor's branch, not while another holds it, and only
+ * when every check on the accepted main passes it.
+ */
+export async function commitAsActor(context: ActorCommitContext, vault: VaultLocation, worktree: string, commit: ActorCommit): Promise<Result<ActorCommitted, ActorCommitError>> {
   const { git } = context;
   const { actor } = commit.origin;
   const expected = actorBranch(actor);
   const branch = await currentBranch(git, worktree);
   if (!branch.ok) return branch;
   if (branch.value !== expected) return err({ reason: 'wrong-branch', expected, ...(branch.value === undefined ? {} : { actual: branch.value }) });
-  const hold = await actorHold(context.store, context.alive, vault, actor);
+  const hold = await actorHold(context.store, context.alive, vault.id, actor);
   if (hold !== undefined && (commit.holder === undefined || !sameHolder(hold.holder, commit.holder))) return err({ reason: 'actor-busy', hold });
-  return createCommit(git, worktree, {
+
+  const prepared = await prepareCommit(git, worktree, {
     message: commit.message,
     trailers: packageTrailers(commit.origin),
     date: commit.date,
     ...(commit.identity === undefined ? {} : { identity: commit.identity }),
     ...(commit.stage === undefined ? {} : { stage: commit.stage }),
   });
+  if (!prepared.ok) return prepared;
+  const checked = await runChecks({ git, store: context.store, vault }, { commit: prepared.value.sha, actor }, context.checks);
+  if (!checked.ok) return checked;
+  if (!checked.value.passed) return err({ reason: 'checks-failed', results: checked.value.results });
+  const landed = await landCommit(git, worktree, prepared.value);
+  if (!landed.ok) return landed;
+
+  const attribution = context.attribution ?? (commit.identity === undefined ? {} : { identity: commit.identity });
+  const recorded = await recordCheckResults(git, vault.path, landed.value, checked.value.results, { ...attribution, date: context.clock.now() });
+  if (!recorded.ok) return err({ reason: 'checks-not-recorded', sha: landed.value, cause: recorded.error });
+  return ok({ sha: landed.value, checks: checked.value.results });
 }

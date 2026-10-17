@@ -19,7 +19,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { recordAttestation, type AttestationError } from '../attestations/index.ts';
-import { changedPaths, exportTree, mergeBase, type Attribution, type Git, type GitError, type Sha } from '../git/index.ts';
+import { changedPaths, exportTree, mergeBase, type Attribution, type Git, type Sha } from '../git/index.ts';
 import { requireNoUnacceptedChange, type VaultLocation } from '../integrity/index.ts';
 import { canonicalJson, ok, type Result } from '../result/index.ts';
 import type { Queryable } from '../store/index.ts';
@@ -98,7 +98,7 @@ export async function runChecks(
 /** Records each verdict about `commit` as a check attestation, `by` the check's path at its version. */
 export async function recordCheckResults(
   git: Git, repo: string, commit: Sha, results: readonly CheckResult[], attribution: Attribution & { readonly date: Date },
-): Promise<Result<void, AttestationError | GitError>> {
+): Promise<Result<void, AttestationError>> {
   for (const result of results) {
     if (result.path === undefined || result.version === undefined) continue; // not a check that can be attested at a version
     const recorded = await recordAttestation(git, repo, {
