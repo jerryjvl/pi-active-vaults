@@ -20,7 +20,7 @@ A Markdown file with optional YAML frontmatter. Standard keys:
 |---|---|
 | `labels` | Terms from the vault's vocabulary |
 | `applies-when` | Conditions under which the document is injected into a session or spawns work |
-| `budget` | `{ tokens, ttl }` — required on any document that can spawn work |
+| `budget` | `{ tokens, ttl }` — required on any document that can spawn work; `ttl` in whole seconds, minutes or hours (`90s`, `30m`, `2h`) |
 | `provenance` | Written by the runtime: trace ID and a compact causal path |
 
 Any other key is the vault's own.
@@ -94,7 +94,7 @@ Contract keys:
 | `vault` | `locked` | Vault identity: `id`, `purpose`, `audience`, `owners`, `actors`; optionally `executor`, `review` and `from-template` |
 | `template` | `locked` | Present only in a template repository: `name`, `version`, `summary` (see Templates) |
 | `merge` | `tighten-only` | Merge rules (below) |
-| `index` | `nearest` | `default`, `opt-in` or `none` — whether search includes the subtree |
+| `index` | `nearest` | `default`, `opt-in` or `none` — whether search includes the subtree (`opt-in`: only within a search's explicit scope) |
 | `naming` | `nearest` | Filename pattern for new documents, e.g. `"{topic}-{date}.md"` |
 | `axes` | `merge` | Judgement questions: name → `{ type: bool \| choice \| score, instructions, options or levels, pass-when }`, where `pass-when` is the condition on the answer's probabilities that makes the judgement pass |
 | `applies-when` | `list-ops` | Conditions that apply to every document in the subtree |
@@ -151,7 +151,12 @@ Sessions start from a trigger and branch as they spawn work. Budgets flow down:
 - A spawned session receives the smaller of its document's budget and its
   allotment from the root's **cascade pool**: the pool's remaining tokens ×
   `budgets.depth-decay` (default 0.5) per level of depth × the trigger's
-  relevance score (1 when it has none).
+  relevance score (1 when it has none). An allotment is held from the pool
+  until its session ends; then only what it used is. Without a configured
+  `budgets.cascade-pool`, the documents' budgets, max-depth and the daily
+  ceiling bound the tree.
+- `budgets.daily-tokens` caps every allotment and all work on the
+  installation per UTC day.
 - Tokens are counted as work: prompt and generated tokens of every request,
   including compaction, excluding cached-prefix reads.
 - `ttl` is run time; queue time has its own limit.
@@ -255,15 +260,18 @@ the issue time in milliseconds followed by randomness, so the time can be read
 back from the ID. The ID propagates to everything the run causes.
 
 - **In the vault**: a compact record, `.vault/traces/<yyyy>/<mm>/<trace-id>.json`
-  — triggers, sessions, judgements, scripts run, documents produced — committed
+  (UTC) — JSON with `trace`, `vault`, `path` (the causal path: the trace IDs
+  of the runs that led to this one, root first), `trigger`, `sessions`,
+  `judgements`, `scripts`, `documents` produced and `elsewhere` — committed
   with the run's other changes on its actor branch.
-- **In produced documents**: a `provenance` key with the trace ID and the causal
-  path.
-- **On the machine**: full logs in the log directory, kept for a configurable
-  number of days (default 7).
+- **In produced documents**: a `provenance` key, `{ trace, path }`.
+- **On the machine**: full logs in the log directory as JSON lines, per UTC day
+  and trace, kept for a configurable number of days including today
+  (default 7).
 
 When a run spans vaults, each vault records only the part that happened in it;
-other vaults appear as opaque references.
+other vaults appear in `elsewhere` as opaque references — derived from the
+trace and the vault, naming neither, and different for every run.
 
 ## Installation
 
@@ -305,6 +313,10 @@ templates:                     # short names for template repositories
 Secrets are given as `${ENV}` references or `!command` (any command that prints
 the secret — a keyring lookup on each platform), never literally. They are
 resolved where they are used, not when the config loads.
+
+`policy` records which model roles may receive each vault's content: a role
+is used for a vault only when an entry lists both, so a vault no entry names
+sends nothing to any model.
 
 The file is validated strictly when loaded: an unknown key, a literal secret or
 any other invalid value is an error that lists every problem (without repeating

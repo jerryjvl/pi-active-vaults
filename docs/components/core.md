@@ -39,7 +39,7 @@ it; no vault logic lives anywhere else.
 | `notify` | Validate recipients and messages, write to the outbox, deliver through the configured transport, retry |
 | `budgets` | Allot budgets down a session tree; account for tokens; enforce limits |
 | `traces` | Issue trace IDs; write compact records and provenance; write and rotate full logs |
-| `store` | The only access to `state.sqlite` and `index.sqlite`: connections, pragmas, transactions, and applying the schema migrations each module supplies for its own tables |
+| `store` | The only access to `state.sqlite` and `index.sqlite`: connections, pragmas, transactions, loading `sqlite-vec` into the index, and applying the schema migrations each module supplies for its own tables |
 | `queue` | Spawn queue, claims and cursors, on top of `store` |
 | `search` | Index documents per vault; keyword, vector and hybrid search; rerank; check each hit against the current content |
 | `models` | Clients for configured model roles: embeddings, rerank, judgement. Splits work into batches of the role's `batch` size and sends up to `parallel` requests at a time |
@@ -65,14 +65,20 @@ it; no vault logic lives anywhere else.
 
 - One index per installation, with the vault as a column. Queries are scoped to
   the vaults a session or job uses.
+- Documents are indexed from the accepted `main`, and an update is refused
+  while `main` has an unaccepted change. `.vault/` is never indexed; nor is a
+  document whose governing contract cannot be read.
 - Each chunk is indexed with a header naming its vault, document title and
-  heading path.
+  heading path; vectors are made from the header and the chunk's text.
 - Ranking: keyword and vector results fused by rank, then reranked when a rerank
   model is configured.
 - Each returned hit is checked against the accepted `main`: `current`,
   `changed`, `moved` (followed through renames) or `gone`.
 - The index is disposable. It is rebuilt from Git and records the embedding
   model it was built with; a different model requires a rebuild.
+- Whatever is missing — an embedding model, the policy's permission, the
+  vector extension, a reachable model — reduces search to keywords, and the
+  result says so.
 
 ## Judgements
 
@@ -80,3 +86,8 @@ A judgement check sends a document's content as state, with questions from the
 contract's axes, to the judgement model (`/v1/systemone`), applies each axis's
 `pass-when`, and records the outcome as an attestation. The content hash, model and axes version are part of the record. A
 judgement whose content has since changed is treated as missing.
+
+## Open questions
+
+- The request and response shapes of the judgement API (`POST /v1/systemone`:
+  state plus typed questions in, probabilities out) are not yet specified.

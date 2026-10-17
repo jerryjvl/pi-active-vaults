@@ -102,4 +102,5 @@ so upgrades do not break it.
 ## Log rotation
 
 Full logs are kept per day and trace. Today's files stay as written; files from
-earlier days are gzip-compressed; days older than `logs.keep-days` are deleted.
+earlier days are gzip-compressed; days older than `logs.keep-days` (counting
+today) are deleted. Days are UTC dates.
