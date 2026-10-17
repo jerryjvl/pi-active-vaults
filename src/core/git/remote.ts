@@ -9,7 +9,8 @@
 //    may become a vault's scripts;
 //  - fetched objects are checked as they arrive (`fetch.fsckObjects`);
 //  - a refspec names full refs on both sides, optionally forced with `+`, so
-//    nothing is pushed or fetched by a guess at what a short name means;
+//    nothing is pushed or fetched by a guess at what a short name means; both
+//    sides may end in `/*` together, to fetch whatever lies under a prefix;
 //  - credentials are the user's own Git setup's; git never prompts.
 
 import { err, ok, type Result } from '../result/index.ts';
@@ -39,11 +40,14 @@ export function checkRemote(value: string): Result<string, GitError> {
   return REMOTE_NAME.test(value) || URL_SCHEMES.test(value) || SCP_LIKE.test(value) || LOCAL_PATH.test(value) ? ok(value) : invalid('remote');
 }
 
-/** `[+]refs/…:refs/…` */
+/** `[+]refs/…:refs/…`, or `[+]refs/…/*:refs/…/*`. */
 function checkRefspec(value: string): Result<string, GitError> {
   const [source = '', destination, ...rest] = value.replace(/^\+/, '').split(':');
   if (destination === undefined || rest.length > 0) return invalid('refspec');
-  return checkRefName(source).ok && checkRefName(destination).ok ? ok(value) : invalid('refspec');
+  const glob = source.endsWith('/*') && destination.endsWith('/*');
+  // A glob's prefix must itself be a ref name once something is put under it.
+  const name = (side: string): string => (glob ? `${side.slice(0, -2)}/x` : side);
+  return checkRefName(name(source)).ok && checkRefName(name(destination)).ok ? ok(value) : invalid('refspec');
 }
 
 function checkAll(remote: string, refspecs: readonly string[]): Result<void, GitError> {

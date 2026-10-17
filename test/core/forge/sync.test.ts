@@ -67,7 +67,7 @@ function mergeInForge(forge: Forge, files: Record<string, string>): string {
   }
 }
 
-const forgeVault = { review: 'forge' as const };
+const forgeVault = { review: 'forge' as const, extra: 'merge:\n  - { paths: ["**"], require: [checks, owner] }' };
 
 test('syncing makes the forge\'s main the accepted main, fast-forwarding the local main', withTestVault(async (v) => {
   await withForge(v, async (forge) => {

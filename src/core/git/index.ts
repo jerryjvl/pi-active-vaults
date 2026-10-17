@@ -38,6 +38,7 @@ export {
 export {
   addTrailers,
   createCommit,
+  fastForward,
   hasTrackedChanges,
   mergeSha,
   stageExecutable,

@@ -170,3 +170,13 @@ export async function stageExecutable(git: Git, repo: string, paths: readonly st
   const added = await runForSuccess(git, ['add', '--', ...paths], { cwd: repo });
   return added.ok ? runForSuccess(git, ['update-index', '--chmod=+x', '--', ...paths], { cwd: repo }) : added;
 }
+
+/** Moves the checked-out branch in `worktree` forward to `sha`, only if that is a fast-forward and the tree is clean. */
+export async function fastForward(git: Git, worktree: string, sha: Sha): Promise<Result<void, GitError>> {
+  const checked = checkSha(sha);
+  if (!checked.ok) return checked;
+  const dirty = await hasTrackedChanges(git, worktree);
+  if (!dirty.ok) return dirty;
+  if (dirty.value) return err({ reason: 'dirty-worktree' });
+  return runForSuccess(git, ['merge', '--ff-only', '--quiet', '--no-verify', '--no-verify-signatures', sha], { cwd: worktree });
+}

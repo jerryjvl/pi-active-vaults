@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ForgeEntry, ForgeType } from '../../../src/core/config/index.ts';
-import { forgeAdapter, forgeProject, type ForgeAdapter } from '../../../src/core/forge/index.ts';
+import { UNPROTECTED, forgeAdapter, forgeProject, protectionProblems, type ForgeAdapter } from '../../../src/core/forge/index.ts';
 import { FORGE_TOKEN, startForgeStub, type ForgeModel, type ForgeStub } from '../../support/forge-stub.ts';
 import { startStubServer } from '../../support/stub-server.ts';
 
@@ -139,4 +139,15 @@ test('a failing, redirecting or unauthorised forge is an error naming the forge,
     const noToken = forgeAdapter(entry('gitea', stub.api), 'home/vault', { ...deps, secrets: { env: {}, runCommand: deps.secrets.runCommand } });
     assert.deepEqual(await noToken.account(), { ok: false, error: { reason: 'token', forge: 'git.example.net', where: 'forges[0].token' } });
   });
+});
+
+test('the recommended setup is checked: protected main, pull requests only, vault/policy required, owner approval, an executor that is not an owner', () => {
+  const recommended = { protected: true, directPushes: false, forcePushes: false, deletion: false, requiresPolicyStatus: true, requiredApprovals: 1 } as const;
+  assert.deepEqual(protectionProblems(recommended, { account: 'vault-bot', owners: ['alice'] }), []);
+  assert.deepEqual(protectionProblems(UNPROTECTED, { account: 'vault-bot', owners: ['alice'] }), ['not-protected']);
+  assert.deepEqual(protectionProblems({ ...recommended, directPushes: true, forcePushes: true, deletion: true }, { account: 'vault-bot', owners: ['alice'] }),
+    ['direct-pushes', 'force-pushes', 'deletion']);
+  assert.deepEqual(protectionProblems({ ...recommended, requiresPolicyStatus: false, requiredApprovals: 0 }, { account: 'alice', owners: ['alice'] }),
+    ['policy-status-not-required', 'approval-not-required', 'executor-is-owner']);
+  assert.deepEqual(protectionProblems({ ...recommended, requiredApprovals: 'unknown' }, { account: 'vault-bot', owners: ['alice'] }), ['approval-unknown']);
 });

@@ -1,0 +1,183 @@
+// One adapter interface over the forges (core.md `forge`): what the package
+// asks of Gitea, GitHub and GitLab, in the package's own terms. Each forge's
+// API shapes live in its own file; what they share — the API base, the token,
+// requests through `http`, paging, reading answers — lives here.
+//
+// Invariants:
+//  - requests go through `http`, so a redirect is an error and the token is
+//    never resent elsewhere; the token is resolved once per adapter, when
+//    first needed, and appears in no error;
+//  - every answer is read in full against the shape expected; anything else is
+//    an error, never a guess;
+//  - an approval carries the exact commit it approved, or no commit when the
+//    forge cannot say — and then counts for nothing;
+//  - lists are read page by page up to a bound; a longer list is an error
+//    rather than a silently shortened answer.
+
+import { resolveSecret, type ForgeEntry, type SecretDeps } from '../config/index.ts';
+import { isSha, type Sha } from '../git/index.ts';
+import { requestJson, type HttpClient, type HttpError, type HttpRequest } from '../http/index.ts';
+import { err, ok, type Result } from '../result/index.ts';
+
+export interface PullRequest {
+  readonly number: number;
+  readonly url: string;
+  /** The branch proposed. */
+  readonly head: string;
+  readonly headSha: Sha;
+  readonly state: 'open' | 'closed' | 'merged';
+}
+
+export type StatusState = 'pending' | 'success' | 'failure' | 'error';
+
+export interface CommitStatus {
+  readonly context: string;
+  readonly state: StatusState;
+  readonly description: string;
+}
+
+/** A user's standing approval; `commit` absent when the forge cannot say which commit it was for. */
+export interface ForgeApproval {
+  readonly user: string;
+  readonly commit?: Sha;
+}
+
+/** What `main`'s protection allows, as `vault doctor` checks it (security-setup.md). */
+export interface BranchProtection {
+  readonly protected: boolean;
+  /** Commits can be pushed to it directly, not only merged through a pull request. */
+  readonly directPushes: boolean;
+  readonly forcePushes: boolean;
+  readonly deletion: boolean;
+  /** Merging requires `vault/policy` (GitLab: every pipeline, statuses included, to succeed). */
+  readonly requiresPolicyStatus: boolean;
+  readonly requiredApprovals: number | 'unknown';
+}
+
+export const UNPROTECTED: BranchProtection = {
+  protected: false, directPushes: true, forcePushes: true, deletion: true, requiresPolicyStatus: false, requiredApprovals: 0,
+};
+
+export type ForgeError =
+  | { readonly reason: 'token'; readonly forge: string; readonly where: string }
+  | (HttpError & { readonly forge: string })
+  | { readonly reason: 'no-forge'; readonly host: string };
+
+export interface ForgeAdapter {
+  readonly type: ForgeEntry['type'];
+  /** The account the package acts as: the executor's. */
+  account(): Promise<Result<string, ForgeError>>;
+  findPullRequest(head: string, base: string): Promise<Result<PullRequest | undefined, ForgeError>>;
+  openPullRequest(request: { head: string; base: string; title: string; body: string }): Promise<Result<PullRequest, ForgeError>>;
+  updatePullRequest(number: number, request: { title: string; body: string }): Promise<Result<void, ForgeError>>;
+  setStatus(sha: Sha, status: CommitStatus): Promise<Result<void, ForgeError>>;
+  approvals(pull: PullRequest): Promise<Result<ForgeApproval[], ForgeError>>;
+  protection(branch: string): Promise<Result<BranchProtection, ForgeError>>;
+}
+
+export interface ForgeDepsBase {
+  readonly client: HttpClient;
+  readonly secrets: SecretDeps;
+}
+
+/** The forge's API base: configured, or where the forge type has it. */
+export function apiBase(entry: ForgeEntry): string {
+  if (entry.api !== undefined) return entry.api.replace(/\/+$/, '');
+  switch (entry.type) {
+    case 'gitea':
+      return `https://${entry.host}/api/v1`;
+    case 'github':
+      return entry.host === 'github.com' ? 'https://api.github.com' : `https://${entry.host}/api/v3`;
+    case 'gitlab':
+      return `https://${entry.host}/api/v4`;
+  }
+}
+
+// Forges cap a status description (GitHub at 140 characters).
+const MAX_DESCRIPTION = 140;
+const MAX_PAGES = 20;
+
+export function shortDescription(text: string): string {
+  return text.length <= MAX_DESCRIPTION ? text : `${text.slice(0, MAX_DESCRIPTION - 1)}…`;
+}
+
+export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+export const isShaValue = (value: unknown): value is Sha => typeof value === 'string' && isSha(value);
+
+/** Requests to one forge: its base, its token header, its errors. */
+export interface ForgeCaller {
+  readonly forge: string;
+  call(method: HttpRequest['method'], path: string, body?: unknown): Promise<Result<{ status: number; body: unknown }, ForgeError>>;
+  /** GET a list across pages of `size`, with the forge's own page-size parameter. */
+  list(path: string, sizeParameter: string, size: number): Promise<Result<unknown[], ForgeError>>;
+  bad(detail: string): Result<never, ForgeError>;
+}
+
+export function forgeCaller(entry: ForgeEntry, deps: ForgeDepsBase, headers: (token: string) => Record<string, string>): ForgeCaller {
+  const base = apiBase(entry);
+  const forge = entry.host;
+  let token: Promise<Result<string, ForgeError>> | undefined;
+  const tokenOnce = (): Promise<Result<string, ForgeError>> => {
+    token ??= resolveSecret(entry.token, deps.secrets).then((resolved) =>
+      resolved.ok ? resolved : err({ reason: 'token', forge, where: resolved.error.where }));
+    return token;
+  };
+  const bad = (detail: string): Result<never, ForgeError> => err({ reason: 'bad-response', detail, forge });
+
+  const call: ForgeCaller['call'] = async (method, path, body) => {
+    const resolved = await tokenOnce();
+    if (!resolved.ok) return resolved;
+    const sent = await requestJson(deps.client, { method, url: `${base}${path}`, headers: headers(resolved.value), ...(body === undefined ? {} : { body }) });
+    return sent.ok ? ok(sent.value) : err({ ...sent.error, forge });
+  };
+
+  const list: ForgeCaller['list'] = async (path, sizeParameter, size) => {
+    const items: unknown[] = [];
+    const joiner = path.includes('?') ? '&' : '?';
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const got = await call('GET', `${path}${joiner}${sizeParameter}=${size}&page=${page}`);
+      if (!got.ok) return got;
+      if (!Array.isArray(got.value.body)) return bad('expected a list');
+      items.push(...got.value.body);
+      if (got.value.body.length < size) return ok(items);
+    }
+    return bad('more pages than the package reads');
+  };
+
+  return { forge, call, list, bad };
+}
+
+/** Each user's standing approval from reviews in order: an approval stands until changes are requested or it is dismissed. */
+export function standingApprovals(reviews: readonly { user: string; verdict: 'approve' | 'withdraw' | 'none'; commit?: Sha }[]): ForgeApproval[] {
+  const standing = new Map<string, ForgeApproval>();
+  for (const review of reviews) {
+    if (review.verdict === 'approve') standing.set(review.user, { user: review.user, ...(review.commit === undefined ? {} : { commit: review.commit }) });
+    else if (review.verdict === 'withdraw') standing.delete(review.user);
+  }
+  return [...standing.values()];
+}
+
+export type ProtectionProblem =
+  | 'not-protected' | 'direct-pushes' | 'force-pushes' | 'deletion' | 'policy-status-not-required'
+  | 'approval-not-required' | 'approval-unknown' | 'executor-is-owner';
+
+/**
+ * How `main`'s protection and the executor's account fall short of the
+ * recommended setup (security-setup.md), for `vault doctor`. Owner approval
+ * not being required is reported, not refused: a vault may deliberately let
+ * `vault/policy` alone decide.
+ */
+export function protectionProblems(protection: BranchProtection, who: { readonly account: string; readonly owners: readonly string[] }): ProtectionProblem[] {
+  const problems: ProtectionProblem[] = [];
+  if (!protection.protected) problems.push('not-protected');
+  else {
+    if (protection.directPushes) problems.push('direct-pushes');
+    if (protection.forcePushes) problems.push('force-pushes');
+    if (protection.deletion) problems.push('deletion');
+    if (!protection.requiresPolicyStatus) problems.push('policy-status-not-required');
+    if (protection.requiredApprovals === 'unknown') problems.push('approval-unknown');
+    else if (protection.requiredApprovals < 1) problems.push('approval-not-required');
+  }
+  if (who.owners.includes(who.account)) problems.push('executor-is-owner');
+  return problems;
+}

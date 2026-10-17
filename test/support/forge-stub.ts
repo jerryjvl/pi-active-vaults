@@ -29,7 +29,7 @@ export interface ForgeModel {
   statuses: { sha: string; context: string; state: string; description: string }[];
   reviews: StubReview[];
   /** The forge-native protection body for `main`, or undefined when unprotected. */
-  protection?: unknown;
+  protection?: object;
   /** GitLab: project settings. `resetApprovalsOnPush` undefined: the setting cannot be read (Free tier). */
   gitlab: { resetApprovalsOnPush?: boolean; pipelinesMustSucceed: boolean; approvalsRequired?: number };
 }
@@ -60,7 +60,7 @@ export async function startForgeStub(type: ForgeType, headSha: (branch: string) 
   const state: ForgeModel = { account: 'vault-bot', pulls: [], statuses: [], reviews: [], gitlab: { pipelinesMustSucceed: true }, ...model };
   const base = BASE[type];
 
-  const pullJson = (pull: StubPull): unknown =>
+  const pullJson = (pull: StubPull): object =>
     type === 'gitlab'
       ? { iid: pull.number, web_url: `https://forge/${PROJECT}/-/merge_requests/${pull.number}`, source_branch: pull.head, target_branch: pull.base, sha: headSha(pull.head), state: pull.state === 'open' ? 'opened' : pull.state, title: pull.title, description: pull.body }
       : { number: pull.number, html_url: `https://forge/${PROJECT}/pulls/${pull.number}`, state: pull.state === 'open' ? 'open' : 'closed', merged: pull.state === 'merged', head: { ref: pull.head, sha: headSha(pull.head) }, base: { ref: pull.base }, title: pull.title, body: pull.body };
@@ -117,7 +117,7 @@ export async function startForgeStub(type: ForgeType, headSha: (branch: string) 
       const approvers = new Set<string>();
       for (const r of state.reviews.filter((x) => x.pull === pull.number)) {
         if (r.state === 'APPROVED') approvers.add(r.user);
-        else approvers.delete(r.user);
+        else if (r.state !== 'COMMENTED') approvers.delete(r.user);
       }
       return { body: { approved: approvers.size > 0, approved_by: [...approvers].map((username) => ({ user: { username } })) } };
     }
