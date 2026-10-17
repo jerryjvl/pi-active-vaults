@@ -71,14 +71,14 @@ test('content can be attested by its blob SHA', withTempRepo(async (repo) => {
   assert.deepEqual(await readAttestations(gitFor(repo), repo.path, blob), { ok: true, value: [judgement] });
 }));
 
-test('a note that cannot be read as attestations fails closed, naming the subject and lines', withTempRepo(async (repo) => {
+test('a note that cannot be read as attestations fails closed, naming the subject and the unreadable records', withTempRepo(async (repo) => {
   const sha = repo.commit('c');
   const other = repo.commit('d');
   await record(repo, check(sha, 'pass'));
   repo.git('notes', `--ref=${ATTESTATIONS_REF}`, 'append', '-m', 'not json', sha);
   repo.git('notes', `--ref=${ATTESTATIONS_REF}`, 'append', '-m', JSON.stringify(check(other, 'pass')), sha);
   const read = await readAttestations(gitFor(repo), repo.path, sha);
-  assert.deepEqual(read, { ok: false, error: { reason: 'invalid-attestations', subject: sha, lines: [2, 3] } });
+  assert.deepEqual(read, { ok: false, error: { reason: 'invalid-attestations', subject: sha, records: [2, 3] } });
 }));
 
 test('an attestation that is not well formed is refused before anything is written', withTempRepo(async (repo) => {
