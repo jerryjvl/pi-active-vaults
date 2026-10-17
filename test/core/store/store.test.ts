@@ -224,3 +224,40 @@ test('closing is idempotent and a closed store cannot be used', withTempDir((dir
   store.close();
   assert.throws(() => store.all('SELECT 1'));
 }));
+
+// Documented behaviour: architecture.md "Technology" — sqlite-vec is loaded as
+// a SQLite extension for vector search, in the index file; without it the
+// index still opens (search degrades to keywords).
+test('the index file loads the vector extension, and SQL can load no other', withTempDir((dir) => {
+  const opened = openStore(dir.file('index.sqlite'), INDEX_FILE, []);
+  if (!opened.ok) assert.fail(JSON.stringify(opened.error));
+  const store = opened.value;
+  try {
+    assert.equal(store.vectors, true);
+    assert.match(String(store.get<{ v: string }>('SELECT vec_version() AS v')?.v), /^v\d/);
+    assert.throws(() => store.get("SELECT load_extension('/nonexistent/evil')"), /not authorized/);
+  } finally {
+    store.close();
+  }
+}));
+
+test('the state file loads no extension', withTempDir((dir) => {
+  const store = open(dir.file('state.sqlite'), []);
+  try {
+    assert.equal(store.vectors, false);
+    assert.throws(() => store.get('SELECT vec_version()'), /no such function/);
+  } finally {
+    store.close();
+  }
+}));
+
+test('an index whose vector extension cannot be loaded still opens, without vectors', withTempDir((dir) => {
+  const opened = openStore(dir.file('index.sqlite'), INDEX_FILE, [], { vectorExtension: dir.file('missing.so') });
+  if (!opened.ok) assert.fail(JSON.stringify(opened.error));
+  try {
+    assert.equal(opened.value.vectors, false);
+    assert.throws(() => opened.value.get('SELECT vec_version()'), /no such function/);
+  } finally {
+    opened.value.close();
+  }
+}));

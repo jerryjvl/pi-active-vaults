@@ -23,8 +23,9 @@ function importersOf(specifier: string): string[] {
     .map((file) => relative(srcRoot, file).split('\\').join('/'));
 }
 
-test('node:sqlite is imported only by the store module', () => {
+test('node:sqlite and its vector extension are imported only by the store module', () => {
   assert.deepEqual(importersOf('node:sqlite'), ['core/store/index.ts']);
+  assert.deepEqual(importersOf('sqlite-vec'), ['core/store/index.ts']);
 });
 
 test('processes are started only by the process module', () => {
