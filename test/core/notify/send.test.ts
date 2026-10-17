@@ -16,6 +16,7 @@ import {
   notifySchema,
   parseNotifyConfig,
   sendNotification,
+  testTransport,
   undeliveredNotifications,
   type NotifyConfig,
   type NotifyDeps,
@@ -220,4 +221,19 @@ test('the sendmail transport passes the message to the configured command on sta
   const failed = await send(deps(store, clock, parsed.value, undefined, { env: { PATH: '/usr/bin:/bin' } }));
   assert.ok(failed.ok && failed.value.outcome === 'queued');
   assert.equal(undeliveredNotifications(store)[0]?.lastError, 'command-exit 75');
+}));
+
+test('a transport test delivers one message to an alias directly, keeps nothing in the outbox, and reports why it failed', withStore([notifySchema], async (store) => {
+  const clock = fakeClock();
+  await withSmtp({ mode: 'tls' }, async (stub) => {
+    const tested = await testTransport(deps(store, clock, config(465), stub), 'partner');
+    assert.deepEqual(tested, { ok: true, value: undefined });
+    assert.deepEqual(stub.messages.map((m) => m.to), [['partner@example.org']]);
+    assert.equal(undeliveredNotifications(store).length, 0);
+    assert.equal(store.get<{ n: number }>('SELECT count(*) AS n FROM notify_outbox')?.n, 0);
+    assert.deepEqual(await testTransport(deps(store, clock, config(465), stub), 'partner@example.org'), { ok: false, error: { reason: 'raw-address' } });
+    assert.deepEqual(await testTransport(deps(store, clock, config(465), stub), 'nobody'), { ok: false, error: { reason: 'unknown-recipient', alias: 'nobody' } });
+  });
+  const unreachable = await testTransport(deps(store, clock, config(465), undefined, { smtp: { port: 1, ca: TEST_CA, timeoutMs: 2000 } }), 'me');
+  assert.deepEqual(unreachable, { ok: false, error: { reason: 'delivery-failed', failure: 'unreachable' } });
 }));
