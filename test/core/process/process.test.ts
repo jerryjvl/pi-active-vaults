@@ -56,9 +56,15 @@ test('a shell runs only when asked for explicitly, and then interprets the comma
 test('the environment is exactly the one given: nothing is inherited, and unset values are left out', async () => {
   const ran = await run(node('process.stdout.write(JSON.stringify(process.env))'), { env: { ONLY: 'this', UNSET: undefined } });
   const env = JSON.parse(ran.stdout.toString('utf8')) as Record<string, string>;
-  // Windows adds a few variables of its own to every process.
-  if (process.platform === 'win32') assert.equal(env['ONLY'], 'this');
-  else assert.deepEqual(env, { ONLY: 'this' });
+  // The operating system or a runtime wrapper may add variables of its own, so
+  // the check is that nothing of this process's environment came through.
+  assert.equal(env['ONLY'], 'this');
+  assert.ok(!('UNSET' in env));
+  const added = new Set(['SYSTEMROOT']); // libuv supplies it on Windows: processes need it to start
+  const inherited = Object.keys(process.env)
+    .filter((name) => !added.has(name.toUpperCase()))
+    .filter((name) => name in env && env[name] === process.env[name] && process.env[name] !== '');
+  assert.deepEqual(inherited, []);
 });
 
 test('the process runs in the given directory', withTempDir(async (dir) => {

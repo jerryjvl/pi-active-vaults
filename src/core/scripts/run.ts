@@ -13,13 +13,13 @@
 // killed with everything it started; `net: no` is enforced where the platform
 // can, and the outcome says whether it was.
 
-import { spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { PlatformKind } from '../config/index.ts';
 import { gitExecPath, listTree, readFileAt, type Git, type GitError, type Sha } from '../git/index.ts';
 import { requireNoUnacceptedChange, type UnacceptedChangeError, type VaultLocation } from '../integrity/index.ts';
+import { runProcess } from '../process/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import type { Queryable } from '../store/index.ts';
 import { interpreterCommand, restrictNetwork, sandboxProbe, windowsShellCandidates, type Command, type NetworkSandbox } from './command.ts';
@@ -54,69 +54,21 @@ const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
 const MAX_STDERR_BYTES = 64 * 1024;
 const SYMLINK_MODE = '120000';
 
-function bounded(limit: number): { push(chunk: Buffer): void; text(): string; truncated(): boolean } {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  let cut = false;
-  return {
-    push(chunk) {
-      const room = limit - size;
-      if (chunk.length > room) cut = true;
-      if (room > 0) {
-        const kept = chunk.subarray(0, room);
-        chunks.push(kept);
-        size += kept.length;
-      }
-    },
-    text: () => Buffer.concat(chunks).toString('utf8'),
-    truncated: () => cut,
-  };
-}
-
 /** Runs a command with no input, bounded output and a time limit; a timed-out run is killed with its process group. */
-function runBounded(
+async function runBounded(
   command: Command, options: { cwd: string; env: Readonly<Record<string, string>>; timeoutMs: number; maxOutputBytes: number },
 ): Promise<Result<Omit<ScriptOutcome, 'network'>, { reason: 'cannot-run'; detail: string }>> {
-  return new Promise((resolve) => {
-    // On POSIX the child leads its own process group, so a timeout can stop
-    // everything it started, not just the interpreter.
-    const ownGroup = process.platform !== 'win32';
-    const child = spawn(command.command, command.args, {
-      cwd: options.cwd,
-      env: options.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-      detached: ownGroup,
-    });
-    const stdout = bounded(options.maxOutputBytes);
-    const stderr = bounded(MAX_STDERR_BYTES);
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      try {
-        if (ownGroup && child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
-        else child.kill('SIGKILL');
-      } catch {
-        // Already gone.
-      }
-    }, options.timeoutMs);
-    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-    child.on('error', (error: NodeJS.ErrnoException) => {
-      clearTimeout(timer);
-      resolve(err({ reason: 'cannot-run', detail: error.code ?? 'spawn failed' }));
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve(ok({
-        exitCode: timedOut ? null : code,
-        stdout: stdout.text(),
-        stderr: stderr.text(),
-        timedOut,
-        truncated: stdout.truncated(),
-      }));
-    });
+  const ran = await runProcess({
+    program: { file: command.command, args: command.args },
+    cwd: options.cwd,
+    env: options.env,
+    timeoutMs: options.timeoutMs,
+    maxStdoutBytes: options.maxOutputBytes,
+    maxStderrBytes: MAX_STDERR_BYTES,
   });
+  if (!ran.ok) return err({ reason: 'cannot-run', detail: ran.error.code });
+  const { exitCode, stdout, stderr, timedOut, stdoutTruncated } = ran.value;
+  return ok({ exitCode, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8'), timedOut, truncated: stdoutTruncated });
 }
 
 /** Copies `directory` as committed in `sha` into a new private directory; links are not copied. */

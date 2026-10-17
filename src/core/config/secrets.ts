@@ -9,7 +9,7 @@
 // field and a reason — never the command's output, never its text, never the
 // variable's value — and an empty secret is a failure, not a pass.
 
-import { spawn } from 'node:child_process';
+import { runProcess } from '../process/index.ts';
 import { err, ok, type Issue, type Result } from '../result/index.ts';
 
 export type SecretRef =
@@ -23,12 +23,15 @@ export type SecretError = {
 };
 
 export interface CommandOutcome {
-  /** null when the command was killed (timeout) rather than exiting. */
+  /** null when the command did not finish properly: killed at its time limit, or printing more than a secret could be. */
   readonly exitCode: number | null;
   readonly stdout: string;
 }
 
-export type CommandRunner = (command: string, options: { timeoutMs: number }) => Promise<CommandOutcome>;
+export type CommandRunner = (
+  command: string,
+  options: { readonly timeoutMs: number; readonly env: SecretDeps['env'] },
+) => Promise<CommandOutcome>;
 
 export interface SecretDeps {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -37,7 +40,7 @@ export interface SecretDeps {
 
 const ENV_REFERENCE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
-const MAX_COMMAND_OUTPUT_CHARS = 64 * 1024;
+const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 
 export function parseSecretRef(value: unknown, where: string): Result<SecretRef, Issue> {
   if (typeof value === 'string') {
@@ -64,7 +67,7 @@ export async function resolveSecret(
     if (raw === undefined || raw === '') return err({ reason: 'env-unset', where: ref.where });
   } else {
     try {
-      const outcome = await deps.runCommand(ref.command, { timeoutMs: options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS });
+      const outcome = await deps.runCommand(ref.command, { timeoutMs: options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS, env: deps.env });
       if (outcome.exitCode !== 0) return err({ reason: 'command-failed', where: ref.where });
       raw = outcome.stdout;
     } catch {
@@ -77,36 +80,18 @@ export async function resolveSecret(
 }
 
 /**
- * Runs a command through the platform's shell (sh, or cmd.exe on Windows) with
- * no standard input, so it can never wait on a prompt. The one place that
- * decides how secret commands are executed.
+ * Runs a command through the platform's shell (sh, or cmd.exe on Windows) — a
+ * `!command` is a command line the owner wrote — with the given environment
+ * and no standard input, so it can never wait on a prompt. The one place that
+ * decides how secret commands are executed. Its standard error is discarded,
+ * and output longer than any secret is a failure, never a cut-off value.
  */
-export const shellCommandRunner: CommandRunner = (command, { timeoutMs }) =>
-  new Promise((resolve, reject) => {
-    const child = spawn(command, { shell: true, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
-    let stdout = '';
-    let settled = false;
-    const settle = (action: () => void): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      action();
-    };
-    const timer = setTimeout(() => {
-      // Do not wait for 'close': a surviving grandchild would hold the pipe open.
-      settle(() => {
-        child.kill();
-        child.stdout.destroy();
-        resolve({ exitCode: null, stdout: '' });
-      });
-    }, timeoutMs);
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      if (stdout.length < MAX_COMMAND_OUTPUT_CHARS) stdout += chunk;
-    });
-    child.on('error', (error) => settle(() => reject(error)));
-    child.on('close', (code) => settle(() => resolve({ exitCode: code, stdout })));
-  });
+export const shellCommandRunner: CommandRunner = async (command, { timeoutMs, env }) => {
+  const ran = await runProcess({ program: { shell: command }, env, timeoutMs, maxStdoutBytes: MAX_COMMAND_OUTPUT_BYTES, maxStderrBytes: 0 });
+  if (!ran.ok) throw new Error(`cannot start the shell: ${ran.error.code}`);
+  const { exitCode, stdout, timedOut, stdoutTruncated } = ran.value;
+  return timedOut || stdoutTruncated ? { exitCode: null, stdout: '' } : { exitCode, stdout: stdout.toString('utf8') };
+};
 
 export function systemSecretDeps(env: SecretDeps['env']): SecretDeps {
   return { env, runCommand: shellCommandRunner };

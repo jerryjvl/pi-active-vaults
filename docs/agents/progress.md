@@ -13,10 +13,11 @@ Kept current with every commit, so an interrupted session can resume.
   only: `traces`, `budgets`, `queue`, `models`, `search`, tests first,
   a refactoring pass, and a checkpoint. Judgements, `notify`, `templates` and
   `forge` are for the next session.
-- **Done:** findings (1) and (3) (documentation), (2) accept binds to the
-  approver's own review.
-- **In progress:** finding (4), the `process` module.
-- **Next:** finding (4); then Stage 3a module by module.
+- **Done:** findings (1)–(4): documentation, accept bound to the approver's
+  own review, the `process` module with git, secret commands and scripts on it.
+- **In progress:** Stage 3a, starting with `traces`.
+- **Next:** `traces`, `budgets`, `queue`, `models`, `search` — each tests
+  first, then implementation; then the refactoring pass and the entry.
 
 ## Stage entries
 

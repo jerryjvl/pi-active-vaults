@@ -10,6 +10,8 @@ it; no vault logic lives anywhere else.
 - **Deterministic.** Given the same repository state and inputs, operations
   produce the same results. Time and randomness are injected.
 - **Git is accessed only through the `git` module.** No other module runs `git`.
+- **Processes are started only through the `process` module.** Git, secret
+  commands and scripts all run through it.
 - **SQLite is accessed only through the `store` module.** No other module opens
   a database.
 - **Errors are values.** Operations return typed results with a reason; they
@@ -19,6 +21,7 @@ it; no vault logic lives anywhere else.
 
 | Module | Responsibility |
 |---|---|
+| `process` | Start a process: a program with an argument array, or an explicit shell command line; exactly the environment given; standard input closed unless input is given; bounded output; a time limit, past which the process is killed — with its process group on POSIX |
 | `config` | Load and validate the installation config; resolve `${ENV}` and `!command` secrets; resolve the platform's config and state directories |
 | `registry` | The vaults on this machine: their paths, root contracts and catalog entries |
 | `git` | Wrapper around the `git` command line: refs, notes, worktrees, diffs, merges, trailers |

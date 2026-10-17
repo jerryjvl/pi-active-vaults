@@ -71,6 +71,10 @@ and the progress log before resuming.
   Before adding a function, search for an existing one that does the job or
   could with a small generalisation.
 - **Git is touched only through `src/core/git`.** No other module spawns `git`.
+- **Processes are started only through `src/core/process`.** It is the only
+  module that imports `node:child_process`; it owns argument arrays versus an
+  explicit shell, the environment, time limits, bounded output and killing a
+  process group.
 - **SQLite is touched only through `src/core/store`.** It owns connections,
   pragmas, transactions and migrations. Every multi-step write is one
   `BEGIN IMMEDIATE` transaction. `node:sqlite` is still a release-candidate API

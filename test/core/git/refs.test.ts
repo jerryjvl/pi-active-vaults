@@ -36,7 +36,7 @@ test('a git that runs past its time limit is stopped and reported, never waited 
   const hung = dir.file('hung-git');
   writeFileSync(hung, '#!/bin/sh\nsleep 30\n', { mode: 0o755 });
   const ran = await gitVersion(createGit({ binary: hung, timeoutMs: 100 }));
-  assert.deepEqual(ran, { ok: false, error: { reason: 'timed-out', command: 'version' } });
+  assert.deepEqual(ran, { ok: false, error: { reason: 'timed-out', command: '--version' } });
 }));
 
 test('output beyond the limit is an error, never a silently shortened result', withTempRepo(async (repo) => {

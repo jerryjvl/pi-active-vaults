@@ -91,11 +91,17 @@ test('a command that cannot be started is a failure value, not an exception', as
 
 test('the real shell runner returns output and exit status, sees only the given environment, and enforces the timeout', { skip: process.platform === 'win32' }, async () => {
   const node = JSON.stringify(process.execPath);
-  const env = { ONLY: 'abc' };
-  assert.deepEqual(await shellCommandRunner(`${node} -e "process.stdout.write(Object.keys(process.env).filter((k) => k !== 'PWD').join() + '=' + process.env.ONLY)"`, { timeoutMs: 10_000, env }), {
-    exitCode: 0,
-    stdout: 'ONLY=abc',
-  });
+  const env = { GIVEN: 'abc' };
+  // The shell may set variables of its own; what matters is that the caller's do not leak in.
+  process.env['PAV_PARENT_ONLY'] = 'leaked';
+  try {
+    assert.deepEqual(await shellCommandRunner(`${node} -e "process.stdout.write(process.env.GIVEN + ',' + process.env.PAV_PARENT_ONLY)"`, { timeoutMs: 10_000, env }), {
+      exitCode: 0,
+      stdout: 'abc,undefined',
+    });
+  } finally {
+    delete process.env['PAV_PARENT_ONLY'];
+  }
   const failed = await shellCommandRunner(`${node} -e "process.exit(3)"`, { timeoutMs: 10_000, env });
   assert.equal(failed.exitCode, 3);
   const slow = await shellCommandRunner(`${node} -e "setTimeout(()=>{},5000)"`, { timeoutMs: 100, env });

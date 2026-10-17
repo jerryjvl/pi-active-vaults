@@ -1,7 +1,10 @@
-// Running the `git` command line — the one place a process is spawned for Git.
+// Running the `git` command line — the one place git is started (through
+// `process`, like every process).
 //
 // Invariants:
 //  - arguments are passed as an array, never through a shell;
+//  - every run is bounded: past its time limit git is stopped, and output past
+//    the limit is an error rather than a silently shortened result;
 //  - the caller's ambient Git state (GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, …)
 //    is removed, because the daemon may be started from a hook that sets them
 //    and they would silently redirect an operation to another repository;
@@ -11,8 +14,8 @@
 //    (the file-system monitor) are switched off;
 //  - failure details are bounded and have URL credentials redacted.
 
-import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
+import { runProcess } from '../process/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 
 export type GitError =
@@ -25,11 +28,15 @@ export type GitError =
   | { readonly reason: 'dirty-worktree' }
   | { readonly reason: 'nothing-to-commit' }
   | { readonly reason: 'conflict'; readonly paths: readonly string[] }
+  | { readonly reason: 'timed-out'; readonly command: string }
+  | { readonly reason: 'output-too-large'; readonly command: string }
   | { readonly reason: 'git-failed'; readonly command: string; readonly exitCode: number | null; readonly stderr: string };
 
 export interface Git {
   readonly binary: string;
   readonly env: NodeJS.ProcessEnv;
+  readonly timeoutMs: number;
+  readonly maxOutputBytes: number;
 }
 
 export interface GitOptions {
@@ -37,6 +44,10 @@ export interface GitOptions {
   readonly env?: NodeJS.ProcessEnv;
   /** The git executable; defaults to `git` on the PATH. */
   readonly binary?: string;
+  /** Time limit for one git command; default 10 minutes. */
+  readonly timeoutMs?: number;
+  /** Standard output one git command may produce; default 256 MiB. */
+  readonly maxOutputBytes?: number;
 }
 
 export interface RunOptions {
@@ -68,11 +79,22 @@ const NON_INTERACTIVE_ENV = {
 };
 const FIXED_ARGUMENTS = ['-c', 'core.fsmonitor=false'];
 const MAX_STDERR_CHARS = 2000;
+const MAX_STDERR_BYTES = 64 * 1024;
+// Generous: local commands finish in moments, and fetches and pushes to a
+// forge should not be cut short; the limit is there so nothing waits forever.
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+// Large enough for any document or tree listing a vault plausibly holds.
+const DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
 
 export function createGit(options: GitOptions = {}): Git {
   const env: NodeJS.ProcessEnv = { ...(options.env ?? process.env) };
   for (const name of AMBIENT_GIT_VARIABLES) delete env[name];
-  return { binary: options.binary ?? 'git', env: { ...env, ...NON_INTERACTIVE_ENV } };
+  return {
+    binary: options.binary ?? 'git',
+    env: { ...env, ...NON_INTERACTIVE_ENV },
+    timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    maxOutputBytes: options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
+  };
 }
 
 /** Removes `user:password@` from URLs in text that git (or a remote) printed. */
@@ -80,32 +102,31 @@ export function redactUrlCredentials(text: string): string {
   return text.replace(/([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/@]+@/g, '$1');
 }
 
-/** Runs git; the result is an error value only when git could not be started at all. */
-export function runGit(git: Git, args: readonly string[], options: RunOptions): Promise<Result<Outcome, GitError>> {
+/**
+ * Runs git; the result is an error value only when git could not be started,
+ * ran past its time limit, or printed more than the limit — otherwise the exit
+ * status is the caller's to judge.
+ */
+export async function runGit(git: Git, args: readonly string[], options: RunOptions): Promise<Result<Outcome, GitError>> {
   try {
-    if (!statSync(options.cwd).isDirectory()) return Promise.resolve(err({ reason: 'not-a-repository' }));
+    if (!statSync(options.cwd).isDirectory()) return err({ reason: 'not-a-repository' });
   } catch {
-    return Promise.resolve(err({ reason: 'not-a-repository' }));
+    return err({ reason: 'not-a-repository' });
   }
-  return new Promise((resolve) => {
-    const child = spawn(git.binary, [...FIXED_ARGUMENTS, ...args], {
-      cwd: options.cwd,
-      env: { ...git.env, ...options.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
-    const out: Buffer[] = [];
-    const errText: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => errText.push(chunk));
-    child.on('error', () => resolve(err({ reason: 'git-unavailable' })));
-    child.on('close', (exitCode) =>
-      resolve(ok({ exitCode, stdout: Buffer.concat(out), stderr: Buffer.concat(errText).toString('utf8') })),
-    );
-    // A command that exits before reading its input closes the pipe; that is not our failure.
-    child.stdin.on('error', () => {});
-    child.stdin.end(options.input);
+  const ran = await runProcess({
+    program: { file: git.binary, args: [...FIXED_ARGUMENTS, ...args] },
+    cwd: options.cwd,
+    env: { ...git.env, ...options.env },
+    ...(options.input === undefined ? {} : { input: options.input }),
+    timeoutMs: git.timeoutMs,
+    maxStdoutBytes: git.maxOutputBytes,
+    maxStderrBytes: MAX_STDERR_BYTES,
   });
+  if (!ran.ok) return err({ reason: 'git-unavailable' });
+  const command = args[0] ?? '';
+  if (ran.value.timedOut) return err({ reason: 'timed-out', command });
+  if (ran.value.stdoutTruncated) return err({ reason: 'output-too-large', command });
+  return ok({ exitCode: ran.value.exitCode, stdout: ran.value.stdout, stderr: ran.value.stderr.toString('utf8') });
 }
 
 /** Turns an unexpected non-zero exit into the matching error value. */
