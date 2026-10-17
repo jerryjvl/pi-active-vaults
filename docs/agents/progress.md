@@ -14,10 +14,10 @@ Kept current with every commit, so an interrupted session can resume.
   `operations/stores.ts` assembling the lists). Stage 2: documentation
   proposal `4efd656` (implemented against; needs owner approval); `git`
   additions (tree listing, merge base, first-parent history, text and
-  path-type reads); shared `DataReader`; `conditions`; `contracts`.
+  path-type reads); shared `DataReader`; `conditions`; `contracts`; `registry`.
 - **In progress:** nothing uncommitted.
 - **Next:** Stage 2 modules in dependency order, tests first:
-  `registry`, `events`, `attestations`, `integrity`, `scripts`,
+  `events`, `attestations`, `integrity`, `scripts`,
   `policy`, `actors`; then the refactor and whole-codebase consolidation pass.
   Modules with tables export a `ModuleSchema` and are added to
   `STATE_MODULES` in `src/core/operations/stores.ts`.

@@ -29,6 +29,7 @@ export {
 export {
   FORGE_TYPES,
   MODEL_ROLES,
+  VAULT_ID,
   loadInstallationConfig,
   parseInstallationConfig,
   type ConfigError,

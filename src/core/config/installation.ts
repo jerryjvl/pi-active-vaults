@@ -77,7 +77,8 @@ export type ConfigError =
 const DEFAULT_DEPTH_DECAY = 0.5;
 const DEFAULT_MAX_DEPTH = 4;
 const DEFAULT_KEEP_DAYS = 7;
-const VAULT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** A vault id, as the config and a root contract give it. */
+export const VAULT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const FORGE_HOST = /^[A-Za-z0-9.-]+(:\d+)?$/;
 const NO_WHITESPACE = /^\S+$/;
 

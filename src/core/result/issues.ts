@@ -56,8 +56,12 @@ export class DataReader {
   }
 
   string(value: unknown, path: string, pattern?: RegExp): string {
-    if (typeof value !== 'string' || value === '' || (pattern !== undefined && !pattern.test(value))) {
-      this.add(path, pattern === undefined ? 'must be a non-empty string' : 'is not in the expected form');
+    if (typeof value !== 'string' || value === '') {
+      this.add(path, 'must be a non-empty string');
+      return '';
+    }
+    if (pattern !== undefined && !pattern.test(value)) {
+      this.add(path, 'is not in the expected form');
       return '';
     }
     return value;

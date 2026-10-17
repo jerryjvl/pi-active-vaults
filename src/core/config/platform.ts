@@ -29,6 +29,8 @@ export interface InstallationPaths {
   readonly stateDb: string;
   readonly indexDb: string;
   readonly logs: string;
+  /** Where actor worktrees go for vaults that do not configure their own: `<worktrees>/<vault-id>`. */
+  readonly worktrees: string;
 }
 
 export type PlatformDirsError = { reason: 'relative-override'; variable: string };
@@ -118,6 +120,7 @@ export function installationPaths(dirs: PlatformDirs, os: PlatformKind): Install
     stateDb: p.join(dirs.state, 'state.sqlite'),
     indexDb: p.join(dirs.state, 'index.sqlite'),
     logs: p.join(dirs.state, 'logs'),
+    worktrees: p.join(dirs.state, 'worktrees'),
   };
 }
 
