@@ -10,7 +10,11 @@ import {
   commitsBetween,
   diffText,
   listFiles,
+  listTree,
+  mergeBase,
+  pathTypeAt,
   readFileAt,
+  readTextAt,
 } from '../../../src/core/git/index.ts';
 import { gitFor, withTempRepo } from '../../support/git-repo.ts';
 
@@ -152,4 +156,78 @@ test('paths that escape or are absolute are refused', withTempRepo(async (repo) 
     const result = await readFileAt(git, repo.path, sha, bad);
     assert.equal(result.ok === false && result.error.reason, 'invalid-argument', JSON.stringify(bad));
   }
+}));
+
+test('first-parent history follows the branch itself: a merge is one step, the merged commits are not', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('a.md', 'a');
+  const base = repo.commit('base');
+  repo.git('checkout', '--quiet', '-b', 'side');
+  repo.write('b.md', 'b');
+  const side = repo.commit('side work');
+  repo.git('checkout', '--quiet', 'main');
+  repo.git('merge', '--quiet', '--no-ff', '-m', 'merge side', 'side');
+  const merge = repo.git('rev-parse', 'HEAD');
+  const all = await commitsBetween(git, repo.path, base, merge);
+  const firstParent = await commitsBetween(git, repo.path, base, merge, { firstParent: true });
+  assert.ok(all.ok && firstParent.ok);
+  assert.deepEqual(all.value.map((c) => c.sha), [side, merge]);
+  assert.deepEqual(firstParent.value.map((c) => c.sha), [merge]);
+}));
+
+test('the merge base of two revisions is their latest common commit, or absent for unrelated histories', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('a.md', 'a');
+  const base = repo.commit('base');
+  repo.git('checkout', '--quiet', '-b', 'side');
+  repo.write('b.md', 'b');
+  const side = repo.commit('side');
+  repo.git('checkout', '--quiet', 'main');
+  repo.write('c.md', 'c');
+  const main = repo.commit('main');
+  assert.deepEqual(await mergeBase(git, repo.path, side, main), { ok: true, value: base });
+  repo.git('checkout', '--quiet', '--orphan', 'unrelated');
+  const unrelated = repo.commit('unrelated root');
+  assert.deepEqual(await mergeBase(git, repo.path, unrelated, main), { ok: true, value: undefined });
+}));
+
+test('a tree listing gives each file with its mode and blob SHA, optionally under one directory', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('.vault/scripts/run.sh', '#!/bin/sh\necho hi\n');
+  repo.write('.vault/scripts/lib/util.sh', 'x');
+  repo.write('notes/a.md', 'a');
+  repo.git('add', '--all');
+  repo.git('update-index', '--chmod=+x', '.vault/scripts/run.sh');
+  const sha = repo.commit('scripts');
+  repo.write('.vault/scripts/uncommitted.sh', 'not in the revision');
+  const listed = await listTree(git, repo.path, sha, '.vault/scripts');
+  assert.ok(listed.ok);
+  assert.deepEqual(listed.value, [
+    { path: '.vault/scripts/lib/util.sh', mode: '100644', sha: repo.git('rev-parse', `${sha}:.vault/scripts/lib/util.sh`) },
+    { path: '.vault/scripts/run.sh', mode: '100755', sha: repo.git('rev-parse', `${sha}:.vault/scripts/run.sh`) },
+  ]);
+  const whole = await listTree(git, repo.path, sha);
+  assert.ok(whole.ok);
+  assert.deepEqual(whole.value.map((e) => e.path), ['.vault/scripts/lib/util.sh', '.vault/scripts/run.sh', 'notes/a.md']);
+  assert.deepEqual(await listTree(git, repo.path, sha, 'missing'), { ok: true, value: [] });
+  assert.equal((await listTree(git, repo.path, sha, '../x')).ok, false);
+}));
+
+test('text at a revision is read as UTF-8, and a file the revision lacks is absent rather than an error', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('notes/ä.md', 'grüße\n');
+  const sha = repo.commit('text');
+  assert.deepEqual(await readTextAt(git, repo.path, sha, 'notes/ä.md'), { ok: true, value: 'grüße\n' });
+  assert.deepEqual(await readTextAt(git, repo.path, sha, 'notes/missing.md'), { ok: true, value: undefined });
+  const badRevision = await readTextAt(git, repo.path, 'no-such-branch', 'notes/ä.md');
+  assert.equal(badRevision.ok === false && badRevision.error.reason, 'unknown-revision');
+}));
+
+test('a path at a revision is a file, a directory, or absent', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('topics/cars/a.md', 'a');
+  const sha = repo.commit('tree');
+  assert.deepEqual(await pathTypeAt(git, repo.path, sha, 'topics/cars'), { ok: true, value: 'directory' });
+  assert.deepEqual(await pathTypeAt(git, repo.path, sha, 'topics/cars/a.md'), { ok: true, value: 'file' });
+  assert.deepEqual(await pathTypeAt(git, repo.path, sha, 'topics/boats'), { ok: true, value: undefined });
 }));
