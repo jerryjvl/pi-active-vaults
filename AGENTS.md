@@ -161,7 +161,8 @@ proposed to the owner first.
   and notes; merges happen in the forge under branch protection.
 - **Built-ins cannot be shadowed.** A vault script named like a built-in is an
   error, not an override.
-- **No npm lifecycle scripts.**
+- **No install-time lifecycle scripts** (`preinstall`, `install`, `postinstall`,
+  `prepare`). `prepack` may run the build.
 
 ## 7. Documentation rules
 

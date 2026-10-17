@@ -32,7 +32,6 @@ Optional, for more assurance:
 - **Dismiss stale approvals** when new commits are pushed to a pull request.
 - **Required checks run by the forge's CI** from the vault's `.vault/checks/`,
   rather than relying on statuses the executor publishes.
-- **Required signed commits** on `main`, where the forge supports it.
 
 ## Further hardening
 

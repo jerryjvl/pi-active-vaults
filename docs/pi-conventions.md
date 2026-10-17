@@ -10,8 +10,10 @@ shipped with the installed Pi (`pi --version`) when an API is in doubt.
 - Pi's own packages (`@earendil-works/pi-coding-agent`, `pi-ai`, `pi-agent-core`,
   `pi-tui`, `typebox`) are `peerDependencies` with range `"*"`. They are never
   bundled — a second copy breaks Pi's module mapping.
-- No npm lifecycle scripts. Anything that changes the machine (the CLI launcher,
-  the daemon service) is an explicit command.
+- No install-time lifecycle scripts (`preinstall`, `install`, `postinstall`,
+  `prepare`). Anything that changes the machine (the CLI launcher, the daemon
+  service) is an explicit command. `prepack` may run the build, since it runs
+  only where the package is packed.
 - Pi loads each package with its own module root. Do not rely on sharing a module
   instance with another package.
 

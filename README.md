@@ -45,4 +45,4 @@ Pre-release. The design is complete; implementation is in progress.
 - Linux, macOS or Windows
 - Pi ≥ 1.3
 - Node.js ≥ 22.18
-- Git ≥ 2.28
+- Git ≥ 2.36

@@ -140,5 +140,12 @@ before starting the stage they are given with.
 Each stage may be done by a fresh session, possibly with a different model. The
 progress log and this plan are the handoff: a new session reads AGENTS.md, this
 plan, the progress log, and the documents its stage implements, then continues
-from the recorded state. If context runs short mid-stage, finish the current
-step, commit, and update the progress log so another session can resume.
+from the recorded state.
+
+**Interruptions can happen without warning** (usage limits, context limits).
+Keep work resumable at all times: commit after each small coherent step, and
+keep a short *Current stage status* section at the top of the progress log
+up to date with each commit — what is done, what is in progress, and the next
+step. A resumed session starts from that section, the branch's last commits,
+and `git status`, and finishes or discards any uncommitted work before going
+on.
