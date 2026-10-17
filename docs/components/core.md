@@ -87,9 +87,9 @@ it; no vault logic lives anywhere else.
 
 A judgement check sends a document's content as state, with questions from the
 contract's axes, to the judgement model, applies each axis's `pass-when` (see
-[Concepts](../concepts.md#judgement-axes)), and records the outcome as an
-attestation. The content hash, model and axes version are part of the record. A
-judgement whose content has since changed is treated as missing.
+[Concepts](../concepts.md#judgement-axes)), and records each axis's outcome as
+an attestation. The content hash, model and axis version are part of each
+record. A judgement whose content has since changed is treated as missing.
 
 - **One attestation per axis**, named after it — so `judgement:<axis>` requires
   that axis: `subject` is the content's blob, `by` the model ID, `version` the

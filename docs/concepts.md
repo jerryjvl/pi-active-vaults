@@ -148,7 +148,7 @@ add requirements.
 |---|---|
 | `checks` | Every blocking check passed for the exact commit |
 | `owner` | An owner approved the exact commit |
-| `judgement:<name>` | The named judgement produced a passing outcome for the path's current content; a deleted path cannot be judged and needs `owner` instead |
+| `judgement:<axis>` | The named axis was judged passing for the path's current content; a deleted path cannot be judged and needs `owner` instead |
 
 A rule may add `when-tainted: [...]` — extra requirements when the proposal came
 from a session that read untrusted content. A proposal is tainted when any of
@@ -189,9 +189,10 @@ axes:
 | `choice` | `choices`, `probability` | The listed options' combined probability is at least `probability` |
 | `score` | `level`, optional `confidence` | The expected level is at least `level`, and the confidence at least `confidence` |
 
-A judgement passes when every axis passes. A judgement that cannot be made — no
-permitted model, an error, content too large for the model — is a failure,
-never a pass.
+Each axis is judged and recorded on its own, so a rule requires exactly the
+axes it names (`require: [judgement:evidence, judgement:relevance]`). An axis
+that cannot be judged — no permitted model, an error, content too large for the
+model — never passes: nothing is recorded, and its requirement stays unmet.
 
 **Control changes always need an owner.** Whatever the contracts say, a change
 to any `_contract.md`, anything under `.vault/`, or the `applies-when` or
@@ -269,11 +270,11 @@ An attestation records a verdict about an exact subject:
 | Field | Meaning |
 |---|---|
 | `kind` | `check`, `judgement` or `approval` |
-| `name` | Which check, judgement or approver |
+| `name` | Which check, judgement axis or approver |
 | `subject` | Commit SHA, or the blob SHA of judged content |
 | `result` | `pass`, `fail`, or a named outcome |
 | `by` | Script, model, or person |
-| `version` | The check's blob SHA or the judgement's axes version; absent for approvals |
+| `version` | The check's blob SHA or the judged axis's version; absent for approvals |
 | `evidence` | Short supporting detail |
 | `at` | When it was recorded (UTC, ISO 8601) |
 
