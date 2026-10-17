@@ -1,5 +1,6 @@
 // Public surface of the scripts module: script headers, built-ins, resolution
-// of scripts and checks from the accepted `main`, and running them.
+// of scripts and checks from the accepted `main`, running them, and recording
+// checks' verdicts.
 
 export { parseScriptHeader, type ScriptHeader } from './header.ts';
 export {
@@ -30,3 +31,4 @@ export {
   type ScriptRunError,
   type ScriptRunOptions,
 } from './run.ts';
+export { recordCheckResults, runChecks, type CheckResult, type CheckRun, type CheckRunOptions } from './checks.ts';
