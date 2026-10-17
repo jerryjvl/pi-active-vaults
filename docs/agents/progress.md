@@ -3,25 +3,16 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 2 — Vault model (L1), in progress
+**Current stage:** 2 — complete, awaiting review
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 1 review findings 1–4 (`main` merged `d8217ac`, trailers in
-  the repository's directory, `prepack` build, per-module schema ownership with
-  `operations/stores.ts` assembling the lists). Stage 2: documentation
-  proposal `4efd656` (implemented against; needs owner approval); `git`
-  additions (tree listing, merge base, first-parent history, text and
-  path-type reads); shared `DataReader`; `conditions`; `contracts`; `registry`; `events`; `attestations`; `integrity`
-  (+ `test/support/vault.ts`); `scripts`; `policy`; `actors`. All Stage 2
-  modules are implemented.
-- **In progress:** the refactoring and consolidation pass (first commit: one
-  committed-document reader, narrower exports).
-- **Next:** the Stage 2 refactoring pass and the whole-codebase
-  consolidation pass (implementation-plan.md "Refactoring passes"), then the
-  Stage 2 progress entry and checkpoint.
+- **Done:** Stage 2, including the Stage 1 review findings and the
+  whole-codebase consolidation pass; see its entry below.
+- **In progress:** nothing.
+- **Next:** review of Stage 2. Do not start Stage 3 until told to.
 
 ## Stage entries
 
@@ -104,3 +95,68 @@ Copy this block for each stage:
   - Real Windows and macOS: only the path branches are tested (injected). Unverified on a real platform: `!command` through `cmd.exe`, private-directory permissions on Windows (relies on the profile directory's ACL), and git path formats on Windows.
   - Notes writes race as described under Decisions.
   - Revisions, refs and branch names are checked against an allow-list (ASCII letters, digits and `._/@+-~^{}`); a repository using other characters in ref names, such as non-ASCII, gets `invalid-argument` rather than a pass-through.
+
+### Stage 2 — Vault model (L1)
+
+- **Commits:** `d8217ac..` on `impl/v1` — the Stage 1 review findings first (`d8217ac`–`56b20fa`), the documentation proposal (`4efd656`), then tests-first and implementation commits per module, two refactor commits for the consolidation pass, and this entry as the last commit. As in Stage 1, each `test(…)` commit fails until the commit after it; every other commit passes.
+- **Results:** `npm test`: 297 tests, 297 pass, none skipped. `npm run check`: no errors. `npm run build`: compiles, and every compiled core module imports under plain Node. Node v24.18.0, git 2.55.0, Linux; the `net: no` test ran against a working `unshare`.
+- **Built:** in `src/core/`:
+  - `conditions` — the path glob syntax (shared with merge rules), strict `applies-when` parsing, event matching across subscriptions and label equivalence.
+  - `contracts` — the five merge strategies with origins, `applyListOps` (the list syntax MCP permissions will reuse), reading the governing chain at a commit.
+  - `registry` — vault identity from the root contract, registered vaults with default worktrees, catalog, hosting, owner and actor membership.
+  - `events` — `merged` and `committed` events with changes, renames and labels.
+  - `attestations` — verdicts as JSON lines in notes on `refs/notes/vault/attestations`.
+  - `integrity` — the accepted `main` (branded `AcceptedMain`), unaccepted-change status, the guard every propagating action uses, the notice, adopt.
+  - `scripts` — headers, injected built-ins, resolution of scripts and checks from the accepted `main`, interpreter and network isolation per platform, bounded runs.
+  - `policy` — merge rules, control changes, a pure evaluator, `evaluateMerge`.
+  - `actors` — trailers and taint, worktrees, actor commits, proposals, review records, SHA-bound accept.
+  - `operations/stores.ts` — the per-file lists of module schemas (`integrity`, `actors` in `state.sqlite`).
+  - Additions below L1: `git` (tree listing with modes and blob SHAs, merge base, first-parent history, text and path-type reads, `isSha`, `gitExecPath`), `documents` (`readDocumentAt`, `labelsOf`, `describeDocumentError`), `result` (`DataReader`, `Issue`), `config` (`installationPaths.worktrees`, `VAULT_ID`), `store` (per-module schemas).
+- **Tests:** each module's documented behaviour, and fail-closed cases for every security behaviour in scope:
+  - *Scripts from the accepted `main`:* the working tree's, `main` tip's and a branch's versions never resolve or run, support files included; a run is refused during an unaccepted change and nothing runs; a vault script named like a built-in, two files of one name, a symlink or a bad header are unusable; a misspelt `net` key is an error; `net: no` really blocks a connection to a local server.
+  - *Unaccepted changes:* new commits, reset, rewrite, deleted `main` and none-accepted are each detected and noticed; the guard refuses until adopted or reset; adopt needs an owner, the exact current tip and local mode; recording is compare-and-swap.
+  - *SHA-bound accept:* a branch moved after review, no review, a non-owner, an unaccepted change, forge mode, an unmet policy and `main` not checked out are each refused with `main` untouched; the merge is of the reviewed SHA, its first parent the accepted `main`.
+  - *Merge policy:* rules come from the accepted `main` even when the proposal rewrites them; attestations count only for the exact commit; checks only at their accepted-main version; approvals only from owners, and a withdrawn one does not count; control changes always need an owner (case variants and unreadable frontmatter included); `when-tainted` applies to tainted proposals, including commits made outside the package; an unreadable policy blocks.
+  - *Judgement staleness:* a judgement counts only for the current content (blob) and axes version; a deleted path needs an owner instead.
+  - *Attestations:* any unreadable or misplaced record fails the read; malformed records are refused before writing.
+  - *Store:* a file with any newer or unknown module, or newer bookkeeping, is refused; a module's migrations cannot touch another's tables; every exported schema is assembled into exactly one file.
+  - *Boundaries:* layers, no import cycles (new), SQLite only in `store`, processes only in `git`, secret commands and `scripts/run.ts`.
+- **Refactoring:** (per stage, and the whole-codebase pass)
+  - config's private reader became the shared `DataReader` (with `oneOf`, `result`, and missing told apart from malformed), used by config, conditions, contracts, registry, scripts and policy; `ConfigIssue` became `Issue`.
+  - One reader of documents at a revision (`readDocumentAt`) replaced three near-copies in contracts, events and policy, keeping missing, unreadable and read apart.
+  - One SHA predicate (`isSha`) replaced a second regex in attestations.
+  - Per-check statuses are computed once in policy and both drive the `checks` requirement and appear in review.
+  - Exports used nowhere outside their module were made internal again (listed in `99e7fce`).
+  - Test support gained `TestVault` (`withTestVault`, `propose`, `accept`), `scriptSource`, `TEST_ATTRIBUTION`, replacing copies across test files; the layer test now also refuses import cycles.
+  - Comments and documents checked against behaviour; `core.md` updated for `store`, `operations` and `conditions`.
+- **Decisions:**
+  - *Store:* `user_version` is store's own bookkeeping format; versions per module live in `store_versions`. Module names are lower-case words and every object a module creates is named `<module>_…`, checked after its migrations run. A file holding a module this code was not given is refused as newer, so every opener passes the complete list from `operations`.
+  - *Globs:* `**` (whole segment), `*`, `?` and `{a,b}` within a segment; everything else literal; character classes refused; case-sensitive; `*` and `**` match dot-files.
+  - *Conditions:* `inject` only with session events; `model` filters any session event; a path filter never matches another vault's event; label equivalence groups are not transitive; a timer schedule is only checked to have five fields (its meaning is checked where timers run).
+  - *Contracts:* shape checks only (each value's meaning is checked by its owning module); `merge` (axes) replaces whole entries by name; tighten-only concatenates rules root first; a `-` that matches nothing and a `+` already present are no-ops; a locked key outside the root is an error; whether a path is a directory is read from the tree.
+  - *Events:* both kinds follow first parents; `committed` skips merge commits; unreadable frontmatter carries no labels.
+  - *Registry:* the identity is strict; at least one owner; owner and actor names must be safe as branch and directory names; a registration whose id differs from the root contract's is refused (`checkRegisteredIdentity`).
+  - *Integrity:* the accepted `main` is kept in `state.sqlite` in both modes (forge sync will record it with `how: sync`); the branch is `main`; adopt takes a full SHA that must still be `main`'s tip, with owners and mode from the accepted `main` (from the adopted commit only for a vault never accepted).
+  - *Scripts:* scripts are the top-level, non-hidden files; the header block ends at the first non-entry line and allows only the documented keys; a `#!` line is required; built-ins exist only for scripts, not checks, and run in-process (reported `unrestricted`); each run copies the script directory from the accepted `main` into a private temp dir; the environment is exactly what the caller passes; stdout is capped at 1 MiB and stderr at 64 KiB; a timeout kills the process group on POSIX.
+  - *Policy:* every check on the accepted `main` is blocking (no non-blocking kind is defined), and `checks` is met trivially when there are none; a check's version is its blob SHA; a judgement's version is the SHA-256 of its canonical axis definition; changes are taken from the merge base, and a rename's old path is treated as deleted.
+  - *Actors:* an actor branch starts at the accepted `main`; commits are refused off the actor's branch; review keeps the latest record per actor, by any reviewer; accept takes the reviewed SHA from that record rather than as an argument (core.md lists it as an input — this is that SHA, stored), records the owner's approval before evaluating (so an owner's accept satisfies `owner`), merges in whichever worktree has `main` checked out, and records nothing if `main` moved during the merge.
+  - *Trailers:* `Vault-Tainted: yes`; any value marks taint; keys compare case-insensitively.
+- **Needs owner approval:**
+  1. `4efd656` — documentation of formats the design left open, implemented against: attestation storage (JSON lines in the subject's note; `version` and `at`; latest per kind and name; checks count only at their accepted-main version, judgements only for current content and axes); `Vault-Tainted` and when a proposal is tainted; judgement rules route deleted paths to `owner`; list-ops on mapping items (`+: {…}` / `-: {…}`); unknown contract keys merge `nearest`; contract paths are vault-root relative; actors are `actors` ∪ `owners`; script naming and required header keys (and, added with `scripts`, hidden files are support files); `missed` defaults to `run-once`; default worktrees under `<state>/worktrees/<vault-id>`.
+  2. Proposed, not done: three places spawn processes with their own timeout and output handling (`git/exec.ts`, `config/secrets.ts`, `scripts/run.ts`). One L0 process runner would remove the duplication but needs a new core module and changes reviewed Stage 1 code, so it is raised rather than done.
+  3. Stage 1's open items are resolved by `main`: signed commits were removed from `security-setup.md`, and `prepack` is allowed (finding 4).
+- **Gaps:**
+  - Real Windows and macOS runs: interpreter and isolation command lines are tested as pure functions only. Unverified: Git for Windows' `sh` location, `.cmd`/`.bat` interpreters (not found without a shell), killing a timed-out script's children on Windows (only the interpreter is killed), `sandbox-exec` on a real Mac, worktree path comparison through symbolic links.
+  - `net: no` needs unprivileged user namespaces on Linux; where they are restricted the probe reports `none` and runs say `unrestricted`.
+  - Timers: schedules are shape-checked only; cron evaluation, `missed` and timer matching come with the daemon (Stage 6).
+  - Forge mode: recording the accepted `main` on sync, fetching and pushing notes, and the forge's own approvals come with `forge` (Stage 3).
+  - Taint depends on writers: the extension (Stage 5) must add `Vault-Tainted`, and `vault sync`'s merge commits must carry `Vault-Trace`, or they will mark proposals tainted.
+  - Notifying the owner once of an unaccepted change is the daemon's (Stage 6).
+  - One test waits 100 ms of real time (a script's time limit).
+  - Untested: accepting when `main` is checked out in a worktree other than the vault's own directory.
+  - As in Stage 1, only Node 24.18 and git 2.55 were used; the declared minimums (Node 22.18, git 2.36) are untested.
+- **Review findings addressed:**
+  1. *Merge `main`:* merged (`d8217ac`); it brought the interruption guidance (this log's *Current stage status*), `prepack` permission, per-module schema versions and git ≥ 2.36 in the README.
+  2. *Per-module schema ownership:* `store` keeps only its own `store_versions` table and applies the `ModuleSchema`s it is given, refusing a file in which any module is newer or unknown; each module exports its schema (`integritySchema`, `actorsSchema`); `operations/stores.ts` assembles the lists and opens the files; a test checks every exported schema is assembled (`56b20fa`).
+  3. *Trailers in the repository's directory:* `addTrailers` takes the repository and runs `interpret-trailers` there; a test with a repository-local `trailer.where` proves it (`612e112`).
+  4. *`prepack`:* `"prepack": "npm run build"`; the package test forbids every install-time lifecycle script and requires `prepack` to be the build; `architecture.md` says so (`f611999`).
