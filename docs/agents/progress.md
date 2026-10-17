@@ -18,7 +18,8 @@ Kept current with every commit, so an interrupted session can resume.
   (the hold), queue (`no-change`, `restart`); (3) judgements, `notify`,
   `templates`, `forge` (with `vault/policy`); (4) refactoring pass, docs
   proposal, this log.
-- **Next:** step (3), judgements. Steps (1) and (2) are done: `http`
+- **Next:** step (3), `templates` then `forge`; judgements (`9db5558`) and
+  `notify` (`52b56b5`) are done. Steps (1) and (2) are done: `http`
   module (`37a7f9a`); conditions/events/scripts (`fb446aa`); attestations
   (`937c114`); adopt moved to `actors` (`a5edf3d`); process identity and
   holds (`1631db0`); queue (`no-change`, `restart`).
