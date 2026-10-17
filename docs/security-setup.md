@@ -4,6 +4,7 @@ How to deploy for the [security model](security.md).
 
 ## Local vaults
 
+A `local` vault has one clone; use a forge for a vault on several machines.
 Nothing to configure beyond the defaults. `vault doctor --fix` makes sure that:
 
 - the package's Git hooks are installed in each vault (change monitoring and the
@@ -24,8 +25,16 @@ API and reports what is missing.
 | Setting | Value |
 |---|---|
 | **Executor credential** | A bot account or deploy key with write access to the repository, but **not an owner**. Owner credentials are never stored on executor machines. |
-| **Protected `main`** | No direct pushes, no force pushes, no deletion; changes only through pull requests. |
+| **Protected `main`** | No direct pushes, no force pushes, no deletion; changes only through pull requests; the `vault/policy` status required. |
 | **Required approval** | At least one approval from an owner, who is not the pull request's author. |
+
+`vault/policy` carries the vault's own merge policy — `when-tainted` rules,
+judgements, control changes — to the forge. Without **Required approval**, it
+alone decides, which suits a vault meant to merge on checks, such as an
+agent-memory vault. That status is published by the executor, so a compromised
+executor could fake it: keep owner approval required wherever that matters. The
+forge enforces exactly what is configured; a loophole configured deliberately
+stays open.
 
 Optional, for more assurance:
 

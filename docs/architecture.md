@@ -59,6 +59,8 @@ accepting. The daemon adds work that must happen while nobody is using Pi.
 - The **daemon** is one process per machine, installed as a user service. It
   runs agent sessions by starting `pi --mode rpc` subprocesses, so headless runs
   use the user's own Pi, models and configuration, and load the same extension.
+  On start it ends anything left from its previous run and resets that state
+  (see [Daemon](components/daemon.md#start-up-recovery)).
 - The **CLI** is a short-lived process. It talks to the daemon when one is
   running and works directly against the core otherwise.
 
@@ -96,7 +98,7 @@ Everything a vault shares lives in Git. Everything local to a machine lives in
 
 | File | Holds | Lifecycle |
 |---|---|---|
-| `state.sqlite` | Accepted `main` per vault, spawn queue and claims, job cursors, run state, budget ledger, review records, notification outbox, judgement cache | Durable; never deleted by the package |
+| `state.sqlite` | Accepted `main` per vault, spawn queue and claims, job cursors, run state, actor holds, budget ledger, review records, notification outbox, judgement cache | Durable; never deleted by the package |
 | `index.sqlite` | Chunks, keyword index (FTS5), vectors (`sqlite-vec`), content hashes, the embedding model it was built with | Derived from Git; safe to delete and rebuild |
 
 - **One access path.** Only the core's `store` module opens these files.
@@ -135,12 +137,14 @@ age.
 1. A commit or merge updates a ref. A Git hook notifies the daemon, which also
    polls refs as a fallback.
 2. The daemon diffs from each job's cursor up to the accepted `main`, matches
-   `applies-when` conditions and claims each spawn in the state database. If
+   `applies-when` conditions and claims each spawn in the state database —
+   in the session tree of the run whose commit caused the change, if any. If
    `main` has an unaccepted change, the vault's automation pauses instead.
-3. The scheduler runs the spawn under its budget — forking from the originating
-   session when it is available and the job allows it.
-4. The session commits to its actor branch; the cursor advances; the trace is
-   recorded.
+3. The scheduler runs the spawn under its budget once its actor is free —
+   forking from the originating session when it is available and the job allows
+   it.
+4. The session commits to its actor branch, or ends without changes; the cursor
+   advances; the trace is recorded.
 
 ### Timer
 
@@ -171,7 +175,7 @@ sequenceDiagram
   participant O as Owner
   D->>D: commit to actor worktree
   D->>F: push actor branch, open or update pull request
-  D->>F: publish check results as commit statuses
+  D->>F: publish check results and vault/policy as commit statuses
   O->>F: review and approve
   F->>F: merge to main (branch protection satisfied)
   D->>F: fetch

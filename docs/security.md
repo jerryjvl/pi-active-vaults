@@ -54,7 +54,7 @@ It is resolved only by an explicit owner act:
 
 | Resolution | Command |
 |---|---|
-| Accept the change | `vault accept --adopt <sha>` shows the commits and diff from the accepted `main` to `<sha>`, flags any rewritten history, and asks for confirmation before recording `<sha>` as accepted |
+| Accept the change | `vault accept --adopt <sha>` first shows any failed checks and control changes, which must be acknowledged; then the commits and diff from the accepted `main` to `<sha>`, flagging any rewritten history; and asks for confirmation before recording `<sha>` as accepted |
 | Discard it | Reset `main` to the accepted `main` with Git, then run any command to confirm |
 
 In `forge` mode, a local `main` that differs from the fetched forge `main` is
@@ -74,13 +74,24 @@ adopting locally.
 | Protected `main` with required owner approval | Forge | Anything reaching the shared `main` unreviewed — even from a compromised machine |
 | Content is data | Both | Text in documents, pages or tool results acting as instructions |
 
+The Git hooks only speed things up and guard against accidents. Every safeguard
+is checked by the action itself, and the daemon also polls each minute. A
+repository that skips the hooks (for example through `core.hooksPath`) reacts up
+to a minute later and loses the pre-push guard; `vault doctor` reports it.
+
 ## What is not guaranteed
 
 - **Locally, a deliberate same-user process can defeat the safeguards** — for
   example by editing the state database. Local mode is about accidents. Use a
   forge where a misbehaving agent must not be able to change accepted knowledge.
+- **Local mode is for one clone.** The accepted `main` is recorded per machine,
+  so a second clone sees the first one's accepts as unaccepted changes. Use a
+  forge for a vault on several machines.
 - **A process with the owner's forge credentials can do anything the owner
   can.** Keep owner credentials off executor machines.
+- **The forge enforces what it is configured to.** A protection left out of
+  the forge's settings is not supplied by the package (see [Security
+  setup](security-setup.md)).
 - **Local data can be destroyed.** The forge, or another backup, is the recovery
   path.
 

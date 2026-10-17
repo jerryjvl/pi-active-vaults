@@ -51,9 +51,25 @@ applies-when:
 | `schedule`, `missed` | Timer only: cron expression; `run-once` (default) or `skip` for runs missed while nothing was running |
 | `paths`, `change` | Path globs and change kinds (`created`, `modified`, `deleted`, `renamed`) |
 | `labels` | Match if the changed document carries any of these labels |
+| `actor` | Git events: match if the changes were made by one of these actors (their `Vault-Actor` trailer) |
 | `tools`, `model` | Session events: tool names; model ID |
 | `name` | External events: the event name given to `vault trigger` |
+| `script` | Spawn only: an approved script that receives the event as JSON on standard input; the spawn happens only if it exits `0` |
 | `context` | Spawn only: `session-preferred` (default), `bare`, `session-required` |
+
+The fields of a condition must all match; a document applies when any of its
+conditions does. There is deliberately no richer expression language:
+
+- **Keep filters as narrow as the job allows.** Every match that spawns starts a
+  session, and even one that decides to do nothing spends a model turn.
+- **The job's own instructions refine the match.** A spawned session receives
+  the triggering event as structured data — kind, commits, changed paths with
+  their change kinds, labels and actor — so a job can say "do nothing unless at
+  least three files were modified". A run that ends without changes is recorded
+  as `no-change`.
+- **`script` is the precise escape hatch.** It runs only after every other field
+  has matched and can only narrow the match, so what a condition can match is
+  still known from its other fields.
 
 Conditions never name other vaults. Events from another vault reach a document
 only when the installation subscribes this vault to that one; labels are matched
@@ -96,7 +112,7 @@ Contract keys:
 | `merge` | `tighten-only` | Merge rules (below) |
 | `index` | `nearest` | `default`, `opt-in` or `none` — whether search includes the subtree (`opt-in`: only within a search's explicit scope) |
 | `naming` | `nearest` | Filename pattern for new documents, e.g. `"{topic}-{date}.md"` |
-| `axes` | `merge` | Judgement questions: name → `{ type: bool \| choice \| score, instructions, options or levels, pass-when }`, where `pass-when` is the condition on the answer's probabilities that makes the judgement pass |
+| `axes` | `merge` | Judgement questions (below) |
 | `applies-when` | `list-ops` | Conditions that apply to every document in the subtree |
 
 Any other key is the vault's own and merges `nearest`. Paths in contracts and
@@ -139,6 +155,44 @@ from a session that read untrusted content. A proposal is tainted when any of
 its commits carries a `Vault-Tainted` trailer, or was not made by the package
 (has no `Vault-Trace`).
 
+### Judgement axes
+
+`axes` declares the questions a judgement asks of a document, each with the
+answer that makes it pass:
+
+```yaml
+axes:
+  evidence:
+    type: choice
+    instructions: What backs the main claims?
+    options:
+      primary: Cites data or a first-hand source
+      secondary: Reports others' claims
+      opinion: Argument without sources
+    pass-when: { choices: [primary, secondary], probability: 0.7 }
+  relevance:
+    type: score
+    instructions: How relevant is this to the vault's purpose?
+    levels: [unrelated, tangential, relevant, core]   # lowest first
+    pass-when: { level: relevant }
+  personal-data:
+    type: bool
+    instructions: Does this contain personal health or financial data?
+    true: Contains such data
+    false: Contains none
+    pass-when: { value: false, probability: 0.9 }
+```
+
+| Type | `pass-when` | Passes when |
+|---|---|---|
+| `bool` | `value` (default `true`), `probability` | The probability of `value` is at least `probability` |
+| `choice` | `choices`, `probability` | The listed options' combined probability is at least `probability` |
+| `score` | `level`, optional `confidence` | The expected level is at least `level`, and the confidence at least `confidence` |
+
+A judgement passes when every axis passes. A judgement that cannot be made — no
+permitted model, an error, content too large for the model — is a failure,
+never a pass.
+
 **Control changes always need an owner.** Whatever the contracts say, a change
 to any `_contract.md`, anything under `.vault/`, or the `applies-when` or
 `budget` of any document requires `owner`. Agents may propose such changes;
@@ -162,10 +216,21 @@ Sessions start from a trigger and branch as they spawn work. Budgets flow down:
 - `ttl` is run time; queue time has its own limit.
 - No document fires twice in one tree. `budgets.max-depth` (default 4) backs
   this up.
+- **Work a run commits stays in its tree.** An event from a commit carrying a
+  run's `Vault-Trace` continues that run's tree instead of starting a new one —
+  also after the commit is merged, rebased or amended, since its message keeps
+  the trailer. So a job whose own commits match its condition does not fire
+  again. Commits without the trailer, such as a person's edits, start new trees.
+  A merge's changes are attributed to the commits that made them, so one merge
+  can continue several trees.
 
 **Fan-out and gather** is the built-in multi-session shape: a list of items, an
 instruction for each, an instruction to combine the results. The list can come
-from anything the session can do.
+from anything the session can do. The item sessions return results and do not
+write; the session that fanned out writes what is gathered.
+
+Ordering between jobs comes from events, not priorities: a job that should run
+after another reacts to that job's merged work (`on: merged`, `actor: …`).
 
 ## Script
 
@@ -214,7 +279,9 @@ An attestation records a verdict about an exact subject:
 
 Attestations are stored as Git notes on `refs/notes/vault/attestations`, so they
 travel with the repository: one JSON object per line in the note on the subject.
-For each kind and name the latest record counts. Accepting a proposal evaluates
+When notes written on different machines meet, they are merged line by line
+(Git's `cat_sort_uniq` strategy), so every record from both sides is kept. For
+each kind and name the latest record counts. Accepting a proposal evaluates
 the merge policy against the attestations for the exact commit under review; a
 check counts only at its version on the accepted `main`, and a judgement only
 for the current content and axes.
@@ -226,6 +293,13 @@ A named writer — an agent role or a person — with its own branch (default
 config). An actor is one of the root contract's `actors` or `owners`. Many jobs
 may write into one actor's branch; each actor's branch is one review lane.
 
+**One writer at a time.** At most one session writes as an actor at once. The
+daemon runs one job per actor at a time and queues the rest. A Pi session
+started as an actor that is busy is told which session holds it, and can wait
+or choose another actor. A session holds its actor through a record of its
+process, so a session that has ended — however it ended — holds nothing, and
+there is nothing to unlock.
+
 A **proposal** is an actor's branch ahead of `main`. The vault's root contract
 chooses how proposals are reviewed (`vault.review`):
 
@@ -234,11 +308,17 @@ chooses how proposals are reviewed (`vault.review`):
 | `local` (default) | Actor branch in the local repository | `vault accept` by an owner (the installation's `person` must be in `vault.owners`) | `vault accept`, of the SHA that owner reviewed |
 | `forge` | Actor branch pushed to the vault's remote, shown as a pull request | Owner review in the forge (Gitea, GitHub, GitLab) | The forge, gated by branch protection |
 
+`local` mode is for a vault with **one clone**: the accepted `main` is recorded
+on the machine that accepted it, so another clone would see those accepts as
+unaccepted changes. A vault used on several machines uses `forge` mode.
+
 In `forge` mode the package publishes each check's attestation as a commit
-status on the proposal, never pushes to `main`, and learns about merges by
-fetching. The forge's branch protection on `main` requires those statuses and
-an owner's approval; `vault doctor` verifies it is in place. Owners are
-identified by their forge usernames.
+status on the proposal, plus one status, **`vault/policy`**, saying whether the
+proposal satisfies the vault's merge policy. It never pushes to `main`, and
+learns about merges by fetching. The forge's branch protection on `main`
+requires `vault/policy` and, in the recommended setup, an owner's approval;
+`vault doctor` verifies it is in place (see [Security
+setup](security-setup.md)). Owners are identified by their forge usernames.
 
 A vault moves from `local` to `forge` by adding a remote and changing the mode;
 nothing else changes.
@@ -329,7 +409,7 @@ Each model role speaks one HTTP API:
 |---|---|
 | `embed` | OpenAI-compatible `POST /v1/embeddings` |
 | `rerank` | `POST /v1/rerank` (Jina / Cohere style) |
-| `judgement` | `POST /v1/systemone` decisions (state plus typed questions → probabilities) |
+| `judgement` | `POST /v1/systemone`, the System One decisions protocol of llama.cpp's decision models and TypeSafe (state plus typed questions → probabilities; see [Core library](components/core.md#judgements)) |
 
 Each role has `batch` (inputs per request; default 1) and `parallel` (concurrent
 requests; default 1). Work is split into batches of `batch` inputs, sent up to

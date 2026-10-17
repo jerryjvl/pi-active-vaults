@@ -10,12 +10,12 @@ The registered surface is listed in [Pi API surface](../api.md).
 
 | Pi event | The extension |
 |---|---|
-| `session_start` | Loads the installation config; compiles the vault catalog; determines the session's actor and budget; connects to the daemon if one is running; injects `session.start` documents |
+| `session_start` | Loads the installation config; compiles the vault catalog; determines the session's actor and budget, and takes the actor's hold (or reports who holds it); connects to the daemon if one is running; injects `session.start` documents |
 | `before_agent_start` | Adds the vault catalog to the system prompt (stable, ordered by vault ID) |
 | `tool_call` | Applies the write guard; records session events; injects contracts and `inject` documents for newly touched paths |
 | `tool_result` | Records results needed for traces; marks the session tainted when it read untrusted content |
-| `turn_end` | Accounts tokens against the session budget |
-| `session_shutdown` | Flushes the trace; disconnects; releases resources |
+| `turn_end` | Records the turn's tokens against the session budget, so a crash loses at most the turn in progress |
+| `session_shutdown` | Flushes the trace; releases the actor; disconnects; releases resources |
 
 ## Behaviour
 
@@ -46,8 +46,9 @@ they are allowed on the actor's branch and require an owner at merge.
 
 A session event or a commit that matches a `spawn` condition becomes a spawn
 request. With the daemon running, it is sent there; otherwise it is queued in
-the state database. The session receives a short notice when spawned work starts
-and finishes.
+the state database. Its identity is fixed before either, so a request that
+reached the daemon and was also queued after a lost reply is still one spawn.
+The session receives a short notice when spawned work starts and finishes.
 
 ### Commits
 
@@ -65,4 +66,6 @@ tools taint, so the check fails closed. Commits from a tainted session carry a
 
 The daemon runs jobs as `pi --mode rpc` sessions that load this same extension.
 In headless mode the extension takes its actor, budget and trace context from
-the daemon instead of from configuration.
+the daemon instead of from configuration, and gives the job the triggering event
+as structured data (see [Concepts](../concepts.md#applies-when)). A job that
+decides there is nothing to do ends without committing.

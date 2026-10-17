@@ -28,10 +28,10 @@ it; no vault logic lives anywhere else.
 | `documents` | Parse and write Markdown with frontmatter, preserving formatting of untouched content |
 | `contracts` | Find `_contract.md` files, merge them into an effective contract with per-key strategies, report the origin of each key |
 | `conditions` | Parse `applies-when`; match Git and session events against conditions; the path globs merge rules share |
-| `events` | Derive Git events from a ref range (paths, change kinds, renames, labels) |
+| `events` | Derive Git events from a ref range (paths, change kinds, renames, labels, the actor and run that made each change) |
 | `policy` | Evaluate merge rules against changed paths and attestations |
 | `attestations` | Read and write attestation records in Git notes |
-| `actors` | Actor branches and worktrees; proposals; review records; SHA-bound accept |
+| `actors` | Actor branches and worktrees; the hold that keeps one writer per actor, void once its process has ended; proposals; review records; SHA-bound accept |
 | `integrity` | The accepted `main` per vault: record it on accept and adopt, detect unaccepted changes, provide the notice every surface shows |
 | `scripts` | Resolve built-ins and the vault's scripts and checks from the accepted `main`, parse headers, run them with their declared limits |
 | `templates` | Validate a template's marker, create a vault from it with fresh history and recorded origin |
@@ -42,8 +42,8 @@ it; no vault logic lives anywhere else.
 | `store` | The only access to `state.sqlite` and `index.sqlite`: connections, pragmas, transactions, loading `sqlite-vec` into the index, and applying the schema migrations each module supplies for its own tables |
 | `queue` | Spawn queue, claims and cursors, on top of `store` |
 | `search` | Index documents per vault; keyword, vector and hybrid search; rerank; check each hit against the current content |
-| `models` | Clients for configured model roles: embeddings, rerank, judgement. Splits work into batches of the role's `batch` size and sends up to `parallel` requests at a time |
-| `forge` | Forge adapters (Gitea, GitHub, GitLab): push actor branches, open or update pull requests, publish commit statuses, read approvals and merges, check branch protection |
+| `models` | Clients for configured model roles: embeddings, rerank, judgement. Splits work into batches of the role's `batch` size and sends up to `parallel` requests at a time. Never follows redirects, so content goes only to the configured URL |
+| `forge` | Forge adapters (Gitea, GitHub, GitLab): push actor branches, open or update pull requests, publish commit statuses and `vault/policy`, read approvals and merges, check branch protection |
 | `operations` | The catalogue of operations — name (also its permission), parameters, implementation, and which surfaces expose it (Pi tool, Pi command, CLI, MCP) — from which every surface is generated; permission sets and their evaluation; the complete list of module schemas each local store is opened with |
 
 ## Key interfaces
@@ -83,11 +83,32 @@ it; no vault logic lives anywhere else.
 ## Judgements
 
 A judgement check sends a document's content as state, with questions from the
-contract's axes, to the judgement model (`/v1/systemone`), applies each axis's
-`pass-when`, and records the outcome as an attestation. The content hash, model and axes version are part of the record. A
+contract's axes, to the judgement model, applies each axis's `pass-when` (see
+[Concepts](../concepts.md#judgement-axes)), and records the outcome as an
+attestation. The content hash, model and axes version are part of the record. A
 judgement whose content has since changed is treated as missing.
 
-## Open questions
+The model speaks the System One protocol, as served by llama.cpp's decision
+models and by TypeSafe. One request answers every axis:
 
-- The request and response shapes of the judgement API (`POST /v1/systemone`:
-  state plus typed questions in, probabilities out) are not yet specified.
+```
+POST <url>/systemone            Authorization: Bearer <token>
+{ "model": "<model>",
+  "state": { "vault": "<purpose summary>", "path": "…", "title": "…",
+             "labels": […], "content": "…" },
+  "questions": {
+    "<axis>": { "type": "choice", "instructions": "…", "criteria": { "<option>": "<meaning>", … } },
+    "<axis>": { "type": "score",  "instructions": "…", "criteria": ["<lowest level>", …] },
+    "<axis>": { "type": "noul",   "instructions": "…", "criteria": { "true": "…", "false": "…" } } } }
+
+200 { "answers": {
+        "<axis>": { "type": "choice", "choice": "<option>", "probabilities": { "<option>": p, … }, "confidence": c },
+        "<axis>": { "type": "score", "score": s, "confidence": c },
+        "<axis>": { "type": "noul", "noul": p } },
+      "usage": { "input_tokens": n, "output_tokens": n } }
+```
+
+`noul` is the protocol's name for `bool`; its `noul` is the probability of
+`true`. A score is the expected level index, from 0. `usage` may be absent. A
+response missing an axis or with a wrong type fails the judgement. Content is
+never shortened to fit the model: content too large is a failed judgement.

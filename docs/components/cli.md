@@ -25,7 +25,7 @@ the system. Commands mirror the Pi extension's tools and commands.
 | `vault add <path>` | Register an existing vault in the installation |
 | `vault list` | Registered vaults and their catalog entries |
 | `vault whoami` | This installation's name, for use as a vault's `executor` |
-| `vault doctor [--fix]` | Check config, Pi, Git, model endpoints, hooks, daemon service, paths and forge settings; `--fix` installs hooks and corrects permissions |
+| `vault doctor [--fix]` | Check config, Pi, Git, model endpoints, hooks (including a `core.hooksPath` that bypasses them), daemon service, paths and forge settings; report a `local` vault with a remote, sessions holding an actor, and a leftover Git lock in `main`'s worktree; `--fix` installs hooks, corrects permissions and, when no daemon is running, runs its start-up recovery |
 
 ### Knowledge
 
@@ -43,7 +43,7 @@ the system. Commands mirror the Pi extension's tools and commands.
 | `vault status` | Pending proposals, failing checks, queued work |
 | `vault review <actor>` | Commits, diff, checks and control-change flags; records the reviewed SHA |
 | `vault accept <actor>` | Merge the SHA you last reviewed if the merge policy is satisfied |
-| `vault accept --adopt <sha>` | Show the delta from the accepted `main` to `<sha>` and, once confirmed, accept it |
+| `vault accept --adopt <sha>` | Show failed checks and control changes in the delta from the accepted `main` to `<sha>` first, and require them to be acknowledged; then show the delta and, once confirmed, accept it. With neither, it goes straight to the delta |
 | `vault sync [actor]` | Bring actor branches up to date with `main`; in `forge` mode, fetch first |
 | `vault propose <actor>` | In `forge` mode: push the actor branch and open or update its pull request |
 | `vault commit -m <msg>` | Commit as the current actor, with checks and trailers |
