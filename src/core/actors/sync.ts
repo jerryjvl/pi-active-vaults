@@ -19,7 +19,7 @@ import type { AcceptedMain } from '../integrity/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import { recordCheckResults, runChecks, type CheckResult } from '../scripts/index.ts';
-import { actorHold, sameHolder, type Holder } from './holds.ts';
+import { heldByAnother, type Holder } from './holds.ts';
 import { packageTrailers, type CommitOrigin } from './trailers.ts';
 import { actorBranch, ensureActorWorktree, type ActorCommitContext, type ActorCommitError, type WorktreeError } from './worktrees.ts';
 
@@ -53,8 +53,8 @@ export async function syncActorBranch(
   if (!current.ok) return current;
   if (current.value) return ok({ outcome: 'up-to-date', head: tip.value });
 
-  const hold = await actorHold(context.store, context.alive, vault.id, actor);
-  if (hold !== undefined && (request.holder === undefined || !sameHolder(hold.holder, request.holder))) return err({ reason: 'actor-busy', hold });
+  const hold = await heldByAnother(context.store, context.alive, vault.id, actor, request.holder);
+  if (hold !== undefined) return err({ reason: 'actor-busy', hold });
 
   const behind = await isAncestor(git, vault.path, tip.value, accepted.sha);
   if (!behind.ok) return behind;

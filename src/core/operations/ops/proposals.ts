@@ -4,10 +4,9 @@
 // writes are made as the caller's actor, never while another session holds
 // it.
 
-import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { writeFileSync } from 'node:fs';
 import {
-  accept, adopt, adoptionDelta, commitAsActor, ensureActorWorktree, listActorHolds, readProposal, review, syncActorBranch,
+  accept, adopt, adoptionDelta, commitAsActor, ensureActorWorktree, heldByAnother, worktreeFile, listActorHolds, readProposal, review, syncActorBranch,
   type ActorCommitContext, type AdoptionDelta, type Review,
 } from '../../actors/index.ts';
 import { proposeToForge, syncWithForge } from '../../forge/index.ts';
@@ -16,13 +15,13 @@ import { requireNoUnacceptedChange } from '../../integrity/index.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
 import { evaluateMerge, type MergeEvaluation } from '../../policy/index.ts';
 import { listSpawns } from '../../queue/index.ts';
-import { readVaultIdentity, type RegisteredVault, type VaultIdentity } from '../../registry/index.ts';
+import { readVaultIdentity, writersOf, type RegisteredVault } from '../../registry/index.ts';
 import { newTraceId } from '../../traces/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
 import { vaultRelative } from '../locate.ts';
 import { fromError, refused, succeeded } from '../messages.ts';
 import type { Caller, Operation } from '../types.ts';
-import { actorOf, flag, forgeDeps, heldByAnother, personOf, readingFrom, text, texts, theVault } from './common.ts';
+import { actorOf, flag, forgeDeps, personOf, readingFrom, text, texts, theVault } from './common.ts';
 
 const ACTOR_PARAM = { name: 'actor', kind: 'string', positional: true, description: 'The actor whose proposal it is' } as const;
 
@@ -31,8 +30,6 @@ async function identityOf(context: OperationContext, vault: RegisteredVault) {
   const accepted = readingFrom(context, vault);
   return readVaultIdentity(context.git, vault.path, accepted.ok ? accepted.value.sha : 'refs/heads/main');
 }
-
-const writers = (identity: VaultIdentity): string[] => [...new Set([...identity.actors, ...identity.owners])];
 
 export async function commitContext(context: OperationContext, caller: Caller): Promise<ActorCommitContext> {
   return {
@@ -70,7 +67,7 @@ export const statusOperation: Operation = {
       const proposals = [];
       const identity = await identityOf(context, vault);
       if (accepted.ok && identity.ok) {
-        for (const actor of writers(identity.value)) {
+        for (const actor of writersOf(identity.value)) {
           const proposal = await readProposal(context.git, vault.path, accepted.value, actor);
           if (!proposal.ok) continue;
           const { base, head, tainted, commits } = proposal.value;
@@ -199,7 +196,7 @@ export const syncOperation: Operation = {
     const given = text(request.params, 'actor');
     const committing = await commitContext(context, request.caller);
     const outcomes = [];
-    for (const actor of given === undefined ? writers(identity.value) : [given]) {
+    for (const actor of given === undefined ? writersOf(identity.value) : [given]) {
       const synced = await syncActorBranch(committing, vault, accepted.value, actor, {
         origin: { trace: newTraceId(context.ids), actor }, date: context.clock.now(), identity: packageIdentity(context.installation, actor),
         ...(request.caller.holder === undefined ? {} : { holder: request.caller.holder }),
@@ -266,25 +263,6 @@ export const commitOperation: Operation = {
   },
 };
 
-/**
- * The file `path` names in `root`, when the write stays inside it and out of
- * its Git internals — judged by where it really lands, since a directory on
- * the way may be a link to elsewhere — with its directories made; undefined
- * otherwise, with nothing made.
- */
-function inWorktree(root: string, path: string): string | undefined {
-  const normal = vaultRelative(path);
-  if (normal === undefined || normal.split('/')[0]?.toLowerCase() === '.git') return undefined;
-  const target = join(root, ...normal.split('/'));
-  let existing = dirname(target);
-  while (!existsSync(existing)) existing = dirname(existing);
-  const landed = relative(realpathSync.native(root), realpathSync.native(existing));
-  if (landed.startsWith('..') || landed.split(sep)[0]?.toLowerCase() === '.git') return undefined;
-  if (existsSync(target) && lstatSync(target).isSymbolicLink()) return undefined;
-  mkdirSync(dirname(target), { recursive: true });
-  return target;
-}
-
 export const writeOperation: Operation = {
   name: 'write',
   summary: 'Write a document in the actor\'s worktree',
@@ -299,14 +277,14 @@ export const writeOperation: Operation = {
     const vault = theVault(request);
     const actor = actorOf(request.caller, request.params);
     if (!actor.ok) return fromError(actor.error);
-    const hold = await heldByAnother(context, vault, actor.value, request.caller);
+    const hold = await heldByAnother(context.state, context.alive, vault.id, actor.value, request.caller.holder);
     if (hold !== undefined) return fromError({ reason: 'actor-busy', hold });
     const accepted = readingFrom(context, vault);
     if (!accepted.ok) return fromError(accepted.error);
     const worktree = await ensureActorWorktree(context.git, vault, accepted.value, actor.value);
     if (!worktree.ok) return fromError(worktree.error);
     const path = text(request.params, 'path') ?? '';
-    const target = inWorktree(worktree.value.path, path);
+    const target = worktreeFile(worktree.value.path, path);
     if (target === undefined) return fromError({ reason: 'outside-worktree', path });
     const content = text(request.params, 'content') ?? '';
     writeFileSync(target, content);

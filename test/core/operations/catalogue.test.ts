@@ -6,7 +6,7 @@
 // runs; vaults are chosen the same way for every surface.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CATALOGUE, PERMISSIONS, checkParams, chooseVaults, operationNamed, paramsOn } from '../../../src/core/operations/index.ts';
+import { CATALOGUE, PERMISSIONS, checkParams, chooseVaults, operationNamed, paramsOn, placeVaultPaths } from '../../../src/core/operations/index.ts';
 import type { RegisteredVault } from '../../../src/core/registry/index.ts';
 
 test('every operation is named once; those offered over MCP are exactly the permissions', () => {
@@ -73,4 +73,13 @@ test('vaults are chosen alike everywhere: those named, else where the caller is,
   assert.deepEqual(chooseVaults(installation, op('search'), ['work']), { ok: true, value: [work] });
   assert.deepEqual(chooseVaults(installation, op('whoami'), ['work']), { ok: true, value: [] });
   assert.deepEqual(chooseVaults(installation, op('read'), ['elsewhere']), { ok: false, error: { reason: 'unknown-vault', vault: 'elsewhere' } });
+});
+
+test('a vault path names its vault with <vault-id>:, or is relative to where the caller is in that vault', () => {
+  const read = operationNamed('read');
+  assert.ok(read !== undefined);
+  assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'work:notes/a.md' }, []), { params: { path: 'notes/a.md' }, named: ['work'] });
+  assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'a.md' }, [], { vault: home, path: 'notes' }), { params: { path: 'notes/a.md' }, named: [] });
+  assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'a.md' }, ['work'], { vault: home, path: 'notes' }), { params: { path: 'a.md' }, named: ['work'] }, 'another vault named: not relative to here');
+  assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'C:notes.md' }, []), { params: { path: 'C:notes.md' }, named: [] }, 'only a registered vault\'s prefix counts');
 });

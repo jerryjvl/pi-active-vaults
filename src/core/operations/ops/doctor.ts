@@ -15,7 +15,7 @@
 // ceiling.
 
 import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { listActorHolds } from '../../actors/index.ts';
 import { resolveSecret, MODEL_ROLES } from '../../config/index.ts';
 import { forgeAdapter, forgeProject, protectionProblems } from '../../forge/index.ts';
@@ -214,7 +214,7 @@ export const doctorOperation: Operation = {
 export async function doctorFindings(context: OperationContext, fix: boolean): Promise<Finding[]> {
   const { paths } = context.installation;
   const findings = await installationFindings(context);
-  for (const [path, mode] of [[join(paths.stateDb, '..'), 0o700], [join(paths.configFile, '..'), 0o700], [paths.configFile, 0o600], [paths.stateDb, 0o600]] as const) {
+  for (const [path, mode] of [[dirname(paths.stateDb), 0o700], [dirname(paths.configFile), 0o700], [paths.configFile, 0o600], [paths.stateDb, 0o600]] as const) {
     const found = privateMode(context, path, mode, fix);
     if (found !== undefined) findings.push(found);
   }

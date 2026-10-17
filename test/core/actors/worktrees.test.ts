@@ -8,9 +8,9 @@
 // they do not all pass is not made; their verdicts are recorded.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { actorBranch, commitAsActor, ensureActorWorktree, takeActorHold, type Holder } from '../../../src/core/actors/index.ts';
+import { actorBranch, commitAsActor, ensureActorWorktree, takeActorHold, worktreeFile, type Holder } from '../../../src/core/actors/index.ts';
 import { readAttestations } from '../../../src/core/attestations/index.ts';
 import type { ProcessLiveness } from '../../../src/core/process/index.ts';
 import { TEST_ATTRIBUTION } from '../../support/git-repo.ts';
@@ -158,3 +158,19 @@ function writeIn(root: string, path: string): void {
   mkdirSync(dirname(full), { recursive: true });
   writeFileSync(full, path);
 }
+
+test('a file in an actor\'s worktree is one inside it and out of its Git internals, judged by where it really lands', withTestVault(async (v) => {
+  const made = await ensureActorWorktree(v.git, v.vault, v.accept(), 'gardener');
+  assert.ok(made.ok);
+  const root = made.value.path;
+  assert.equal(worktreeFile(root, 'notes/deep/a.md'), join(root, 'notes', 'deep', 'a.md'));
+  assert.ok(existsSync(join(root, 'notes', 'deep')), 'its directories are made');
+  for (const path of ['../a.md', '/etc/passwd', 'C:/x.md', '.git/config', '.Git/hooks/x', 'notes/../a.md', '', '.']) {
+    assert.equal(worktreeFile(root, path), undefined, path);
+  }
+  if (process.platform !== 'win32') {
+    symlinkSync(v.repo.path, join(root, 'elsewhere'));
+    assert.equal(worktreeFile(root, 'elsewhere/new/x.md'), undefined);
+    assert.equal(existsSync(join(v.repo.path, 'new')), false, 'nothing is made outside');
+  }
+}));

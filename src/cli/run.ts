@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { Host } from '../core/config/index.ts';
 import {
-  CATALOGUE, chooseVaults, createContext, describeError, loadInstallation, locate, paramsOn, runOperation, splitVaultPath, unacceptedNotices, vaultRelative,
+  CATALOGUE, chooseVaults, createContext, describeError, loadInstallation, locate, paramsOn, placeVaultPaths, runOperation, unacceptedNotices,
   type ContextOptions, type Operation, type OperationOutcome,
 } from '../core/operations/index.ts';
 import { assignPositionals, parseLine, usage } from './args.ts';
@@ -127,18 +127,11 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       io.write('stderr', `Too many arguments: ${extra.join(' ')}\n\n${usage(operation)}\n`);
       return USAGE_ERROR;
     }
+    const placed = placeVaultPaths(installation.value, operation, 'cli', params, named, here);
+    Object.assign(params, placed.params);
 
     for (const spec of paramsOn(operation, 'cli')) {
       const value = params[spec.name];
-      if (spec.vaultPath === true && typeof value === 'string') {
-        const split = splitVaultPath(vaults, value);
-        if (split.vault !== undefined) {
-          if (!named.includes(split.vault.id)) named.push(split.vault.id);
-          params[spec.name] = split.path;
-        } else if (here !== undefined && (named.length === 0 || named[0] === here.vault.id)) {
-          params[spec.name] = vaultRelative(value, here.path) ?? value;
-        }
-      }
       if (spec.file === true && typeof value === 'string') {
         try {
           params[spec.name] = readFileSync(isAbsolute(value) ? value : resolve(io.cwd, value), 'utf8');
@@ -153,7 +146,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       }
     }
 
-    const chosen = chooseVaults(installation.value, operation, named, here?.vault);
+    const chosen = chooseVaults(installation.value, operation, placed.named, here?.vault);
     if (!chosen.ok) {
       io.write('stderr', chosen.error.reason === 'unknown-vault'
         ? `"${chosen.error.vault}" is not a registered vault.\n`

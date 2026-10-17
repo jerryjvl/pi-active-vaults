@@ -92,7 +92,12 @@ export function isOwner(identity: VaultIdentity, person: string): boolean {
   return identity.owners.includes(person);
 }
 
+/** Everyone who may write to the vault on their own actor branch: its actors, then its owners. */
+export function writersOf(identity: VaultIdentity): string[] {
+  return [...new Set([...identity.actors, ...identity.owners])];
+}
+
 /** Whether `name` may write to the vault on its own actor branch. */
 export function isActor(identity: VaultIdentity, name: string): boolean {
-  return identity.actors.includes(name) || identity.owners.includes(name);
+  return writersOf(identity).includes(name);
 }

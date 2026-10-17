@@ -16,7 +16,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { systemClock, type Clock } from '../clock/index.ts';
-import { pathFor, systemSecretDeps, type SecretDeps } from '../config/index.ts';
+import { systemSecretDeps, type SecretDeps } from '../config/index.ts';
 import { createGit, type Git, type Identity } from '../git/index.ts';
 import type { HttpClient } from '../http/index.ts';
 import { createIdSource, type IdSource } from '../ids/index.ts';
@@ -114,9 +114,4 @@ export function createContext(installation: Installation, options: ContextOption
       },
     },
   };
-}
-
-/** The path flavour of the installation's platform. */
-export function hostPath(installation: Pick<Installation, 'host'>): ReturnType<typeof pathFor> {
-  return pathFor(installation.host.os);
 }

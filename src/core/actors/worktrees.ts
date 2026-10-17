@@ -14,8 +14,8 @@
 // pass; then their verdicts are recorded as attestations about it. A commit
 // whose checks cannot run — `main` has an unaccepted change — is not made.
 
-import { realpathSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { ensurePrivateDir } from '../config/index.ts';
 import type { AttestationError } from '../attestations/index.ts';
 import type { Clock } from '../clock/index.ts';
@@ -29,7 +29,7 @@ import { isActor, readVaultIdentity, type IdentityError, type RegisteredVault } 
 import { err, ok, type Result } from '../result/index.ts';
 import { recordCheckResults, runChecks, type CheckResult, type CheckRunOptions, type ScriptRunError } from '../scripts/index.ts';
 import type { Queryable } from '../store/index.ts';
-import { actorHold, sameHolder, type Holder, type HoldError } from './holds.ts';
+import { heldByAnother, type Holder, type HoldError } from './holds.ts';
 import { packageTrailers, type CommitOrigin } from './trailers.ts';
 
 export function actorBranch(actor: string): string {
@@ -83,6 +83,25 @@ export async function ensureActorWorktree(
   return added.ok ? ok({ path, branch, created: true }) : added;
 }
 
+/**
+ * The file `path` names in `root`, when the write stays inside it and out of
+ * its Git internals — judged by where it really lands, since a directory on
+ * the way may be a link to elsewhere — with its directories made; undefined
+ * otherwise, with nothing made.
+ */
+export function worktreeFile(root: string, path: string): string | undefined {
+  const parts = path.split(/[\\/]/).filter((p) => p !== '' && p !== '.');
+  if (/^([\\/]|[A-Za-z]:)/.test(path) || parts.includes('..') || parts.length === 0 || parts[0]?.toLowerCase() === '.git') return undefined;
+  const target = join(root, ...parts);
+  let existing = dirname(target);
+  while (!existsSync(existing)) existing = dirname(existing);
+  const landed = relative(realpathSync.native(root), realpathSync.native(existing));
+  if (landed.startsWith('..') || landed.split(sep)[0]?.toLowerCase() === '.git') return undefined;
+  if (existsSync(target) && lstatSync(target).isSymbolicLink()) return undefined;
+  mkdirSync(dirname(target), { recursive: true });
+  return target;
+}
+
 export interface ActorCommit {
   readonly origin: CommitOrigin;
   readonly message: string;
@@ -134,8 +153,8 @@ export async function commitAsActor(context: ActorCommitContext, vault: VaultLoc
   const branch = await currentBranch(git, worktree);
   if (!branch.ok) return branch;
   if (branch.value !== expected) return err({ reason: 'wrong-branch', expected, ...(branch.value === undefined ? {} : { actual: branch.value }) });
-  const hold = await actorHold(context.store, context.alive, vault.id, actor);
-  if (hold !== undefined && (commit.holder === undefined || !sameHolder(hold.holder, commit.holder))) return err({ reason: 'actor-busy', hold });
+  const hold = await heldByAnother(context.store, context.alive, vault.id, actor, commit.holder);
+  if (hold !== undefined) return err({ reason: 'actor-busy', hold });
 
   const prepared = await prepareCommit(git, worktree, {
     message: commit.message,

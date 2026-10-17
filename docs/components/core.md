@@ -43,7 +43,7 @@ it; no vault logic lives anywhere else.
 | `budgets` | Allot budgets down a session tree; account for tokens; enforce limits |
 | `traces` | Issue trace IDs; write compact records and provenance; write and rotate full logs |
 | `store` | The only access to `state.sqlite` and `index.sqlite`: connections, pragmas, transactions, loading `sqlite-vec` into the index, and applying the schema migrations each module supplies for its own tables |
-| `queue` | Spawn queue, claims and cursors, on top of `store` |
+| `queue` | The jobs a vault's accepted `main` declares; spawn queue, claims and cursors, on top of `store` |
 | `search` | Index documents per vault; keyword, vector and hybrid search; rerank; check each hit against the current content |
 | `models` | Clients for configured model roles: embeddings, rerank, judgement. Splits work into batches of the role's `batch` size and sends up to `parallel` requests at a time. Never follows redirects, so content goes only to the configured URL |
 | `forge` | Forge adapters (Gitea, GitHub, GitLab): push actor branches, open or update pull requests, publish commit statuses and `vault/policy`, read approvals and merges, check branch protection |

@@ -21,6 +21,7 @@ import { jobsOperation, notifyOperation, runOperation as runJobOperation, script
 import { DataReader, err, ok, type Issue, type Result } from '../result/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
 import type { OperationContext } from './context.ts';
+import { splitVaultPath, vaultRelative, type Location } from './locate.ts';
 import type { Operation, OperationOutcome, OperationRequest, ParamSpec, ParamSurface } from './types.ts';
 
 export const CATALOGUE: readonly Operation[] = [
@@ -104,6 +105,32 @@ export function chooseVaults(
       return ok(vaults);
     }
   }
+}
+
+/**
+ * Where each vault path in `params` points (api.md: paths are
+ * `<vault-id>:<path>`): a registered vault's prefix names that vault, which is
+ * added to the vaults named; a plain path, given from inside the vault the
+ * caller is in, is relative to where the caller is.
+ */
+export function placeVaultPaths(
+  installation: Pick<Installation, 'vaults'>, operation: Operation, surface: ParamSurface,
+  params: Readonly<Record<string, unknown>>, named: readonly string[], here?: Location,
+): { params: Record<string, unknown>; named: string[] } {
+  const placed = { ...params };
+  const vaults = [...named];
+  for (const spec of paramsOn(operation, surface)) {
+    const value = placed[spec.name];
+    if (spec.vaultPath !== true || typeof value !== 'string') continue;
+    const split = splitVaultPath(installation.vaults, value);
+    if (split.vault !== undefined) {
+      if (!vaults.includes(split.vault.id)) vaults.push(split.vault.id);
+      placed[spec.name] = split.path;
+    } else if (here !== undefined && (vaults.length === 0 || vaults[0] === here.vault.id)) {
+      placed[spec.name] = vaultRelative(value, here.path) ?? value;
+    }
+  }
+  return { params: placed, named: vaults };
 }
 
 /** Runs the operation with checked parameters. */

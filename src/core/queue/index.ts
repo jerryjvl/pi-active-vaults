@@ -1,5 +1,5 @@
-// Public surface of the queue module: the spawn queue and its claims, and job
-// cursors, on top of `store`.
+// Public surface of the queue module: the jobs a vault declares, the spawn
+// queue and its claims, and job cursors, on top of `store`.
 
 export {
   commitSpawn,
@@ -22,4 +22,5 @@ export {
   type SpawnState,
   type StopReason,
 } from './spawns.ts';
+export { vaultJobs, type Job } from './jobs.ts';
 export { advanceCursor, gitStream, readCursor, timerStream, type CursorError, type CursorKey } from './cursors.ts';

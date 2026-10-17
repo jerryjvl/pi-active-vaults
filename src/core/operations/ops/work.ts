@@ -6,13 +6,13 @@
 // Without the daemon, `run` and `trigger` claim their spawns in the state
 // database (architecture.md "Degradation"); the daemon runs them.
 
-import { documentConditions, matchConditions, narrowByScripts, type Candidate, type Match, type VaultEvent } from '../../conditions/index.ts';
-import { parseBudget, type Budget } from '../../budgets/index.ts';
+import type { Budget } from '../../budgets/index.ts';
+import { matchConditions, narrowByScripts, type Candidate, type Match, type VaultEvent } from '../../conditions/index.ts';
 import { listRefs, readTextAt } from '../../git/index.ts';
 import { isTraceId } from '../../ids/index.ts';
-import { requireNoUnacceptedChange, type AcceptedMain } from '../../integrity/index.ts';
+import { requireNoUnacceptedChange } from '../../integrity/index.ts';
 import { notifyBuiltin, sendNotification, testTransport } from '../../notify/index.ts';
-import { enqueueSpawn, listSpawns, type SpawnEntry } from '../../queue/index.ts';
+import { enqueueSpawn, listSpawns, vaultJobs, type SpawnEntry } from '../../queue/index.ts';
 import type { RegisteredVault } from '../../registry/index.ts';
 import { runScript } from '../../scripts/index.ts';
 import { compactTracePath, newTraceId, parseCompactTrace, readFullLog, type CompactTrace } from '../../traces/index.ts';
@@ -36,21 +36,6 @@ function conditionText(condition: Candidate['conditions'][number]): string {
   return `on ${condition.on}${filters.length === 0 ? '' : ` (${filters.join('; ')})`}`;
 }
 
-/** The documents of a vault that can spawn work, from its accepted main. */
-async function jobsOf(context: OperationContext, vault: RegisteredVault, accepted: AcceptedMain) {
-  const documents = await documentConditions(context.git, vault.path, accepted);
-  if (!documents.ok) return documents;
-  return {
-    ok: true as const,
-    value: documents.value
-      .filter((d) => d.issues.length > 0 || d.conditions.some((c) => c.effect === 'spawn'))
-      .map((d) => {
-        const budget = d.conditions.some((c) => c.effect === 'spawn') ? parseBudget(d.budget) : undefined;
-        return { ...d, budget: budget?.ok === true ? budget.value : undefined, issues: [...d.issues, ...(budget?.ok === false ? budget.error : [])] };
-      }),
-  };
-}
-
 export const jobsOperation: Operation = {
   name: 'jobs',
   summary: 'Jobs with their conditions, last run and pending runs',
@@ -66,7 +51,7 @@ export const jobsOperation: Operation = {
         lines.push(`${vault.id}: nothing accepted yet`);
         continue;
       }
-      const jobs = await jobsOf(context, vault, accepted.value);
+      const jobs = await vaultJobs(context.git, vault.path, accepted.value);
       if (!jobs.ok) return fromError(jobs.error);
       const spawns = listSpawns(context.state, { vault: vault.id });
       for (const job of jobs.value) {
@@ -95,7 +80,7 @@ export const runOperation: Operation = {
     const document = text(request.params, 'document') ?? '';
     const accepted = await requireNoUnacceptedChange(context.git, context.state, vault);
     if (!accepted.ok) return fromError(accepted.error);
-    const jobs = await jobsOf(context, vault, accepted.value);
+    const jobs = await vaultJobs(context.git, vault.path, accepted.value);
     if (!jobs.ok) return fromError(jobs.error);
     const job = jobs.value.find((j) => j.path === document);
     if (job === undefined) return refused(`${vault.id}:${document} is not a job on the accepted main: it has no spawn condition.`);
@@ -153,7 +138,7 @@ export const triggerOperation: Operation = {
         paused.push(`Vault "${target.id}" is paused (unaccepted change); its jobs were not matched.`);
         continue;
       }
-      const jobs = await jobsOf(context, target, accepted.value);
+      const jobs = await vaultJobs(context.git, target.path, accepted.value);
       if (!jobs.ok) return fromError(jobs.error);
       for (const job of jobs.value) {
         if (job.budget === undefined) continue;

@@ -3,7 +3,6 @@
 // works from, the actor a writing one writes as, and the dependency bundles
 // the lower modules take.
 
-import { actorHold, sameHolder } from '../../actors/index.ts';
 import type { ForgeDeps } from '../../forge/index.ts';
 import { acceptedMain, type AcceptedMain } from '../../integrity/index.ts';
 import type { NotifyDeps } from '../../notify/index.ts';
@@ -42,12 +41,6 @@ export function personOf(caller: Caller): Result<string, { reason: 'no-person' }
 export function actorOf(caller: Caller, params: Params): Result<string, { reason: 'no-person' }> {
   const actor = text(params, 'actor') ?? caller.actor ?? caller.person;
   return actor === undefined ? err({ reason: 'no-person' }) : ok(actor);
-}
-
-/** Whether another session holds the actor: writes check the hold and never take one. */
-export async function heldByAnother(context: OperationContext, vault: RegisteredVault, actor: string, caller: Caller) {
-  const hold = await actorHold(context.state, context.alive, vault.id, actor);
-  return hold !== undefined && (caller.holder === undefined || !sameHolder(hold.holder, caller.holder)) ? hold : undefined;
 }
 
 export function searchContext(context: OperationContext, index: SearchContext['index']): SearchContext {

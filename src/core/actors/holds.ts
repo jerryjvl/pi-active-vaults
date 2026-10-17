@@ -49,7 +49,7 @@ function holdOf(row: Row): ActorHold {
   return { vault: row.vault, actor: row.actor, holder: { process: { pid: row.pid, started: row.started }, session: row.session }, since: row.since };
 }
 
-export function sameHolder(a: Holder, b: Holder): boolean {
+function sameHolder(a: Holder, b: Holder): boolean {
   return a.process.pid === b.process.pid && a.process.started === b.process.started && a.session === b.session;
 }
 
@@ -74,6 +74,14 @@ export async function actorHold(store: Queryable, alive: ProcessLiveness, vault:
   if (row === undefined) return undefined;
   const hold = holdOf(row);
   return (await stands(hold, alive)) ? hold : undefined;
+}
+
+/** The hold that stands on the actor by anyone but `holder` (a writer's own hold, if it has one): what stops a write. */
+export async function heldByAnother(
+  store: Queryable, alive: ProcessLiveness, vault: string, actor: string, holder: Holder | undefined,
+): Promise<ActorHold | undefined> {
+  const hold = await actorHold(store, alive, vault, actor);
+  return hold !== undefined && (holder === undefined || !sameHolder(hold.holder, holder)) ? hold : undefined;
 }
 
 /** Every hold that stands, by vault and actor, with why it stands. */

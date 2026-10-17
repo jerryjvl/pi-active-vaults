@@ -6,6 +6,7 @@ export {
   isOwner,
   parseVaultIdentity,
   readVaultIdentity,
+  writersOf,
   type IdentityError,
   type ReviewMode,
   type VaultIdentity,
