@@ -1,0 +1,89 @@
+// Talking to other repositories: fetching and pushing, for templates and
+// forges.
+//
+// Invariants:
+//  - a remote is a configured remote's name, or an https, ssh (also
+//    `user@host:path`) or local URL. Transports that run commands (`ext::`,
+//    `fd::`) or carry no integrity (`http://`, `git://`) are refused here,
+//    and again through git's own protocol allow-list, because what is fetched
+//    may become a vault's scripts;
+//  - fetched objects are checked as they arrive (`fetch.fsckObjects`);
+//  - a refspec names full refs on both sides, optionally forced with `+`, so
+//    nothing is pushed or fetched by a guess at what a short name means;
+//  - credentials are the user's own Git setup's; git never prompts.
+
+import { err, ok, type Result } from '../result/index.ts';
+import { runForSuccess, runGit, type Git, type GitError } from './exec.ts';
+import { resolveRevision, type Sha } from './refs.ts';
+import { checkRefName, checkRevision } from './validate.ts';
+
+const PROTOCOLS = [
+  '-c', 'protocol.allow=never',
+  '-c', 'protocol.https.allow=always',
+  '-c', 'protocol.ssh.allow=always',
+  '-c', 'protocol.file.allow=always',
+  '-c', 'fetch.fsckObjects=true',
+  '-c', 'transfer.fsckObjects=true',
+];
+
+const REMOTE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const URL_SCHEMES = /^(?:https|ssh|file):\/\/[^\s]+$/;
+const SCP_LIKE = /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s:][^\s]*$/;
+const LOCAL_PATH = /^(?:\/|[A-Za-z]:[\\/])[^\s]*$/;
+
+const invalid = (argument: string): Result<never, GitError> => err({ reason: 'invalid-argument', argument });
+
+/** A remote this module will talk to; anything else is refused before git runs. */
+export function checkRemote(value: string): Result<string, GitError> {
+  if (value === '' || value.startsWith('-') || value.includes('::') || /[\s\0]/.test(value)) return invalid('remote');
+  return REMOTE_NAME.test(value) || URL_SCHEMES.test(value) || SCP_LIKE.test(value) || LOCAL_PATH.test(value) ? ok(value) : invalid('remote');
+}
+
+/** `[+]refs/…:refs/…` */
+function checkRefspec(value: string): Result<string, GitError> {
+  const [source = '', destination, ...rest] = value.replace(/^\+/, '').split(':');
+  if (destination === undefined || rest.length > 0) return invalid('refspec');
+  return checkRefName(source).ok && checkRefName(destination).ok ? ok(value) : invalid('refspec');
+}
+
+function checkAll(remote: string, refspecs: readonly string[]): Result<void, GitError> {
+  const checked = checkRemote(remote);
+  if (!checked.ok) return checked;
+  for (const refspec of refspecs) {
+    const spec = checkRefspec(refspec);
+    if (!spec.ok) return spec;
+  }
+  return refspecs.length === 0 ? invalid('refspec') : ok(undefined);
+}
+
+export async function fetchRefs(git: Git, repo: string, remote: string, refspecs: readonly string[]): Promise<Result<void, GitError>> {
+  const checked = checkAll(remote, refspecs);
+  if (!checked.ok) return checked;
+  return runForSuccess(git, [...PROTOCOLS, 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--', remote, ...refspecs], { cwd: repo });
+}
+
+export async function pushRefs(git: Git, repo: string, remote: string, refspecs: readonly string[]): Promise<Result<void, GitError>> {
+  const checked = checkAll(remote, refspecs);
+  if (!checked.ok) return checked;
+  return runForSuccess(git, [...PROTOCOLS, 'push', '--quiet', '--no-verify', '--porcelain', '--', remote, ...refspecs], { cwd: repo });
+}
+
+/** Fetches just the commit `ref` names (default: the remote's HEAD), without history, and returns its SHA. */
+export async function fetchCommit(git: Git, repo: string, remote: string, ref?: string): Promise<Result<Sha, GitError>> {
+  const checked = checkRemote(remote);
+  if (!checked.ok) return checked;
+  if (ref !== undefined) {
+    const checkedRef = checkRevision(ref);
+    if (!checkedRef.ok) return checkedRef;
+  }
+  const fetched = await runForSuccess(git, [...PROTOCOLS, 'fetch', '--quiet', '--no-tags', '--depth=1', '--', remote, ref ?? 'HEAD'], { cwd: repo });
+  return fetched.ok ? resolveRevision(git, repo, 'FETCH_HEAD') : fetched;
+}
+
+/** The URL a configured remote fetches from, or undefined when there is no such remote. */
+export async function remoteUrl(git: Git, repo: string, name: string): Promise<Result<string | undefined, GitError>> {
+  if (!REMOTE_NAME.test(name)) return invalid('remote');
+  const ran = await runGit(git, ['config', '--get', `remote.${name}.url`], { cwd: repo });
+  if (!ran.ok) return ran;
+  return ok(ran.value.exitCode === 0 ? ran.value.stdout.toString('utf8').trim() : undefined);
+}

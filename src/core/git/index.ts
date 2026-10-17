@@ -40,6 +40,7 @@ export {
   createCommit,
   hasTrackedChanges,
   mergeSha,
+  stageExecutable,
   type Attribution,
   type CommitOptions,
   type Identity,
@@ -47,3 +48,4 @@ export {
 export { isSha } from './validate.ts';
 export { addWorktree, listWorktrees, removeWorktree, type AddWorktreeOptions, type Worktree } from './worktrees.ts';
 export { notesAdd, notesAppend, notesList, notesMergeLines, notesRemove, notesShow, type NoteWriteOptions } from './notes.ts';
+export { checkRemote, fetchCommit, fetchRefs, pushRefs, remoteUrl } from './remote.ts';

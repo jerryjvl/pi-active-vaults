@@ -34,7 +34,6 @@ test('refs are fetched and pushed by explicit refspecs', withTempRepo(async (rep
     repo.write('a.md', 'a');
     const sha = repo.commit('a');
     repo.git('branch', 'actor/gardener');
-    remote.git('checkout', '--quiet', '--detach');
     assert.ok((await pushRefs(gitFor(repo), repo.path, remote.path, ['refs/heads/actor/gardener:refs/heads/actor/gardener'])).ok);
     assert.equal(remote.git('rev-parse', 'refs/heads/actor/gardener'), sha);
     assert.ok((await fetchRefs(gitFor(repo), repo.path, remote.path, ['+refs/heads/actor/gardener:refs/remotes/origin/actor/gardener'])).ok);

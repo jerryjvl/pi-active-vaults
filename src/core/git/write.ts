@@ -155,3 +155,18 @@ export async function mergeSha(
   const head = await resolveRevision(git, repo, 'HEAD');
   return head.ok ? ok({ head: head.value, changed: true }) : head;
 }
+
+/**
+ * Stages `paths` as executable files, whatever the file system records: on a
+ * platform without an execute bit (`core.fileMode` off) Git keeps the mode
+ * given here when the files are committed.
+ */
+export async function stageExecutable(git: Git, repo: string, paths: readonly string[]): Promise<Result<void, GitError>> {
+  for (const path of paths) {
+    const checked = checkTreePath(path);
+    if (!checked.ok) return checked;
+  }
+  if (paths.length === 0) return ok(undefined);
+  const added = await runForSuccess(git, ['add', '--', ...paths], { cwd: repo });
+  return added.ok ? runForSuccess(git, ['update-index', '--chmod=+x', '--', ...paths], { cwd: repo }) : added;
+}

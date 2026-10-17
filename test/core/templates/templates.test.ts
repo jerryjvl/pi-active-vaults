@@ -7,7 +7,7 @@
 // new vault's accepted main. Short names come from the installation config.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseDocument } from '../../../src/core/documents/index.ts';
 import { integrityStatus } from '../../../src/core/integrity/index.ts';
@@ -44,7 +44,7 @@ function templateRepo(contract = MARKED): TempRepo {
   repo.write('_contract.md', contract);
   repo.write('topics/_contract.md', '---\nindex: default\n---\nTopics.\n');
   repo.write('.vault/scripts/due-topics.sh', '#!/bin/sh\n# name: due-topics\n# summary: Due topics\necho none\n');
-  repo.git('update-index', '--add', '--chmod=+x', '.vault/scripts/due-topics.sh');
+  chmodSync(join(repo.path, '.vault/scripts/due-topics.sh'), 0o755);
   repo.commit('template content');
   repo.git('tag', 'v2');
   return repo;
