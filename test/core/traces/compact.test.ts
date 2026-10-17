@@ -87,5 +87,6 @@ test('another vault\'s part of a run is an opaque reference: stable, but naming 
   assert.ok(!ref.includes('private'));
   assert.match(ref, /^ref:[0-9a-f]{16}$/);
   assert.equal(parseCompactTrace(renderCompactTrace({ ...sample(id), elsewhere: [ref] })).ok, true);
-  assert.equal(parseCompactTrace(renderCompactTrace({ ...sample(id), elsewhere: ['private'] })).ok, false);
+  assert.equal(parseCompactTrace(JSON.stringify({ ...sample(id), elsewhere: ['private'] })).ok, false);
+  assert.throws(() => renderCompactTrace({ ...sample(id), elsewhere: ['private'] }), /invalid compact trace/);
 });

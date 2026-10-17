@@ -15,9 +15,9 @@ Kept current with every commit, so an interrupted session can resume.
   `forge` are for the next session.
 - **Done:** findings (1)–(4): documentation, accept bound to the approver's
   own review, the `process` module with git, secret commands and scripts on it.
-- **In progress:** Stage 3a, starting with `traces`.
-- **Next:** `traces`, `budgets`, `queue`, `models`, `search` — each tests
-  first, then implementation; then the refactoring pass and the entry.
+- **In progress:** Stage 3a. Done: `sqlite-vec` dependency, `traces`.
+- **Next:** `budgets`, `queue`, `models`, `search` — each tests first, then
+  implementation; then the refactoring pass and the entry.
 
 ## Stage entries
 
