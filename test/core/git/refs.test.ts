@@ -35,6 +35,8 @@ test('a repository can be initialised with a chosen initial branch and its root 
   const dir = mkdtempSync(join(tmpdir(), 'pav-init-'));
   try {
     assert.deepEqual(await initRepository(git, dir, { initialBranch: 'trunk' }), { ok: true, value: undefined });
+    const refused = await initRepository(git, join(dir, 'other'), { initialBranch: '--template=/evil' });
+    assert.equal(refused.ok === false && refused.error.reason, 'invalid-argument');
     const root = await repositoryRoot(git, dir);
     assert.ok(root.ok);
     repo.write('a/b/file.md', 'x');

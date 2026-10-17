@@ -2,7 +2,7 @@
 
 import { err, ok, type Result } from '../result/index.ts';
 import { failure, runForSuccess, runForText, runGit, type Git, type GitError } from './exec.ts';
-import { checkRefName, checkRefPrefix, checkRevision, checkSha } from './validate.ts';
+import { checkBranchName, checkRefName, checkRefPrefix, checkRevision, checkSha } from './validate.ts';
 
 export type Sha = string;
 
@@ -22,8 +22,12 @@ export function meetsMinimumGitVersion(version: string): boolean {
   return major > wantMajor || (major === wantMajor && minor >= wantMinor);
 }
 
-export function initRepository(git: Git, path: string, options: { initialBranch?: string }): Promise<Result<void, GitError>> {
+export async function initRepository(git: Git, path: string, options: { initialBranch?: string }): Promise<Result<void, GitError>> {
   const branch = options.initialBranch;
+  if (branch !== undefined) {
+    const checked = checkBranchName(branch);
+    if (!checked.ok) return checked;
+  }
   return runForSuccess(git, ['init', '--quiet', ...(branch === undefined ? [] : ['--initial-branch', branch]), '--', path], { cwd: process.cwd() });
 }
 
