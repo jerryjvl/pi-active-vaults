@@ -124,3 +124,15 @@ test('sync brings an actor branch with no work of its own up to the accepted mai
   assert.equal(synced.status, 'ok', synced.text);
   assert.match(synced.text, new RegExp(`gardener: fast-forwarded at ${sha}`));
 }));
+
+test('undelivered notifications, being the whole installation\'s, are shown by status only on local surfaces', withInstallation(async (t) => {
+  const { sendNotification } = await import('../../../src/core/notify/index.ts');
+  const config = t.installation.notify;
+  assert.ok(config !== undefined);
+  const sent = await sendNotification({ store: t.context.state, config, clock: t.clock, secrets: t.context.secrets, env: {} }, { to: 'me', subject: 'Private matter', body: 'x', trace: '01JABCDEFGHJKMNPQRSTVWXYZ0' });
+  assert.equal(sent.ok && sent.value.outcome, 'queued');
+  assert.match((await t.run('status')).text, /Undelivered notifications: me "Private matter"/);
+  const remote = await t.run('status', {}, { caller: { surface: 'mcp' }, surface: 'mcp' });
+  assert.equal(remote.text.includes('Private matter'), false);
+  assert.deepEqual((remote.data as { undelivered: unknown[] }).undelivered, []);
+}, { config: 'notify:\n  from: "Vault <vault@example.net>"\n  recipients: { me: me@example.net }\n  transport: { type: sendmail, command: /nonexistent/sendmail }' }));
