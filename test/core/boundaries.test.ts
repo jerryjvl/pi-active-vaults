@@ -27,8 +27,8 @@ test('node:sqlite is imported only by the store module', () => {
   assert.deepEqual(importersOf('node:sqlite'), ['core/store/index.ts']);
 });
 
-test('processes are spawned only by the git module and for secret commands', () => {
-  assert.deepEqual(importersOf('node:child_process'), ['core/config/secrets.ts', 'core/git/exec.ts']);
+test('processes are spawned only by the git module, for secret commands, and to run scripts', () => {
+  assert.deepEqual(importersOf('node:child_process'), ['core/config/secrets.ts', 'core/git/exec.ts', 'core/scripts/run.ts']);
 });
 
 test('only the git module knows how to talk to git', () => {
