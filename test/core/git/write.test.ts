@@ -1,16 +1,23 @@
-// Documented behaviour: commits carry trailers and the actor's identity; accept
+// Documented behaviour: commits carry trailers and the actor's identity; a
+// commit can be prepared without moving anything, so blocking checks can
+// assess it before it lands, and lands only on the branch it was prepared on
+// if that has not moved; a commit's tree is exported exactly as committed; accept
 // merges the reviewed SHA only (never a branch name) and never into a dirty
 // tree; a conflict leaves the repository as it was (security.md, AGENTS.md §6).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   addTrailers,
   commitsBetween,
   createCommit,
+  exportTree,
   hasTrackedChanges,
+  landCommit,
   mergeSha,
+  prepareCommit,
 } from '../../../src/core/git/index.ts';
 import { gitFor, withTempRepo, type TempRepo } from '../../support/git-repo.ts';
 
@@ -223,4 +230,84 @@ test('a message line starting with # is kept, not stripped as a comment', withTe
   const made = await createCommit(git, repo.path, { message: 'Subject\n\n# heading-like line' });
   assert.ok(made.ok);
   assert.equal(repo.git('log', '-1', '--format=%B'), 'Subject\n\n# heading-like line');
+}));
+
+test('a prepared commit moves nothing: the branch, HEAD and index stay as they were until it lands', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('a.md', 'a');
+  const base = repo.commit('base');
+  repo.write('b.md', 'b');
+  const prepared = await prepareCommit(git, repo.path, { message: 'Add b', trailers: [{ key: 'Vault-Trace', value: 'T1' }], identity: BOB, date: new Date('2026-02-03T04:05:06Z') });
+  assert.ok(prepared.ok, JSON.stringify(prepared));
+  assert.deepEqual([prepared.value.parent, prepared.value.ref], [base, 'refs/heads/main']);
+  assert.equal(repo.git('rev-parse', 'HEAD'), base);
+  assert.equal(repo.git('status', '--porcelain'), '?? b.md', 'the index is untouched');
+  assert.equal(repo.git('show', '--name-only', '--format=%an%n%(trailers:key=Vault-Trace,valueonly)', prepared.value.sha), 'Bob Builder\nT1\n\nb.md');
+
+  const landed = await landCommit(git, repo.path, prepared.value);
+  assert.deepEqual(landed, { ok: true, value: prepared.value.sha });
+  assert.equal(repo.git('rev-parse', 'HEAD'), prepared.value.sha);
+  assert.equal(repo.git('status', '--porcelain'), '', 'the worktree matches what landed');
+}));
+
+test('a prepared commit of some paths lands only those; the rest stay as they were', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('a.md', 'a');
+  repo.commit('base');
+  repo.write('wanted.md', 'w');
+  repo.write('other.md', 'o');
+  const prepared = await prepareCommit(git, repo.path, { message: 'Only one', stage: ['wanted.md'] });
+  assert.ok(prepared.ok);
+  assert.ok((await landCommit(git, repo.path, prepared.value)).ok);
+  assert.equal(repo.git('show', '--name-only', '--format=', 'HEAD'), 'wanted.md');
+  assert.equal(repo.git('status', '--porcelain'), '?? other.md');
+}));
+
+test('a prepared commit does not land on a branch that moved meanwhile', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('a.md', 'a');
+  repo.commit('base');
+  repo.write('b.md', 'b');
+  const prepared = await prepareCommit(git, repo.path, { message: 'Add b' });
+  assert.ok(prepared.ok);
+  repo.write('c.md', 'c');
+  const moved = repo.commit('someone else');
+  assert.deepEqual(await landCommit(git, repo.path, prepared.value), { ok: false, error: { reason: 'ref-moved', ref: 'refs/heads/main' } });
+  assert.equal(repo.git('rev-parse', 'HEAD'), moved);
+}));
+
+test('a first commit can be prepared and landed in a repository with no commits yet', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('a.md', 'a');
+  const prepared = await prepareCommit(git, repo.path, { message: 'First' });
+  assert.ok(prepared.ok, JSON.stringify(prepared));
+  assert.equal(prepared.value.parent, null);
+  assert.ok((await landCommit(git, repo.path, prepared.value)).ok);
+  assert.equal(repo.git('rev-list', '--count', 'HEAD'), '1');
+}));
+
+test('a commit\'s tree is exported as committed — not the working tree — with executables kept and no hooks run', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('notes/a.md', 'committed');
+  repo.write('.vault/checks/run.sh', '#!/bin/sh\n');
+  repo.git('add', '--all');
+  repo.git('update-index', '--chmod=+x', '.vault/checks/run.sh');
+  const sha = repo.commit('base');
+  repo.write('notes/a.md', 'edited, not committed');
+  repo.write('stray.md', 'untracked');
+  const marker = join(repo.path, '..', `hook-ran-${process.pid}-export`);
+  const hook = join(repo.path, '.git', 'hooks', 'post-checkout');
+  writeFileSync(hook, `#!/bin/sh\ntouch ${marker}\n`);
+  chmodSync(hook, 0o755);
+  const target = mkdtempSync(join(tmpdir(), 'pav-export-'));
+  try {
+    assert.ok((await exportTree(git, repo.path, sha, target)).ok);
+    assert.equal(readFileSync(join(target, 'notes', 'a.md'), 'utf8'), 'committed');
+    assert.equal(existsSync(join(target, 'stray.md')), false);
+    if (process.platform !== 'win32') assert.equal(statSync(join(target, '.vault', 'checks', 'run.sh')).mode & 0o100, 0o100);
+    assert.equal(existsSync(marker), false);
+    assert.equal(repo.git('status', '--porcelain'), ' M notes/a.md\n?? stray.md', 'the repository itself is untouched');
+  } finally {
+    rmSync(target, { recursive: true, force: true });
+  }
 }));
