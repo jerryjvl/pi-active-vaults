@@ -8,9 +8,12 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { createGit, type Git } from '../../src/core/git/index.ts';
 
 export interface TempRepo {
   readonly path: string;
+  /** The isolated environment git runs under; hand it to `createGit` so the module under test is isolated too. */
+  readonly env: NodeJS.ProcessEnv;
   git(...args: string[]): string;
   write(relativePath: string, content: string): void;
   /** Stage everything and commit; returns the new commit SHA. */
@@ -22,7 +25,7 @@ export function createTempRepo(options: { branch?: string } = {}): TempRepo {
   const path = mkdtempSync(join(tmpdir(), 'pav-repo-'));
   const emptyConfig = join(path, '.git-test-config');
   writeFileSync(emptyConfig, '');
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: emptyConfig,
@@ -40,6 +43,7 @@ export function createTempRepo(options: { branch?: string } = {}): TempRepo {
 
   return {
     path,
+    env,
     git,
     write(relativePath, content) {
       const full = join(path, relativePath);
@@ -55,4 +59,9 @@ export function createTempRepo(options: { branch?: string } = {}): TempRepo {
       rmSync(path, { recursive: true, force: true });
     },
   };
+}
+
+/** The core git module, running under the repository's isolated environment. */
+export function gitFor(repo: TempRepo): Git {
+  return createGit({ env: repo.env });
 }
