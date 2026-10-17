@@ -65,6 +65,19 @@ test('a script never prompts: its standard input is closed', posixOnly, withTest
   assert.equal(ran.ok && ran.value.stdout, 'no input\n');
 }));
 
+test('input given to a run is its standard input — for a vault script and a built-in alike', posixOnly, withTestVault(async (v) => {
+  v.repo.write('.vault/scripts/ask.sh', script('ask', 'if read answer; then echo "got $answer"; else echo "no input"; fi'));
+  v.repo.commit('script');
+  v.accept();
+  const ran = await runScript({ git: v.git, store: v.store, vault: v.vault }, 'ask', [], options(v, { input: 'yes\n' }));
+  assert.equal(ran.ok && ran.value.stdout, 'got yes\n');
+  const seen: (string | undefined)[] = [];
+  const cat: BuiltinScript = { name: 'cat', header: { summary: 'Cat', net: false }, run: async (_args, context) => { seen.push(context.input); return { exitCode: 0, stdout: '', stderr: '' }; } };
+  await runScript({ git: v.git, store: v.store, vault: v.vault }, 'builtin:cat', [], options(v, { builtins: [cat], input: 'body' }));
+  await runScript({ git: v.git, store: v.store, vault: v.vault }, 'builtin:cat', [], options(v, { builtins: [cat] }));
+  assert.deepEqual(seen, ['body', undefined]);
+}));
+
 test('support files from the accepted main sit beside the script', posixOnly, withTestVault(async (v) => {
   v.repo.write('.vault/scripts/lib/words.sh', 'WORD=accepted-support\n');
   v.repo.write('.vault/scripts/use.sh', script('use', '. "$(dirname "$0")/lib/words.sh"; echo "$WORD"'));

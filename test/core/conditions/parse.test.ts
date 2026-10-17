@@ -61,3 +61,22 @@ test('unknown fields, values and malformed globs are errors, and every problem i
   ]);
   assert.deepEqual(issues({ on: 'merged' }), ['applies-when: must be a list']);
 });
+
+test('Git events filter by the actor that made a change', () => {
+  assert.deepEqual(parseConditions([{ on: 'merged', actor: ['gardener'], effect: 'spawn' }]), {
+    ok: true, value: [{ on: 'merged', actor: ['gardener'], effect: 'spawn', context: 'session-preferred' }],
+  });
+  assert.deepEqual(issues([{ on: 'session.start', actor: ['gardener'], effect: 'inject' }]), ['applies-when[0].actor: does not apply to session.start events']);
+  assert.deepEqual(issues([{ on: 'committed', actor: [], effect: 'spawn' }]), ['applies-when[0].actor: must not be empty']);
+});
+
+test('a script narrows a spawn only, names one of the vault\'s scripts, and works with any event', () => {
+  assert.deepEqual(parseConditions([{ on: 'timer', schedule: '0 6 * * *', script: 'due-topics', effect: 'spawn' }]), {
+    ok: true, value: [{ on: 'timer', schedule: '0 6 * * *', missed: 'run-once', script: 'due-topics', effect: 'spawn', context: 'session-preferred' }],
+  });
+  assert.deepEqual(issues([{ on: 'session.start', script: 'x', effect: 'inject' }]), ['applies-when[0].script: applies only to spawn']);
+  // A built-in acts (builtin:notify sends mail); a filter must only decide.
+  assert.deepEqual(issues([{ on: 'merged', script: 'builtin:notify', effect: 'spawn' }]), ['applies-when[0].script: must name one of the vault\'s scripts']);
+  assert.deepEqual(issues([{ on: 'merged', script: 'sub/x', effect: 'spawn' }]), ['applies-when[0].script: must name one of the vault\'s scripts']);
+  assert.deepEqual(issues([{ on: 'merged', script: '', effect: 'spawn' }]), ['applies-when[0].script: must be a non-empty string']);
+});

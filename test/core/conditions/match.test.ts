@@ -5,6 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  eventJson,
   matchConditions,
   type Candidate,
   type ChangedDocument,
@@ -18,8 +19,11 @@ const inject = (fields: Partial<Condition> & Pick<Condition, 'on'>): Condition =
 
 const NO_LINKS: MatchContext = { subscriptions: [], equivalentLabels: [] };
 
-const merged = (vault: string, ...changes: ChangedDocument[]): VaultEvent =>
-  ({ kind: 'merged', vault, commit: 'a'.repeat(40), changes });
+const COMMIT = 'a'.repeat(40);
+
+/** A merge's changes, each made by `COMMIT` unless it says otherwise. */
+const merged = (vault: string, ...changes: (Omit<ChangedDocument, 'commit'> & { commit?: string })[]): VaultEvent =>
+  ({ kind: 'merged', vault, commit: COMMIT, changes: changes.map((change) => ({ commit: COMMIT, ...change })) });
 
 const matched = (event: VaultEvent, candidates: Candidate[], context = NO_LINKS): string[] =>
   matchConditions(event, candidates, context).map((m) => `${m.vault}:${m.document}#${m.index}`);
@@ -105,4 +109,26 @@ test('matches come in a stable order: by vault, document, then condition', () =>
     { vault: 'a', document: 'x.md', conditions: [spawn({ on: 'session.start' })] },
   ];
   assert.deepEqual(matched({ kind: 'session.start' }, candidates), ['a:x.md#0', 'a:y.md#0', 'a:y.md#1', 'b:z.md#0']);
+});
+
+test('an actor filter matches changes made by one of the actors, and the same change must pass every filter', () => {
+  const candidates: Candidate[] = [{
+    vault: 'home',
+    document: 'jobs/after-gardener.md',
+    conditions: [spawn({ on: 'merged', actor: ['gardener'] }), spawn({ on: 'merged', actor: ['gardener'], paths: ['notes/**'] })],
+  }];
+  const byGardener = { path: 'topics/a.md', change: 'modified' as const, labels: [], actor: 'gardener', trace: '01TRACE' };
+  const byPerson = { path: 'notes/b.md', change: 'created' as const, labels: [] };
+  assert.deepEqual(matched(merged('home', byGardener, byPerson), candidates), ['home:jobs/after-gardener.md#0']);
+  assert.deepEqual(matched(merged('home', byPerson), candidates), [], 'a change without a Vault-Actor was made by nobody listed');
+  assert.deepEqual(matched(merged('home', { ...byPerson, actor: 'librarian' }), candidates), []);
+});
+
+test('the event a job or a script receives is its structured data, as JSON', () => {
+  const event = merged('home', { path: 'topics/a.md', change: 'renamed', oldPath: 'old/a.md', labels: ['cars'], actor: 'gardener', trace: '01TRACE' });
+  assert.deepEqual(JSON.parse(eventJson(event)), {
+    kind: 'merged', vault: 'home', commit: COMMIT,
+    changes: [{ commit: COMMIT, path: 'topics/a.md', change: 'renamed', oldPath: 'old/a.md', labels: ['cars'], actor: 'gardener', trace: '01TRACE' }],
+  });
+  assert.equal(eventJson(event), eventJson(structuredClone(event)), 'the same event gives the same bytes');
 });
