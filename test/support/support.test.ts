@@ -14,8 +14,8 @@ test('fake clock only moves when advanced', () => {
 });
 
 test('fake IDs are sequential and time-sortable as strings', () => {
-  const ids = fakeIds();
-  const issued = [ids.next('t'), ids.next('t'), ids.next('t')];
+  const ids = fakeIds('t');
+  const issued = [ids.next(), ids.next(), ids.next()];
   assert.deepEqual(issued, ['t-0001', 't-0002', 't-0003']);
   assert.deepEqual([...issued].sort(), issued);
 });
