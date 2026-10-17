@@ -21,4 +21,5 @@ export {
   type MatchContext,
   type VaultEvent,
 } from './match.ts';
+export { documentConditions, type DocumentConditions } from './documents.ts';
 export { narrowByScripts, type Narrowed, type ScriptFilterContext, type ScriptFilterOptions } from './script.ts';
