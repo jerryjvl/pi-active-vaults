@@ -1,15 +1,12 @@
 // Documented behaviour: security.md — each vault has an accepted `main`; when
 // the tip of `main` differs from it (new commits, a reset, a rewrite) the vault
 // has an unaccepted change, reported by a notice naming the vault and the
-// commit, and every propagating action refuses until an owner adopts it or
-// main is reset. Adopting shows the delta, flags rewritten history, and in
-// forge mode is refused (resolved by syncing instead).
+// commit, and every propagating action refuses until an owner adopts it (see
+// actors/adopt.test.ts) or main is reset.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   acceptedMain,
-  adopt,
-  adoptionDelta,
   integrityStatus,
   recordAccepted,
   requireNoUnacceptedChange,
@@ -114,60 +111,3 @@ test('the accepted main is durable state: it survives reopening the store', with
   second.value.close();
 }));
 
-test('adopting shows the commits and diff from the accepted main, then records the tip once an owner confirms', withTestVault(async ({ repo, git, store, vault, clock, accept }) => {
-  const before = accept();
-  repo.write('stray.md', 'stray content\n');
-  const stray = repo.commit('stray commit');
-  const delta = await adoptionDelta(git, store, vault, stray);
-  assert.ok(delta.ok);
-  assert.equal(delta.value.from?.sha, before.sha);
-  assert.deepEqual(delta.value.commits.map((c) => c.sha), [stray]);
-  assert.equal(delta.value.rewritten, false);
-  assert.match(delta.value.diff, /\+stray content/);
-
-  clock.advance(60_000);
-  const adopted = await adopt(git, store, vault, { sha: stray, approver: 'alice', clock });
-  assert.ok(adopted.ok);
-  assert.deepEqual({ ...adopted.value }, { vault: 'home', sha: stray, how: 'adopt', by: 'alice', at: '2026-01-01T00:01:00.000Z' });
-  const status = await integrityStatus(git, store, vault);
-  assert.equal(status.ok && status.value.state, 'accepted');
-}));
-
-test('adopting flags rewritten history', withTestVault(async ({ repo, git, store, vault, accept }) => {
-  repo.write('a.md', 'a');
-  repo.commit('a');
-  accept();
-  repo.git('reset', '--quiet', '--hard', 'HEAD~1');
-  repo.write('b.md', 'b');
-  const rewritten = repo.commit('rewrite');
-  const delta = await adoptionDelta(git, store, vault, rewritten);
-  assert.ok(delta.ok && delta.value.rewritten);
-}));
-
-test('only an owner can adopt, only main\'s current tip, and never in forge mode', withTestVault(async ({ repo, git, store, vault, clock, accept }) => {
-  const before = accept();
-  repo.write('stray.md', 'x');
-  const stray = repo.commit('stray');
-  const notOwner = await adopt(git, store, vault, { sha: stray, approver: 'gardener', clock });
-  assert.equal(!notOwner.ok && notOwner.error.reason, 'not-owner');
-  repo.write('more.md', 'y');
-  repo.commit('main moved since');
-  const moved = await adopt(git, store, vault, { sha: stray, approver: 'alice', clock });
-  assert.equal(!moved.ok && moved.error.reason, 'not-main-tip');
-  assert.equal(acceptedMain(store, 'home')?.sha, before.sha);
-}));
-
-test('a forge-mode vault is never adopted locally', withTestVault(async ({ repo, git, store, vault, clock, accept }) => {
-  accept();
-  repo.write('stray.md', 'x');
-  const stray = repo.commit('stray');
-  const refused = await adopt(git, store, vault, { sha: stray, approver: 'alice', clock });
-  assert.equal(!refused.ok && refused.error.reason, 'forge-mode');
-}, { review: 'forge' }));
-
-test('the first adoption of a newly registered vault takes its owners from the commit adopted', withTestVault(async ({ git, store, vault, clock, initial }) => {
-  const refused = await adopt(git, store, vault, { sha: initial, approver: 'mallory', clock });
-  assert.equal(!refused.ok && refused.error.reason, 'not-owner');
-  const adopted = await adopt(git, store, vault, { sha: initial, approver: 'alice', clock });
-  assert.ok(adopted.ok);
-}));
