@@ -107,8 +107,9 @@ Everything a vault shares lives in Git. Everything local to a machine lives in
   `NORMAL` for the rebuildable index.
 - **Concurrent.** The daemon, CLI and every Pi session may open the files at
   once; each connection sets a busy timeout and keeps transactions short.
-- **Versioned.** Each file records its schema version (`user_version`) and is
-  migrated forward on open.
+- **Versioned per module.** Each module owns the migrations for its own tables;
+  the file records the version reached by each module and applies pending
+  migrations on open. A file from a newer version of any module is refused.
 - **Local disk only.** SQLite's write-ahead log is unsafe on network
   filesystems; the state directory must be local.
 
