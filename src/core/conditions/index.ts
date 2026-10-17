@@ -6,7 +6,6 @@ export {
   CHANGE_KINDS,
   EVENT_KINDS,
   parseConditions,
-  readCondition,
   type ChangeKind,
   type Condition,
   type EventKind,

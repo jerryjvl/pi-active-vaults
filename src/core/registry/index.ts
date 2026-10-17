@@ -2,7 +2,6 @@
 // identities from their root contracts, and their catalog entries.
 
 export {
-  REVIEW_MODES,
   isActor,
   isOwner,
   parseVaultIdentity,

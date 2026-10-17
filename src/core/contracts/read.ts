@@ -6,8 +6,8 @@
 // passes the accepted `main` — never from a working tree or a branch tip. A
 // governing contract that cannot be parsed fails the whole result.
 
-import { describeDocumentError, parseDocument } from '../documents/index.ts';
-import { pathTypeAt, readTextAt, resolveRevision, type Git, type GitError, type Sha } from '../git/index.ts';
+import { describeDocumentError, readDocumentAt } from '../documents/index.ts';
+import { pathTypeAt, resolveRevision, type Git, type GitError, type Sha } from '../git/index.ts';
 import { err, ok, type Issue, type Result } from '../result/index.ts';
 import { ROOT_CONTRACT, mergeContracts, type ContractFile, type EffectiveContract } from './merge.ts';
 
@@ -37,12 +37,16 @@ export function contractReader(git: Git, repo: string, sha: Sha): ContractReader
 
   const read = async (directory: string): Promise<Result<ContractFile | undefined, ContractError>> => {
     const path = contractFileIn(directory);
-    const text = await readTextAt(git, repo, sha, path);
-    if (!text.ok) return text;
-    if (text.value === undefined) return ok(undefined);
-    const parsed = parseDocument(text.value);
-    if (!parsed.ok) return err({ reason: 'invalid-contract', issues: [{ path, message: describeDocumentError(parsed.error) }] });
-    return ok({ path, frontmatter: parsed.value.frontmatter, body: parsed.value.body });
+    const document = await readDocumentAt(git, repo, sha, path);
+    if (!document.ok) return document;
+    switch (document.value.state) {
+      case 'missing':
+        return ok(undefined);
+      case 'unreadable':
+        return err({ reason: 'invalid-contract', issues: [{ path, message: describeDocumentError(document.value.error) }] });
+      case 'read':
+        return ok({ path, frontmatter: document.value.document.frontmatter, body: document.value.document.body });
+    }
   };
 
   const effective = async (path: string, isDirectory: boolean): Promise<Result<EffectiveContract, ContractError>> => {

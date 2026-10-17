@@ -1,7 +1,7 @@
 // Public surface of the scripts module: script headers, built-ins, resolution
 // of scripts and checks from the accepted `main`, and running them.
 
-export { parseScriptHeader, scriptNameOf, type ScriptHeader } from './header.ts';
+export { parseScriptHeader, type ScriptHeader } from './header.ts';
 export {
   interpreterCommand,
   restrictNetwork,
@@ -11,7 +11,6 @@ export {
 } from './command.ts';
 export {
   BUILTIN_PREFIX,
-  SCRIPT_DIRECTORIES,
   listScripts,
   resolveScript,
   type BuiltinScript,

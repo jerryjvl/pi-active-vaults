@@ -10,8 +10,8 @@
 
 import { isDeepStrictEqual } from 'node:util';
 import { ROOT_CONTRACT } from '../contracts/index.ts';
-import { isDocumentPath, parseDocument } from '../documents/index.ts';
-import { readTextAt, type FileChange, type Git, type GitError, type Sha } from '../git/index.ts';
+import { isDocumentPath, readDocumentAt } from '../documents/index.ts';
+import type { FileChange, Git, GitError, Sha } from '../git/index.ts';
 import { ok, type Result } from '../result/index.ts';
 
 /** Document keys whose change is a control change. */
@@ -34,12 +34,11 @@ type ControlFields = { readonly [K in (typeof CONTROL_KEYS)[number]]?: unknown }
 
 /** The control keys of a document at a revision: absent document → none; unreadable → undefined. */
 async function controlFields(git: Git, repo: string, revision: Sha, path: string): Promise<Result<ControlFields | undefined, GitError>> {
-  const text = await readTextAt(git, repo, revision, path);
-  if (!text.ok) return text;
-  if (text.value === undefined) return ok({});
-  const parsed = parseDocument(text.value);
-  if (!parsed.ok) return ok(undefined);
-  const { frontmatter } = parsed.value;
+  const read = await readDocumentAt(git, repo, revision, path);
+  if (!read.ok) return read;
+  if (read.value.state === 'missing') return ok({});
+  if (read.value.state === 'unreadable') return ok(undefined);
+  const { frontmatter } = read.value.document;
   return ok(Object.fromEntries(CONTROL_KEYS.filter((key) => frontmatter[key] !== undefined).map((key) => [key, frontmatter[key]])));
 }
 

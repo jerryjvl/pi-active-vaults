@@ -10,8 +10,8 @@
 
 import type { GitEvent } from '../conditions/index.ts';
 import { TRAILER, trailerValue } from '../actors/index.ts';
-import { isDocumentPath, labelsOf, parseDocument } from '../documents/index.ts';
-import { changedPaths, commitsBetween, readTextAt, type Git, type GitError, type Sha } from '../git/index.ts';
+import { isDocumentPath, labelsOf, readDocumentAt } from '../documents/index.ts';
+import { changedPaths, commitsBetween, type Git, type GitError, type Sha } from '../git/index.ts';
 import { ok, type Result } from '../result/index.ts';
 
 export interface EventRange {
@@ -23,12 +23,11 @@ export interface EventRange {
 
 async function labelsAt(git: Git, repo: string, revision: Sha, path: string): Promise<Result<string[], GitError>> {
   if (!isDocumentPath(path)) return ok([]);
-  const text = await readTextAt(git, repo, revision, path);
-  if (!text.ok) return text;
+  const read = await readDocumentAt(git, repo, revision, path);
+  if (!read.ok) return read;
   // A document whose frontmatter cannot be read carries no labels: it then
   // matches fewer conditions, never more.
-  const parsed = text.value === undefined ? undefined : parseDocument(text.value);
-  return ok(parsed?.ok === true ? labelsOf(parsed.value.frontmatter) : []);
+  return ok(read.value.state === 'read' ? labelsOf(read.value.document.frontmatter) : []);
 }
 
 /** The events of `vault` in `range`, oldest first. */

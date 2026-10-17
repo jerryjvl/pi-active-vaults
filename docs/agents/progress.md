@@ -17,7 +17,8 @@ Kept current with every commit, so an interrupted session can resume.
   path-type reads); shared `DataReader`; `conditions`; `contracts`; `registry`; `events`; `attestations`; `integrity`
   (+ `test/support/vault.ts`); `scripts`; `policy`; `actors`. All Stage 2
   modules are implemented.
-- **In progress:** nothing uncommitted.
+- **In progress:** the refactoring and consolidation pass (first commit: one
+  committed-document reader, narrower exports).
 - **Next:** the Stage 2 refactoring pass and the whole-codebase
   consolidation pass (implementation-plan.md "Refactoring passes"), then the
   Stage 2 progress entry and checkpoint.
