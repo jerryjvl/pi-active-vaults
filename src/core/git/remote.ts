@@ -14,7 +14,8 @@
 //  - credentials are the user's own Git setup's; git never prompts.
 
 import { err, ok, type Result } from '../result/index.ts';
-import { runForSuccess, runGit, type Git, type GitError } from './exec.ts';
+import { configValue } from './config.ts';
+import { runForSuccess, type Git, type GitError } from './exec.ts';
 import { resolveRevision, type Sha } from './refs.ts';
 import { checkRefName, checkRevision } from './validate.ts';
 
@@ -87,7 +88,5 @@ export async function fetchCommit(git: Git, repo: string, remote: string, ref?: 
 /** The URL a configured remote fetches from, or undefined when there is no such remote. */
 export async function remoteUrl(git: Git, repo: string, name: string): Promise<Result<string | undefined, GitError>> {
   if (!REMOTE_NAME.test(name)) return invalid('remote');
-  const ran = await runGit(git, ['config', '--get', `remote.${name}.url`], { cwd: repo });
-  if (!ran.ok) return ran;
-  return ok(ran.value.exitCode === 0 ? ran.value.stdout.toString('utf8').trim() : undefined);
+  return configValue(git, repo, `remote.${name}.url`);
 }
