@@ -12,7 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { InstallationConfig, ModelEndpoint, ModelRole } from '../../../src/core/config/index.ts';
-import { recordAccepted } from '../../../src/core/integrity/index.ts';
+import { recordAccepted, type VaultLocation } from '../../../src/core/integrity/index.ts';
 import type { ModelClient } from '../../../src/core/models/index.ts';
 import { INDEX_MODULES, openIndexStore } from '../../../src/core/operations/index.ts';
 import { search, updateIndex, type SearchContext, type SearchRequest } from '../../../src/core/search/index.ts';
@@ -87,7 +87,7 @@ async function withStubs(handlers: Partial<Record<'embed' | 'rerank', StubHandle
   }
 }
 
-async function indexed(context: SearchContext, vault: TestVault['vault']) {
+async function indexed(context: SearchContext, vault: VaultLocation) {
   const report = await updateIndex(context, vault);
   if (!report.ok) assert.fail(`index update failed: ${JSON.stringify(report.error)}`);
   return report.value;

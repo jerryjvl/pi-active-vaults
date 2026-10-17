@@ -1,6 +1,7 @@
 // The only access to the package's SQLite files (`state.sqlite`, `index.sqlite`).
 // `node:sqlite` is a release-candidate API, so it is imported nowhere else: a
-// change of driver touches this module only.
+// change of driver touches this module only. The same holds for `sqlite-vec`,
+// the extension that gives the index its vector functions.
 //
 // Store knows no other module's tables. Each module owns the migrations for its
 // own tables and hands them in (the operations layer assembles the full list
@@ -19,11 +20,16 @@
 //  - a module's migrations create, change and drop only objects named
 //    `<module>_…` on its own tables, so ownership is checked, not assumed;
 //  - files are created readable by the user only (the -wal and -shm companions
-//    inherit the main file's mode).
+//    inherit the main file's mode);
+//  - only a file that asks for vectors loads an extension, and only sqlite-vec;
+//    loading is switched off again before any statement runs, so SQL can never
+//    load one. An extension that cannot be loaded leaves the file open without
+//    vectors (`vectors: false`), so search degrades instead of failing.
 
 import { closeSync, openSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
+import { getLoadablePath } from 'sqlite-vec';
 import { ensurePrivateDir } from '../config/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 
@@ -40,6 +46,8 @@ export interface Queryable {
 export interface Store extends Queryable {
   /** The schema version each module given to `openStore` is at. */
   readonly versions: Readonly<Record<string, number>>;
+  /** Whether sqlite-vec's vector functions are available. */
+  readonly vectors: boolean;
   /**
    * Runs `fn` in a `BEGIN IMMEDIATE` transaction: commits when it returns,
    * rolls back and rethrows when it throws. `fn` must be synchronous and
@@ -65,10 +73,12 @@ export interface ModuleSchema {
 export interface StoreFile {
   /** FULL for durable state; NORMAL for a rebuildable index. */
   readonly synchronous: 'FULL' | 'NORMAL';
+  /** Load sqlite-vec for vector search. */
+  readonly vectors?: boolean;
 }
 
 export const STATE_FILE: StoreFile = { synchronous: 'FULL' };
-export const INDEX_FILE: StoreFile = { synchronous: 'NORMAL' };
+export const INDEX_FILE: StoreFile = { synchronous: 'NORMAL', vectors: true };
 
 export type StoreError =
   /** `module` is `store` when the file's own bookkeeping is from a newer version. */
@@ -77,6 +87,8 @@ export type StoreError =
 
 export interface StoreOptions {
   readonly busyTimeoutMs?: number;
+  /** The sqlite-vec library to load; defaults to the one installed for this platform. */
+  readonly vectorExtension?: string;
 }
 
 const DEFAULT_BUSY_TIMEOUT_MS = 5000;
@@ -102,6 +114,18 @@ function assertWellFormed(modules: readonly ModuleSchema[]): void {
         throw new Error(`${module} migrations must be contiguous from 1; got version ${m.version} at position ${i + 1}`);
       }
     });
+  }
+}
+
+/** Loads sqlite-vec, then switches extension loading off for good; false when it cannot be loaded. */
+function loadVectors(db: DatabaseSync, path: string | undefined): boolean {
+  try {
+    db.loadExtension(path ?? getLoadablePath());
+    return true;
+  } catch {
+    return false; // no build for this platform, or not installed
+  } finally {
+    db.enableLoadExtension(false);
   }
 }
 
@@ -222,11 +246,12 @@ export function openStore(path: string, file: StoreFile, modules: readonly Modul
   try {
     ensurePrivateDir(dirname(path));
     createPrivateFile(path);
-    db = new DatabaseSync(path);
+    db = new DatabaseSync(path, { allowExtension: file.vectors === true });
   } catch (error) {
     return err({ reason: 'unavailable', code: (error as NodeJS.ErrnoException).code ?? 'UNKNOWN' });
   }
 
+  const vectors = file.vectors === true && loadVectors(db, options.vectorExtension);
   let versions: Record<string, number>;
   try {
     // The timeout comes first so every later statement waits for a busy file.
@@ -250,6 +275,7 @@ export function openStore(path: string, file: StoreFile, modules: readonly Modul
   return ok({
     ...base,
     versions,
+    vectors,
     transaction<T>(fn: (tx: Queryable) => T): T {
       if (inTransaction) throw new Error('nested transactions are not supported');
       db.exec('BEGIN IMMEDIATE');

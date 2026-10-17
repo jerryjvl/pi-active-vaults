@@ -11,6 +11,7 @@ import { budgetsSchema } from '../budgets/index.ts';
 import type { InstallationPaths } from '../config/index.ts';
 import { integritySchema } from '../integrity/index.ts';
 import { queueSchema } from '../queue/index.ts';
+import { searchSchema } from '../search/index.ts';
 import type { Result } from '../result/index.ts';
 import {
   INDEX_FILE,
@@ -24,7 +25,7 @@ import {
 
 export const STATE_MODULES: readonly ModuleSchema[] = [integritySchema, actorsSchema, budgetsSchema, queueSchema];
 
-export const INDEX_MODULES: readonly ModuleSchema[] = [];
+export const INDEX_MODULES: readonly ModuleSchema[] = [searchSchema];
 
 export function openStateStore(paths: Pick<InstallationPaths, 'stateDb'>, options?: StoreOptions): Result<Store, StoreError> {
   return openStore(paths.stateDb, STATE_FILE, STATE_MODULES, options);
