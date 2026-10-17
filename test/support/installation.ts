@@ -29,6 +29,8 @@ export interface InstallationOptions {
   readonly running?: Record<number, string>;
   /** Processes that exist but whose start time cannot be told. */
   readonly unknown?: readonly number[];
+  /** Extra environment variables of the machine (secrets referenced by ${ENV}). */
+  readonly env?: Record<string, string>;
 }
 
 export interface TestInstallation {
@@ -57,10 +59,10 @@ function sequentialBytes(): (n: number) => Uint8Array {
   };
 }
 
-export function hostFor(dir: TempDir, repo: TempRepo): Host {
+export function hostFor(dir: TempDir, repo: TempRepo, env: Record<string, string> = {}): Host {
   return {
     os: process.platform === 'win32' ? 'win32' : process.platform === 'darwin' ? 'darwin' : 'linux',
-    env: { ...repo.env, PI_ACTIVE_VAULTS_CONFIG: dir.file('config'), PI_ACTIVE_VAULTS_STATE: dir.file('state') },
+    env: { ...repo.env, ...env, PI_ACTIVE_VAULTS_CONFIG: dir.file('config'), PI_ACTIVE_VAULTS_STATE: dir.file('state') },
     home: dir.path,
     user: 'alice',
     hostname: 'homeserver',
@@ -73,7 +75,7 @@ export function withInstallation(run: (t: TestInstallation) => Promise<void>, op
     const repo = createTempRepo();
     const clock = fakeClock();
     const randomBytes = sequentialBytes();
-    const host = hostFor(dir, repo);
+    const host = hostFor(dir, repo, options.env);
     repo.write('_contract.md', rootContract(options.contract));
     repo.commit('Create vault');
     mkdirSync(dir.file('config'), { recursive: true, mode: 0o700 });
