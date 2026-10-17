@@ -3,7 +3,7 @@
 // every other byte of the file as it was, so reviews show only the real change.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createDocument, parseDocument, updateFrontmatter } from '../../../src/core/documents/index.ts';
+import { parseDocument, updateFrontmatter } from '../../../src/core/documents/index.ts';
 
 const BODY = '\n# Heading\n\nSome   text with  odd   spacing.\n\n---\n\n* list\n';
 const ORIGINAL = `---
@@ -75,7 +75,7 @@ test('several changes apply together, in order', () => {
 test('the body is never altered', () => {
   const doc = parseDocument(updated(ORIGINAL, { last: 'x', extra: 'y' }));
   assert.ok(doc.ok);
-  assert.equal(doc.value.body, BODY);
+  assert.equal(doc.value.body, BODY.slice(1), 'everything after the closing delimiter line');
 });
 
 test('a document without frontmatter gains it ahead of the body; removing from none is a no-op', () => {
@@ -136,9 +136,9 @@ test('unreadable frontmatter is reported, not overwritten', () => {
   assert.equal(updateFrontmatter('---\nno close', { k: 1 }).ok, false);
 });
 
-test('a new document is written from data', () => {
-  assert.equal(createDocument({ title: 'T', labels: ['a'] }, '# T\n'), '---\ntitle: T\nlabels:\n  - a\n---\n# T\n');
-  assert.equal(createDocument({}, '# T\n'), '# T\n');
-  const round = parseDocument(createDocument({ k: 'v' }, 'body\n'));
+test('a new document is written by giving frontmatter to a body', () => {
+  assert.equal(updated('# T\n', { title: 'T', labels: ['a'] }), '---\ntitle: T\nlabels:\n  - a\n---\n# T\n');
+  assert.equal(updated('# T\n', {}), '# T\n');
+  const round = parseDocument(updated('body\n', { k: 'v' }));
   assert.ok(round.ok && round.value.body === 'body\n');
 });
