@@ -16,6 +16,13 @@ const EXAMPLE = {
   limits: { 'per-hour': 10, 'max-bytes': 200000, cooldown: '12h' },
 };
 
+/** The parsed section, which these tests always give. */
+const configured = (value: unknown) => {
+  const parsed = parseNotifyConfig(value);
+  assert.ok(parsed.ok && parsed.value !== undefined, JSON.stringify(parsed));
+  return parsed.value;
+};
+
 const issues = (value: unknown): string[] => {
   const parsed = parseNotifyConfig(value);
   return parsed.ok ? [] : parsed.error.map((i) => `${i.path}: ${i.message}`);
@@ -37,9 +44,8 @@ test('the documented example parses', () => {
 });
 
 test('port 587 requires STARTTLS, and no other port is accepted: there is no unencrypted submission', () => {
-  const at = (port: unknown) => parseNotifyConfig({ ...EXAMPLE, transport: { ...EXAMPLE.transport, port } });
-  const starttls = at(587);
-  assert.ok(starttls.ok && starttls.value.transport.type === 'smtp' && starttls.value.transport.security === 'starttls');
+  const starttls = configured({ ...EXAMPLE, transport: { ...EXAMPLE.transport, port: 587 } });
+  assert.ok(starttls.transport.type === 'smtp' && starttls.transport.security === 'starttls');
   assert.deepEqual(issues({ ...EXAMPLE, transport: { ...EXAMPLE.transport, port: 25 } }), ['notify.transport.port: must be 465 (TLS) or 587 (STARTTLS)']);
 });
 
@@ -54,9 +60,7 @@ test('a recipient address must be exactly one @, ASCII, without separators — a
 });
 
 test('the sender is an address, optionally with a display name', () => {
-  const bare = parseNotifyConfig({ ...EXAMPLE, from: 'vault@example.net' });
-  assert.ok(bare.ok);
-  assert.deepEqual(bare.value.from, { address: 'vault@example.net' });
+  assert.deepEqual(configured({ ...EXAMPLE, from: 'vault@example.net' }).from, { address: 'vault@example.net' });
   assert.deepEqual(issues({ ...EXAMPLE, from: 'Vault <vault@example.net' }), ['notify.from: must be an address, or a name and an address in <>']);
   assert.deepEqual(issues({ ...EXAMPLE, from: 'Va"ult <vault@example.net>' }), ['notify.from: must be an address, or a name and an address in <>']);
 });
@@ -64,24 +68,19 @@ test('the sender is an address, optionally with a display name', () => {
 test('the password is a secret reference, never a literal', () => {
   assert.equal(issues({ ...EXAMPLE, transport: { ...EXAMPLE.transport, password: 'hunter2' } }).length, 1);
   assert.ok(!issues({ ...EXAMPLE, transport: { ...EXAMPLE.transport, password: 'hunter2' } }).join().includes('hunter2'));
-  const env = parseNotifyConfig({ ...EXAMPLE, transport: { ...EXAMPLE.transport, password: '${SMTP_PASSWORD}' } });
-  assert.ok(env.ok && env.value.transport.type === 'smtp' && env.value.transport.password.kind === 'env');
+  const env = configured({ ...EXAMPLE, transport: { ...EXAMPLE.transport, password: '${SMTP_PASSWORD}' } });
+  assert.ok(env.transport.type === 'smtp' && env.transport.password.kind === 'env');
 });
 
 test('a sendmail transport names its command and arguments', () => {
-  const parsed = parseNotifyConfig({ ...EXAMPLE, transport: { type: 'sendmail', command: '/usr/bin/msmtp', args: ['--read-envelope-from', '-t'] } });
-  assert.ok(parsed.ok);
-  assert.deepEqual(parsed.value.transport, { type: 'sendmail', command: '/usr/bin/msmtp', args: ['--read-envelope-from', '-t'] });
-  const defaults = parseNotifyConfig({ ...EXAMPLE, transport: { type: 'sendmail', command: 'msmtp' } });
-  assert.ok(defaults.ok && defaults.value.transport.type === 'sendmail');
-  assert.deepEqual(defaults.value.transport.args, ['-t', '-i']);
+  assert.deepEqual(configured({ ...EXAMPLE, transport: { type: 'sendmail', command: '/usr/bin/msmtp', args: ['--read-envelope-from', '-t'] } }).transport,
+    { type: 'sendmail', command: '/usr/bin/msmtp', args: ['--read-envelope-from', '-t'] });
+  assert.deepEqual(configured({ ...EXAMPLE, transport: { type: 'sendmail', command: 'msmtp' } }).transport, { type: 'sendmail', command: 'msmtp', args: ['-t', '-i'] });
 });
 
 test('limits default to the documented example\'s values, and must be positive', () => {
   const { limits: _, ...noLimits } = EXAMPLE;
-  const parsed = parseNotifyConfig(noLimits);
-  assert.ok(parsed.ok);
-  assert.deepEqual(parsed.value.limits, { perHour: 10, maxBytes: 200000, cooldownMs: 12 * 3_600_000 });
+  assert.deepEqual(configured(noLimits).limits, { perHour: 10, maxBytes: 200000, cooldownMs: 12 * 3_600_000 });
   assert.deepEqual(issues({ ...EXAMPLE, limits: { 'per-hour': 0, cooldown: 'soon' } }), [
     'notify.limits.per-hour: must be a positive whole number',
     'notify.limits.cooldown: must be a duration such as 90s, 30m or 2h',
