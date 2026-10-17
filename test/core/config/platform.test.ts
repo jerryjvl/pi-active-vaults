@@ -79,8 +79,10 @@ test('the installation files live at the documented places under those directori
     stateDb: '/s/state.sqlite',
     indexDb: '/s/index.sqlite',
     logs: '/s/logs',
+    worktrees: '/s/worktrees',
   });
   assert.equal(installationPaths({ config: 'C:\\c', state: 'C:\\s' }, 'win32').stateDb, 'C:\\s\\state.sqlite');
+  assert.equal(installationPaths({ config: 'C:\\c', state: 'C:\\s' }, 'win32').worktrees, 'C:\\s\\worktrees');
 });
 
 test('private directories are created accessible to the user only (POSIX modes)', { skip: process.platform === 'win32' }, () => {
