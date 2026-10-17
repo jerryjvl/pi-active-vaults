@@ -18,16 +18,26 @@ const BOB = { name: 'Bob Builder', email: 'bob@example.net' };
 
 test('trailers are appended to a message, replacing an existing trailer of the same key', withTempRepo(async (repo) => {
   const git = gitFor(repo);
-  const once = await addTrailers(git, 'Subject\n\nBody.', [
+  const once = await addTrailers(git, repo.path, 'Subject\n\nBody.', [
     { key: 'Vault-Trace', value: 'T1' },
     { key: 'Vault-Actor', value: 'gardener' },
   ]);
   assert.ok(once.ok);
   assert.match(once.value, /^Subject\n\nBody\.\n\nVault-Trace: T1\nVault-Actor: gardener\n$/);
-  const twice = await addTrailers(git, once.value, [{ key: 'Vault-Trace', value: 'T2' }]);
+  const twice = await addTrailers(git, repo.path, once.value, [{ key: 'Vault-Trace', value: 'T2' }]);
   assert.ok(twice.ok);
   assert.equal(twice.value.match(/Vault-Trace/g)?.length, 1);
   assert.match(twice.value, /Vault-Trace: T2/);
+}));
+
+test('trailers are added inside the repository being committed to, not the process directory', withTempRepo(async (repo) => {
+  // A repository-local setting takes effect only when git runs in that repository.
+  repo.git('config', 'trailer.where', 'start');
+  const added = await addTrailers(gitFor(repo), repo.path, 'Subject\n\nSigned-off-by: Alice <alice@example.net>', [
+    { key: 'Vault-Trace', value: 'T1' },
+  ]);
+  assert.ok(added.ok);
+  assert.match(added.value, /\n\nVault-Trace: T1\nSigned-off-by: Alice/);
 }));
 
 test('trailer keys and values that could inject extra trailers or lines are refused', withTempRepo(async (repo) => {
@@ -39,7 +49,7 @@ test('trailer keys and values that could inject extra trailers or lines are refu
     { key: 'Key:', value: 'x' },
     { key: '', value: 'x' },
   ]) {
-    const result = await addTrailers(git, 'Subject', [trailer]);
+    const result = await addTrailers(git, repo.path, 'Subject', [trailer]);
     assert.equal(result.ok === false && result.error.reason, 'invalid-argument', JSON.stringify(trailer));
   }
 }));

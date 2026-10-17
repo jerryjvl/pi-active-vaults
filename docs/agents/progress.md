@@ -9,9 +9,10 @@ Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 1 review finding 1 (`main` merged, `d8217ac`).
-- **In progress:** Stage 1 review findings 2–4 (per-module schema ownership,
-  trailers run in the repository's directory, `prepack` build).
+- **Done:** Stage 1 review findings 1 (`main` merged, `d8217ac`) and 3
+  (trailers added in the repository's directory).
+- **In progress:** Stage 1 review findings 2 (per-module schema ownership) and
+  4 (`prepack` build).
 - **Next:** Stage 2 — read its documents, then tests first, module by module.
 
 ## Stage entries

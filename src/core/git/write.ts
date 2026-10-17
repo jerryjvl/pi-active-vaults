@@ -55,15 +55,20 @@ export function attributionEnv(attribution: Attribution): Result<Record<string, 
   return ok(env);
 }
 
-/** Appends trailers to a message, replacing an existing trailer of the same key. */
-export async function addTrailers(git: Git, message: string, trailers: readonly Trailer[]): Promise<Result<string, GitError>> {
+/**
+ * Appends trailers to a message for a commit in `repo`, replacing an existing
+ * trailer of the same key. Git runs inside `repo`, so the message is formatted
+ * under that repository's trailer settings — the same ones `git commit` there
+ * applies — and never under whatever repository the process happens to be in.
+ */
+export async function addTrailers(git: Git, repo: string, message: string, trailers: readonly Trailer[]): Promise<Result<string, GitError>> {
   const args = ['interpret-trailers', '--if-exists', 'replace', '--if-missing', 'add'];
   for (const { key, value } of trailers) {
     const checked = checkTrailer(key, value);
     if (!checked.ok) return checked;
     args.push('--trailer', `${key}: ${value}`);
   }
-  const ran = await runChecked(git, args, { cwd: process.cwd(), input: message });
+  const ran = await runChecked(git, args, { cwd: repo, input: message });
   return ran.ok ? ok(ran.value.stdout.toString('utf8')) : ran;
 }
 
@@ -94,7 +99,7 @@ export async function createCommit(git: Git, repo: string, options: CommitOption
 
   const message = options.trailers === undefined || options.trailers.length === 0
     ? ok(options.message)
-    : await addTrailers(git, options.message, options.trailers);
+    : await addTrailers(git, repo, options.message, options.trailers);
   if (!message.ok) return message;
 
   const args = [
