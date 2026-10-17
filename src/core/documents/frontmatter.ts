@@ -104,3 +104,17 @@ export function parseDocument(text: string): Result<ParsedDocument, DocumentErro
   const data = frontmatterData(document.value);
   return data.ok ? ok({ frontmatter: data.value, body: parts.value.body, hasFrontmatter: true }) : data;
 }
+
+/** A one-line account of why a document could not be read, for issue messages; never quotes content. */
+export function describeDocumentError(error: DocumentError): string {
+  switch (error.reason) {
+    case 'unterminated-frontmatter':
+      return 'frontmatter is not closed';
+    case 'invalid-frontmatter':
+      return `frontmatter is not valid YAML (${error.problems.join(', ')})`;
+    case 'frontmatter-not-a-mapping':
+      return 'frontmatter must be a mapping';
+    case 'invalid-key':
+      return 'invalid frontmatter key';
+  }
+}
