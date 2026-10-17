@@ -9,7 +9,7 @@
 // own limit; spawned work gets its budget from the session tree.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { budgetState, budgetsSchema, type BudgetLimits } from '../../../src/core/budgets/index.ts';
+import { accountUsage, budgetState, budgetsSchema, type BudgetLimits } from '../../../src/core/budgets/index.ts';
 import type { GitEvent } from '../../../src/core/conditions/index.ts';
 import { createIdSource, type IdSource } from '../../../src/core/ids/index.ts';
 import {
@@ -19,6 +19,7 @@ import {
   listSpawns,
   markAwaited,
   nextSpawns,
+  noChangeSpawn,
   queueSchema,
   recordSpawn,
   spawnEventKey,
@@ -173,3 +174,25 @@ test('event identities: Git events by vault and commit, timers by their schedule
   assert.equal(spawnEventKey({ kind: 'session.tool', tool: 'bash', id: 'S1-7' }), 'session.tool:S1-7');
   assert.equal(spawnEventKey({ kind: 'manual', id: 'R1' }), 'manual:R1');
 });
+
+test('a run that ends without changes is recorded as no-change, ending its session; only a running spawn can', withQueue(({ store, context, clock }) => {
+  const { entry } = enqueueSpawn(store, context, request('jobs/maybe.md'));
+  const early = noChangeSpawn(store, clock, entry.id);
+  assert.deepEqual(!early.ok && early.error, { reason: 'wrong-state', id: entry.id, state: 'queued' });
+  assert.ok(startSpawn(store, clock, entry.id).ok);
+  clock.advance(5000);
+  const ended = noChangeSpawn(store, clock, entry.id);
+  assert.ok(ended.ok);
+  assert.deepEqual([ended.value.state, ended.value.commit, ended.value.ended], ['no-change', undefined, '2026-01-01T00:00:05.000Z']);
+  assert.equal(accountUsage(store, LIMITS, clock, entry.trace, { prompt: 1, cachedPrefix: 0, generated: 0 }).ok, false, 'its budget session has ended');
+  assert.equal(stopSpawn(store, clock, entry.id, 'error').ok, false);
+  assert.ok(recordSpawn(store, entry.id).ok);
+}));
+
+test('a running spawn the daemon finds left over from before a restart stops with the reason restart', withQueue(({ store, context, clock }) => {
+  const { entry } = enqueueSpawn(store, context, request('jobs/long.md'));
+  assert.ok(startSpawn(store, clock, entry.id).ok);
+  const stopped = stopSpawn(store, clock, entry.id, 'restart');
+  assert.ok(stopped.ok);
+  assert.deepEqual([stopped.value.state, stopped.value.reason], ['stopped', 'restart']);
+}));

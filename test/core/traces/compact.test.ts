@@ -50,6 +50,12 @@ test('a compact record lives under the year and month its trace was issued, in U
   assert.throws(() => compactTracePath('../../etc/passwd'), /trace ID/);
 });
 
+test('a session ends committed, stopped, or with no changes', () => {
+  const trace = sample(newTraceId(ids()));
+  const nothing: CompactTrace = { ...trace, sessions: [{ actor: 'gardener', started: '2026-01-01T00:00:00.000Z', tokens: 80, outcome: 'no-change' }] };
+  assert.deepEqual(parseCompactTrace(renderCompactTrace(nothing)), { ok: true, value: nothing });
+});
+
 test('a compact record is rendered deterministically and read back unchanged', () => {
   const trace = sample(newTraceId(ids()));
   const text = renderCompactTrace(trace);
