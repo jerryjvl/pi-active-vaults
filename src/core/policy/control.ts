@@ -41,9 +41,9 @@ async function controlFields(git: Git, repo: string, revision: Sha, path: string
   return ok(Object.fromEntries(CONTROL_KEYS.filter((key) => frontmatter[key] !== undefined).map((key) => [key, frontmatter[key]])));
 }
 
-/** The control changes among `changes` (from `base` to `head`), in path order. */
+/** The control changes among `changes` (from `base` — null: from nothing — to `head`), in path order. */
 export async function findControlChanges(
-  git: Git, repo: string, base: Sha, head: Sha, changes: readonly FileChange[],
+  git: Git, repo: string, base: Sha | null, head: Sha, changes: readonly FileChange[],
 ): Promise<Result<ControlChange[], GitError>> {
   const found: ControlChange[] = [];
   for (const change of changes) {
@@ -54,7 +54,7 @@ export async function findControlChanges(
       continue;
     }
     if (!isDocumentPath(change.path) && !isDocumentPath(before)) continue;
-    const was = change.change === 'created' ? ok({}) : await controlFields(git, repo, base, before);
+    const was = change.change === 'created' || base === null ? ok({}) : await controlFields(git, repo, base, before);
     if (!was.ok) return was;
     const is = change.change === 'deleted' ? ok({}) : await controlFields(git, repo, head, change.path);
     if (!is.ok) return is;

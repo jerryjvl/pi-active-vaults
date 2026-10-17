@@ -34,7 +34,7 @@ it; no vault logic lives anywhere else.
 | `events` | Derive Git events from a ref range (paths, change kinds, renames, labels, the actor and run that made each change) |
 | `policy` | Evaluate merge rules against changed paths and attestations |
 | `attestations` | Read and write attestation records in Git notes |
-| `actors` | Actor branches and worktrees; the hold that keeps one writer per actor, void once its process has ended; proposals; review records; SHA-bound accept |
+| `actors` | Actor branches and worktrees; the hold that keeps one writer per actor, void once its process has ended; proposals; review records; SHA-bound accept and adopt |
 | `integrity` | The accepted `main` per vault: record it on accept and adopt, detect unaccepted changes, provide the notice every surface shows |
 | `scripts` | Resolve built-ins and the vault's scripts and checks from the accepted `main`, parse headers, run them with their declared limits |
 | `templates` | Validate a template's marker, create a vault from it with fresh history and recorded origin |
@@ -58,7 +58,7 @@ it; no vault logic lives anywhere else.
 | `deriveEvents` | Vault, ref range | Git events |
 | `review` | Vault, actor, reviewer | Commits, diff summary, check results, control-change flags; records the reviewed SHA as the reviewer's latest review |
 | `accept` | Vault, actor, approver | Merge of the SHA from the approver's own latest review (recorded as the accepted `main`), or the reason it was refused — including the unmet requirements |
-| `adopt` | Vault, SHA, approver | The delta from the accepted `main`, then the new accepted `main` once confirmed |
+| `adopt` | Vault, SHA, approver, acknowledgement | Failed checks and control changes in the delta from the accepted `main`, with an acknowledgement for them; the delta; then the new accepted `main` once confirmed — refused if the concerns are not the ones acknowledged |
 | `integrityStatus` | Vault | `accepted`, or the unaccepted change with its commits |
 | `runScript` | Vault, script name, arguments | Exit status and output |
 | `search` | Query, vault scope | Ranked hits, each with a freshness verdict |

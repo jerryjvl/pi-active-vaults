@@ -71,14 +71,15 @@ test('checks on the accepted main that have not passed for the SHA are concerns 
   assert.ok(shown.ok);
   assert.deepEqual(shown.value.concerns, { checks: [{ name: 'links', status: 'fail' }], control: [] });
 
-  // The check is re-run and now passes: what was acknowledged is no longer what is there.
-  assert.ok((await attest('links', 'pass', '2026-01-01T00:05:00.000Z')).ok);
+  // Another check fails after the owner looked: what was acknowledged is no longer all there is.
+  assert.ok((await attest('spelling', 'fail', '2026-01-01T00:05:00.000Z')).ok);
   const stale = await adopt(git, store, vault, { sha: stray, approver: 'alice', clock, acknowledged: shown.value.acknowledgement });
-  assert.equal(!stale.ok && stale.error.reason, 'unacknowledged');
+  assert.deepEqual(!stale.ok && stale.error, {
+    reason: 'unacknowledged', concerns: { checks: [{ name: 'links', status: 'fail' }, { name: 'spelling', status: 'fail' }], control: [] },
+  });
   const now = await adoptionDelta(git, store, vault, stray);
   assert.ok(now.ok);
-  assert.deepEqual(now.value.concerns.checks, []);
-  assert.ok((await adopt(git, store, vault, { sha: stray, approver: 'alice', clock })).ok);
+  assert.ok((await adopt(git, store, vault, { sha: stray, approver: 'alice', clock, acknowledged: now.value.acknowledgement })).ok);
 }));
 
 test('adopting flags rewritten history', withTestVault(async ({ repo, git, store, vault, accept }) => {

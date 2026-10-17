@@ -10,6 +10,7 @@ export {
 export { findControlChanges, type ControlChange } from './control.ts';
 export {
   axesVersion,
+  checkStatuses,
   evaluatePolicy,
   type CheckStatus,
   type PolicyChange,

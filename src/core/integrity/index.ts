@@ -1,5 +1,5 @@
-// Public surface of the integrity module: the accepted `main` per vault,
-// unaccepted-change detection, the notice every surface shows, and adopt.
+// Public surface of the integrity module: the accepted `main` per vault and
+// unaccepted-change detection, with the notice every surface shows.
 
 export {
   acceptedMain,
@@ -20,4 +20,3 @@ export {
   type UnacceptedKind,
   type VaultLocation,
 } from './status.ts';
-export { adopt, adoptionDelta, type AdoptError, type AdoptionDelta } from './adopt.ts';

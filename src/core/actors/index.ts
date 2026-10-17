@@ -1,5 +1,5 @@
 // Public surface of the actors module: actor branches and worktrees,
-// proposals, review records, SHA-bound accept, and commit trailers.
+// proposals, review records, SHA-bound accept and adopt, and commit trailers.
 
 export { TRAILER, isTaintedCommit, packageTrailers, trailerValue, type CommitOrigin } from './trailers.ts';
 export {
@@ -14,3 +14,12 @@ export {
 export { readProposal, type Proposal, type ProposalError } from './proposal.ts';
 export { actorsSchema, review, reviewRecord, type Review, type ReviewError, type ReviewRecord } from './review.ts';
 export { accept, type AcceptError, type AcceptRequest } from './accept.ts';
+export {
+  adopt,
+  adoptionDelta,
+  type AdoptError,
+  type AdoptRequest,
+  type AdoptionConcerns,
+  type AdoptionDelta,
+  type AdoptionError,
+} from './adopt.ts';
