@@ -1,6 +1,7 @@
 // Documented behaviour: the package ships compiled output, declares Pi's
-// packages as peers (never bundled) and has no npm lifecycle scripts
-// (architecture.md "Technology", pi-conventions.md "Packaging", AGENTS.md §6).
+// packages as peers (never bundled), has no install-time lifecycle scripts and
+// builds before packing (architecture.md "Technology", pi-conventions.md
+// "Packaging", AGENTS.md §6).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -31,12 +32,17 @@ test('Pi packages are "*" peers, never dependencies, and pinned for development'
   }
 });
 
-test('the package has no npm lifecycle scripts', () => {
+test('no lifecycle script runs where the package is installed; prepack is the only one', () => {
+  // `prepublish` is listed because older npm runs it on a local install too.
   const lifecycle = [
     'preinstall', 'install', 'postinstall', 'prepublish', 'preprepare', 'prepare',
-    'postprepare', 'prepack', 'postpack', 'prepublishOnly', 'publish', 'postpublish',
+    'postprepare', 'postpack', 'prepublishOnly', 'publish', 'postpublish',
   ];
   for (const name of lifecycle) assert.equal(pkg.scripts[name], undefined, name);
+});
+
+test('packing builds first, so a packed package always contains current compiled output', () => {
+  assert.equal(pkg.scripts.prepack, 'npm run build');
 });
 
 test('the build rewrites .ts import extensions so compiled output runs under plain Node', () => {
