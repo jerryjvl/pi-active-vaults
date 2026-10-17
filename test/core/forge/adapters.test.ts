@@ -76,6 +76,17 @@ for (const type of ['gitea', 'github'] as const) {
   }, { pulls: [{ ...pull }], reviews }));
 }
 
+test('github: reviews are read across every page; a review by a deleted account counts for nothing', () => withForge('github', async (adapter, stub) => {
+  const approvals = await adapter.approvals({ number: 1, url: '', head: 'actor/gardener', headSha: SHA_2, state: 'open' });
+  assert.deepEqual(approvals, { ok: true, value: [{ user: 'alice', commit: SHA_2 }] });
+  const pages = stub.server.requests.filter((r) => r.url.includes('/reviews')).map((r) => new URL(r.url, 'http://stub').searchParams.get('page'));
+  assert.deepEqual(pages, ['1', '2']);
+}, { pulls: [{ ...pull }], reviews: [
+  ...Array.from({ length: 120 }, (_, i) => ({ pull: 1, user: `commenter-${i}`, state: 'COMMENTED', commit: SHA_1 } as const)),
+  { pull: 1, user: 'alice', state: 'APPROVED', commit: SHA_2 },
+  { pull: 1, user: null, state: 'APPROVED', commit: SHA_2 },
+] }));
+
 test('gitlab: approvals count for the head commit only where approvals are reset on push; otherwise their commit is unknown', async () => {
   const pr = { number: 1, url: '', head: 'actor/gardener', headSha: SHA_2, state: 'open' as const };
   await withForge('gitlab', async (adapter) => {
@@ -103,6 +114,33 @@ test('branch protection is read in each forge\'s terms', async () => {
     required_pull_request_reviews: { required_approving_review_count: 2 },
     allow_force_pushes: { enabled: true }, allow_deletions: { enabled: false },
   } });
+  await withForge('github', async (adapter) => {
+    assert.deepEqual(await adapter.protection('main'), { ok: true, value: {
+      protected: true, directPushes: false, forcePushes: false, deletion: false, requiresPolicyStatus: true, requiredApprovals: 1,
+    } }, 'a main protected by a ruleset alone is protected');
+  }, { rules: [
+    { type: 'deletion', ruleset_source_type: 'Repository', ruleset_source: 'home/vault', ruleset_id: 7 },
+    { type: 'non_fast_forward', ruleset_source_type: 'Repository', ruleset_source: 'home/vault', ruleset_id: 7 },
+    { type: 'pull_request', ruleset_id: 7, parameters: {
+      required_approving_review_count: 1, dismiss_stale_reviews_on_push: true, require_code_owner_review: false,
+      require_last_push_approval: false, required_review_thread_resolution: false, allowed_merge_methods: ['merge'],
+    } },
+    { type: 'required_status_checks', ruleset_source_type: 'Organization', ruleset_source: 'home', ruleset_id: 9, parameters: {
+      required_status_checks: [{ context: 'vault/policy' }], strict_required_status_checks_policy: false,
+    } },
+    { type: 'commit_message_pattern', ruleset_id: 9, parameters: { operator: 'starts_with', pattern: 'x' } },
+  ] });
+  await withForge('github', async (adapter) => {
+    assert.deepEqual(await adapter.protection('main'), { ok: true, value: {
+      protected: true, directPushes: false, forcePushes: false, deletion: true, requiresPolicyStatus: false, requiredApprovals: 2,
+    } }, 'branch protection and rulesets together: each restriction from either, the most approvals of both');
+  }, {
+    protection: { required_pull_request_reviews: { required_approving_review_count: 2 }, allow_force_pushes: { enabled: true }, allow_deletions: { enabled: true } },
+    rules: [{ type: 'non_fast_forward', ruleset_id: 3 }, { type: 'pull_request', ruleset_id: 3, parameters: { required_approving_review_count: 1 } }],
+  });
+  await withForge('github', async (adapter) => {
+    assert.equal((await adapter.protection('main')).ok, false, 'a rule not in GitHub\'s shape is an error, not a guess');
+  }, { rules: [{ type: 'pull_request', parameters: { required_approving_review_count: 'one' } }] });
   await withForge('gitlab', async (adapter) => {
     assert.deepEqual(await adapter.protection('main'), { ok: true, value: {
       protected: true, directPushes: true, forcePushes: false, deletion: false, requiresPolicyStatus: true, requiredApprovals: 'unknown',

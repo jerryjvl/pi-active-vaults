@@ -18,7 +18,8 @@ export interface StubPull {
 
 export interface StubReview {
   readonly pull: number;
-  readonly user: string;
+  /** null: a deleted account (GitHub's "ghost"). */
+  readonly user: string | null;
   readonly state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED';
   readonly commit: string;
 }
@@ -30,6 +31,8 @@ export interface ForgeModel {
   reviews: StubReview[];
   /** The forge-native protection body for `main`, or undefined when unprotected. */
   protection?: object;
+  /** GitHub: the active ruleset rules that apply to `main`. */
+  rules?: object[];
   /** GitLab: project settings. `resetApprovalsOnPush` undefined: the setting cannot be read (Free tier). */
   gitlab: { resetApprovalsOnPush?: boolean; pipelinesMustSucceed: boolean; approvalsRequired?: number };
 }
@@ -109,13 +112,14 @@ export async function startForgeStub(type: ForgeType, headSha: (branch: string) 
     }
     if (pull !== undefined && method === 'GET' && one?.[2] === '/reviews' && type !== 'gitlab') {
       const reviews = state.reviews.filter((r) => r.pull === pull.number).map((r) => type === 'gitea'
-        ? { user: { login: r.user }, state: r.state === 'CHANGES_REQUESTED' ? 'REQUEST_CHANGES' : r.state === 'COMMENTED' ? 'COMMENT' : r.state === 'DISMISSED' ? 'APPROVED' : r.state, commit_id: r.commit, dismissed: r.state === 'DISMISSED', stale: false }
-        : { user: { login: r.user }, state: r.state, commit_id: r.commit });
+        ? { user: r.user === null ? null : { login: r.user }, state: r.state === 'CHANGES_REQUESTED' ? 'REQUEST_CHANGES' : r.state === 'COMMENTED' ? 'COMMENT' : r.state === 'DISMISSED' ? 'APPROVED' : r.state, commit_id: r.commit, dismissed: r.state === 'DISMISSED', stale: false }
+        : { id: 1, user: r.user === null ? null : { login: r.user }, state: r.state, commit_id: r.commit, body: '' });
       return { body: page(reviews, url.searchParams, type === 'gitea' ? 'limit' : 'per_page') };
     }
     if (pull !== undefined && method === 'GET' && one?.[2] === '/approvals' && type === 'gitlab') {
       const approvers = new Set<string>();
       for (const r of state.reviews.filter((x) => x.pull === pull.number)) {
+        if (r.user === null) continue;
         if (r.state === 'APPROVED') approvers.add(r.user);
         else if (r.state !== 'COMMENTED') approvers.delete(r.user);
       }
@@ -131,6 +135,7 @@ export async function startForgeStub(type: ForgeType, headSha: (branch: string) 
     if (method === 'GET') {
       if (type === 'gitea' && rest === '/branch_protections/main') return state.protection === undefined ? { status: 404, body: {} } : { body: state.protection };
       if (type === 'github' && rest === '/branches/main/protection') return state.protection === undefined ? { status: 404, body: { message: 'Branch not protected' } } : { body: state.protection };
+      if (type === 'github' && rest === '/rules/branches/main') return { body: page(state.rules ?? [], url.searchParams, 'per_page') };
       if (type === 'gitlab' && rest === '/protected_branches/main') return state.protection === undefined ? { status: 404, body: {} } : { body: state.protection };
       if (type === 'gitlab' && rest === '') return { body: { path_with_namespace: PROJECT, only_allow_merge_if_pipeline_succeeds: state.gitlab.pipelinesMustSucceed } };
       if (type === 'gitlab' && rest === '/approvals') {
