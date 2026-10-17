@@ -83,7 +83,8 @@ export const statusOperation: Operation = {
       for (const hold of held) lines.push(`  ${hold.actor} held by session ${hold.holder.session} (process ${hold.holder.process.pid}${hold.standing === 'cannot-tell' ? ', cannot tell whether it still runs' : ''})`);
       vaults.push({ vault: vault.id, accepted: accepted.ok ? accepted.value.sha : null, proposals, work, holds: held });
     }
-    const undelivered = undeliveredNotifications(context.state);
+    // The outbox is the whole installation's, so a remote client — permitted for some vaults — does not see it.
+    const undelivered = request.caller.surface === 'mcp' ? [] : undeliveredNotifications(context.state);
     if (undelivered.length > 0) lines.push(`Undelivered notifications: ${undelivered.map((n) => `${n.alias} "${n.subject}" (${n.state})`).join(', ')}`);
     return succeeded(lines.join('\n') || 'No vaults.', { vaults, undelivered });
   },
