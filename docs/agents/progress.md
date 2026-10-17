@@ -3,22 +3,19 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 3a — traces, budgets, queue, models and search (the first half of Stage 3)
+**Current stage:** 3a — complete, awaiting review
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Scope of this session:** the Stage 2 review findings (1)–(4), then Stage 3a
-  only: `traces`, `budgets`, `queue`, `models`, `search`, tests first,
-  a refactoring pass, and a checkpoint. Judgements, `notify`, `templates` and
-  `forge` are for the next session.
-- **Done:** findings (1)–(4): documentation, accept bound to the approver's
-  own review, the `process` module with git, secret commands and scripts on it.
-- **In progress:** Stage 3a. Done: `sqlite-vec` dependency, `traces`,
-  `budgets`, `queue`, `models` (embed, rerank; the judgement client waits on
-  the API shape), `search`, the refactoring pass.
-- **Next:** the documentation proposal, then the Stage 3a entry and checkpoint.
+- **Done:** Stage 3a (the first half of Stage 3: `traces`, `budgets`,
+  `queue`, `models`, `search`), with the Stage 2 review findings; see its
+  entry below.
+- **In progress:** nothing.
+- **Next:** review of Stage 3a. Then, when told, Stage 3b: judgements (and the
+  judgement model's client, once its API shape is known), `notify`,
+  `templates`, `forge`.
 
 ## Stage entries
 
@@ -166,3 +163,52 @@ Copy this block for each stage:
   2. *Per-module schema ownership:* `store` keeps only its own `store_versions` table and applies the `ModuleSchema`s it is given, refusing a file in which any module is newer or unknown; each module exports its schema (`integritySchema`, `actorsSchema`); `operations/stores.ts` assembles the lists and opens the files; a test checks every exported schema is assembled (`56b20fa`).
   3. *Trailers in the repository's directory:* `addTrailers` takes the repository and runs `interpret-trailers` there; a test with a repository-local `trailer.where` proves it (`612e112`).
   4. *`prepack`:* `"prepack": "npm run build"`; the package test forbids every install-time lifecycle script and requires `prepack` to be the build; `architecture.md` says so (`f611999`).
+
+### Stage 3a — Work machinery, first half (L2): traces, budgets, queue, models, search
+
+- **Commits:** `0eedbd2..` on `impl/v1` — the Stage 2 review findings first (`0eedbd2`, `2ed0663`, `4fe2444`), the `sqlite-vec` dependency (`4c7955e`), then tests-first and implementation commits per module, the refactor commit (`f223ef8`), the documentation proposal (`c479714`), and this entry as the last commit. As before, each `test(…)` commit fails until the commit after it; every other commit passes.
+- **Results:** `npm test`: 386 tests, 386 pass, none skipped. `npm run check`: no errors. `npm run build`: compiles, and all 23 compiled core modules import under plain Node. Node v24.18.0, git 2.55.0, Linux; `sqlite-vec` 0.1.9 loaded from its prebuilt package.
+- **Built:** in `src/core/`:
+  - `process` (L0, finding 4) — `runProcess`: a program with an argument array or an explicit shell command line, exactly the given environment, closed standard input unless input is given, output bounded per stream, a time limit that kills the process group on POSIX.
+  - `traces` — `newTraceId`; compact records (`compactTracePath`, `renderCompactTrace`, `parseCompactTrace`, `writeCompactTrace`, `opaqueReference`); provenance (`withProvenance`, `provenanceOf`); full logs (`appendFullLog`, `readFullLog`, `rotateLogs`).
+  - `budgets` — `parseBudget`, `workTokens`; the session tree in `state.sqlite`: `allot`, `startSession`, `accountUsage`, `finishSession`, `budgetState`.
+  - `queue` — `enqueueSpawn` (claim + trace + allotment in one transaction), `startSpawn`, `commitSpawn`, `stopSpawn`, `recordSpawn`, `markAwaited`, `nextSpawns`, `expireQueued`, `listSpawns`, `spawnEventKey`; cursors (`readCursor`, `advanceCursor`, `gitStream`, `timerStream`).
+  - `models` — `modelFor` (a branded `PermittedModel`, after configuration and policy), `inBatches` (batch × parallel), `embed` and `rerank` clients.
+  - `search` — schema in `index.sqlite` (documents, chunks, FTS5 kept in step by triggers, vectors, the embedding model), `chunkDocument`, `updateIndex`, `search`, `freshnessChecker`.
+  - Additions below L2: `store` loads `sqlite-vec` for the index (`vectors`); `clock.utcDay`; `git.TREE_MODES`, `timed-out` and `output-too-large` errors; `documents.PACKAGE_DIRECTORY`/`inPackageDirectory`; `operations/stores.ts` assembles `budgets`, `queue` and `search`.
+- **Tests:** each module's documented behaviour without network (local stub servers only), and fail-closed cases:
+  - *Accept (finding 2):* a review by another owner or by the actor never satisfies an owner's accept, records no approval and leaves `main` alone; accept uses the approver's own latest review even when someone else reviewed the current tip; existing reviews survive the migration under their reviewer.
+  - *Processes:* arguments are never shell-interpreted; nothing of the caller's environment is inherited; standard input is closed; output limits are reported; a timeout kills a background grandchild holding the pipes; a missing program is a value; git time-outs and oversized output are errors, never shortened results; a secret command sees only the given environment and fails on oversized output.
+  - *Index from the accepted `main` only:* working-tree text is never searchable; an index update during an unaccepted change is refused and leaves the index unchanged; `index: none` is never searched, `opt-in` only within a scope, `.vault/` and non-documents never; a subtree under an unreadable contract is left out.
+  - *Models and policy:* no vault content reaches an embed or rerank model the policy does not allow (no request reaches the stub); an unconfigured role is a value; HTTP errors, malformed responses, timeouts, unreachable endpoints and unresolvable tokens fail closed, and no error contains the token.
+  - *Search:* query text never acts as FTS5 syntax; vectors find what keywords miss; rerank reorders; freshness `current`/`changed`/`moved`/`gone`; degradation without a model, without permission, without the vector extension, with a failing model, and after a model change, each reported.
+  - *Budgets and queue:* allotment by depth, relevance and reservation; once per tree, max-depth, pool exhaustion, unknown parent and the daily ceiling each refuse; a claim is unique across connections and all-or-nothing; each state change only from the state before it; ordering; queue-time expiry; cursors compare-and-swap.
+  - *Traces:* malformed records refused whole; path-escaping trace IDs and log names refused; log files private; rotation idempotent and limited to day directories.
+  - *Boundaries:* only `process` imports `node:child_process` (or `child_process`); `node:sqlite` and `sqlite-vec` only in `store`.
+- **Refactoring:** (`f223ef8`) one home each for tree modes (`git.TREE_MODES`), the package directory (`documents.inPackageDirectory`, case-insensitive as policy already was — search's `.vault/` exclusion now ignores case too) and the UTC day (`clock.utcDay`); `TRACES_DIRECTORY`, `PROVENANCE_KEY` and `MAX_CHUNK_CHARS` made internal; test support gained `withStore`, replacing three copies. The process module removed the three spawning implementations and the bounded-output copy in scripts. Comments and documents checked against behaviour.
+- **Decisions:**
+  - *Process:* every run must give a time limit and output limits. git defaults to 10 minutes and 256 MiB of output (`GitOptions` override). A secret command now runs with `SecretDeps.env`, not the ambient environment. On Windows only the direct child is killed.
+  - *Review records:* kept per reviewer through an appended migration (migration lists stay append-only), not by editing version 1.
+  - *Traces:* one `trigger` per record; session `outcome` is `committed` or `stopped`; an opaque reference is `ref:` plus 16 hex digits of SHA-256 over trace and vault; `writeCompactTrace` only writes into the worktree (the run's commit includes it); log names are `[a-z0-9][a-z0-9._-]*`; a day's age is counted in whole UTC days, and a day is deleted at age ≥ `keep-days`.
+  - *Budgets:* the cascade pool belongs to the root, and the root's own use does not draw from it; the daily ceiling also caps a root's allotment; an allotment under one token is `pool-exhausted`; a relevance outside 0–1 is a programming error; interactive sessions may be allotted without a document; budgets do not check trace ID format.
+  - *Queue:* `matched` and `claimed` are not stored as states — the claim is the insert, which records the spawn as `queued`, or `stopped` with the tree's refusal as the reason (the spawn stays claimed and never refires for that event). Event keys: `<kind>:<vault>:<commit>`, `timer:<at>`, otherwise `<kind>[:<vault>]:<id>`, with `manual` for `vault run`. The documented scheduling order is read lexicographically: awaited, then depth, then root, then claim order. Queue time is measured from the claim; its limit is a parameter.
+  - *Models:* `policy` is an allow list (see Needs owner approval); a call involving no vault's content needs no policy entry. The configured URL is the API base; paths `embeddings` and `rerank` are appended. Per-request timeout 60 s by default; errors carry the HTTP status, never the body. Rerank sends `top_n` equal to the batch and assumes scores are comparable across batches.
+  - *Search:* vectors are plain rows ranked with `vec_distance_cosine`, not a `vec0` virtual table, so the schema never needs the extension. Title: frontmatter `title`, else the first `#` heading, else the file name. Chunks of at most 1500 characters; header `vault · title · heading › path`. FTS5 with `unicode61 remove_diacritics 2`; query words quoted and OR-ed; reciprocal rank fusion with k = 60 over 100 candidates each (all matches when a scope is given); rerank of the top max(3 × limit, 30), only when allowed for every vault searched. The embedding model is recorded index-wide by model ID; no record counts as `model-changed`. A document with unreadable frontmatter is indexed as plain text; symbolic links are skipped; contracts' prose is indexed.
+- **Needs owner approval:**
+  1. `c479714` — documentation of the formats and semantics implemented against: budget `ttl` syntax; allotments held until their session ends; a tree without `cascade-pool` bounded only by budgets, max-depth and the daily ceiling; the daily ceiling per UTC day; the compact record's keys, provenance as `{ trace, path }`, logs per UTC day with retention counting today, per-run opaque references; `policy` as an allow list; `opt-in` meaning "within an explicit scope"; what is never indexed; reported degradation; `store` loading `sqlite-vec`.
+     Two of these change what a user sees and deserve a look: with `policy` as an allow list, a config with models but no `policy` gets keyword-only search (`vault doctor` should say why); and without `cascade-pool` the pool does not limit cascades at all.
+  2. **Blocked:** the judgement API (`POST /v1/systemone`). Its request and response shapes are not documented anywhere, so the judgement client was not written rather than guessed; listed as an open question in `core.md`. Judgements (Stage 3b) need it: please give the shapes or a reference.
+- **Gaps:**
+  - Stage 3b: judgements, `notify`, `templates`, `forge`, and the judgement model's client.
+  - The queue-time limit has no configured value (no config key is documented); the daemon (Stage 6) must supply it, as it must the per-model capacity for scheduling.
+  - Search ranks chunks: several chunks of one document can appear among the hits. Vector ranking is brute force over the searched vaults' vectors; fine for personal vaults, untested at scale. Freshness lists each searched vault's tree once per query.
+  - `sqlite-vec` ships builds for Linux and macOS (x64, arm64) and Windows x64 only; elsewhere search is keyword-only (reported).
+  - Windows: a timed-out process's children are not killed (only the process itself); shells run through `cmd.exe`; untested on a real machine.
+  - Real-time waits in tests: process time limits (100–200 ms), polling up to 2 s for a killed grandchild to disappear, a 100 ms git time-out, and the earlier 100 ms script time-out.
+  - Full logs do not redact; callers must keep secrets out of what they log.
+  - As before, Node 22.18 and git 2.36 (the declared minimums) are untested.
+- **Review findings addressed:**
+  1. *Documentation proposal `4efd656`:* approved as is; nothing changed.
+  2. *Accept bound to the approver's own review* (`0eedbd2`): review records are kept per reviewer (an appended `actors` migration moves existing rows under their reviewer); accept reads only the approver's latest record and refuses with `not-reviewed` (naming the approver) otherwise, before recording any approval. Fail-closed tests: another owner's or the actor's review of the exact tip, and a later review by someone else, never satisfy the owner's accept; `main` and the attestations are untouched. `architecture.md`, `cli.md`, `api.md` and `concepts.md` now say whose review counts.
+  3. *Accept interface:* `core.md`'s `accept` row now reads "Vault, actor, approver → merge of the SHA from the approver's own latest review…", and `review`'s row includes the reviewer (`0eedbd2`).
+  4. *Process module* (`2ed0663` tests, `4fe2444` implementation): `src/core/process` in L0 is the only importer of `node:child_process`; git, secret commands and scripts run through it. The boundary test allows only `process` (either specifier). `core.md`, `AGENTS.md` and the plan list the module.
