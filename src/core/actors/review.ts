@@ -12,40 +12,8 @@ import { acceptedMain } from '../integrity/index.ts';
 import { evaluateMerge, type MergeEvaluation, type PolicyError } from '../policy/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
-import type { ModuleSchema, Queryable, Store } from '../store/index.ts';
+import type { Queryable, Store } from '../store/index.ts';
 import { readProposal, type Proposal, type ProposalError } from './proposal.ts';
-
-export const actorsSchema: ModuleSchema = {
-  module: 'actors',
-  migrations: [
-    {
-      version: 1,
-      sql: `CREATE TABLE actors_reviews (
-        vault TEXT NOT NULL,
-        actor TEXT NOT NULL,
-        sha TEXT NOT NULL,
-        reviewer TEXT NOT NULL,
-        at TEXT NOT NULL,
-        PRIMARY KEY (vault, actor)
-      ) STRICT`,
-    },
-    {
-      // One latest review per reviewer, not per actor (accept binds to the approver's own).
-      version: 2,
-      sql: `CREATE TABLE actors_reviews_by_reviewer (
-        vault TEXT NOT NULL,
-        actor TEXT NOT NULL,
-        reviewer TEXT NOT NULL,
-        sha TEXT NOT NULL,
-        at TEXT NOT NULL,
-        PRIMARY KEY (vault, actor, reviewer)
-      ) STRICT;
-      INSERT INTO actors_reviews_by_reviewer (vault, actor, reviewer, sha, at) SELECT vault, actor, reviewer, sha, at FROM actors_reviews;
-      DROP TABLE actors_reviews;
-      ALTER TABLE actors_reviews_by_reviewer RENAME TO actors_reviews`,
-    },
-  ],
-};
 
 /** A reviewer's latest review of an actor's proposal: the exact commit they looked at. */
 export interface ReviewRecord {

@@ -29,7 +29,7 @@ test('node:sqlite and its vector extension are imported only by the store module
 });
 
 test('processes are started only by the process module', () => {
-  assert.deepEqual([...importersOf('node:child_process'), ...importersOf('child_process')], ['core/process/index.ts']);
+  assert.deepEqual([...importersOf('node:child_process'), ...importersOf('child_process')], ['core/process/run.ts']);
 });
 
 test('only the git module knows how to talk to git', () => {
