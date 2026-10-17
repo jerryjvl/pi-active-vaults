@@ -5,7 +5,7 @@
 // name defaults to <user>@<hostname>.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { unacceptedNotices } from '../../../src/core/operations/index.ts';
 import { createTempRepo } from '../../support/git-repo.ts';
@@ -47,3 +47,30 @@ test('add registers an existing vault by the id its root contract declares, unac
     other.cleanup();
   }
 }));
+
+test('template show summarises a template; init --template creates a vault from it, by name from the config', withInstallation(async (t) => {
+  const template = createTempRepo();
+  try {
+    template.write('_contract.md', [
+      '---', 'template: { name: digests, version: 1, summary: Research digests. }',
+      'vault:', '  id: digests', '  purpose: { summary: Digests. }', '  audience: me', '  owners: [alice]', '  actors: [researcher]', '---', '',
+    ].join('\n'));
+    template.write('topics/README.md', '# Topics\n');
+    template.commit('template');
+    const shown = await t.run('template-show', { template: template.path });
+    assert.equal(shown.status, 'ok', shown.text);
+    assert.match(shown.text, /^digests version 1: Research digests\.\n {2}at [0-9a-f]{40}; 2 files/);
+    assert.equal((await t.run('template-show', { template: t.repo.path })).status, 'failed', 'a vault that is not marked as a template');
+
+    // The template's path is known only now: name it in the config, as a user would.
+    const configFile = t.installation.paths.configFile;
+    writeFileSync(configFile, readFileSync(configFile, 'utf8').replace('TEMPLATE_PATH', JSON.stringify(template.path)));
+    const next = t.reload();
+    const made = await next.run('init', { path: t.dir.file('mine'), template: 'digests', id: 'mine' });
+    assert.equal(made.status, 'ok', made.text);
+    assert.ok(existsSync(join(t.dir.file('mine'), 'topics', 'README.md')));
+    assert.deepEqual(next.reload().installation.vaults.map((v) => v.id), ['home', 'mine']);
+  } finally {
+    template.cleanup();
+  }
+}, { config: 'templates: { digests: TEMPLATE_PATH }' }));
