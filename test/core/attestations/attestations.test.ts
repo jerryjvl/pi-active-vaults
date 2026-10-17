@@ -12,16 +12,14 @@ import {
   recordAttestation,
   type Attestation,
 } from '../../../src/core/attestations/index.ts';
-import { gitFor, withTempRepo, type TempRepo } from '../../support/git-repo.ts';
-
-const BOT = { identity: { name: 'Vault', email: 'vault@example.net' } };
+import { TEST_ATTRIBUTION, gitFor, withTempRepo, type TempRepo } from '../../support/git-repo.ts';
 
 function check(subject: string, result: string, overrides: Partial<Attestation> = {}): Attestation {
   return { kind: 'check', name: 'links', subject, result, by: 'links', version: 'b'.repeat(40), at: '2026-01-01T00:00:00.000Z', ...overrides };
 }
 
 async function record(repo: TempRepo, attestation: Attestation): Promise<void> {
-  const recorded = await recordAttestation(gitFor(repo), repo.path, attestation, BOT);
+  const recorded = await recordAttestation(gitFor(repo), repo.path, attestation, TEST_ATTRIBUTION);
   if (!recorded.ok) assert.fail(JSON.stringify(recorded.error));
 }
 
@@ -91,7 +89,7 @@ test('an attestation that is not well formed is refused before anything is writt
     check('HEAD', 'pass'),
     check(sha, 'pass', { name: 'two\nlines' }),
   ]) {
-    const recorded = await recordAttestation(gitFor(repo), repo.path, bad, BOT);
+    const recorded = await recordAttestation(gitFor(repo), repo.path, bad, TEST_ATTRIBUTION);
     assert.equal(!recorded.ok && recorded.error.reason, 'invalid-attestation', JSON.stringify(bad));
   }
   assert.equal(repo.git('for-each-ref', ATTESTATIONS_REF), '');

@@ -61,6 +61,9 @@ export function createTempRepo(options: { branch?: string } = {}): TempRepo {
   };
 }
 
+/** Who notes and package commits are attributed to in tests. */
+export const TEST_ATTRIBUTION = { identity: { name: 'Vault', email: 'vault@example.net' } } as const;
+
 /** The core git module, running under the repository's isolated environment. */
 export function gitFor(repo: TempRepo): Git {
   return createGit({ env: repo.env });

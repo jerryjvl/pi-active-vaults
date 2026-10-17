@@ -98,3 +98,47 @@ export function checkLayers(srcRoot: string): Violation[] {
   }
   return violations;
 }
+
+/** The core modules each core module imports (other than itself). */
+function moduleGraph(srcRoot: string): Map<string, Set<string>> {
+  const graph = new Map<string, Set<string>>();
+  const coreRoot = join(srcRoot, 'core');
+  let files: string[];
+  try {
+    files = sourceFiles(coreRoot);
+  } catch {
+    return graph; // no core yet
+  }
+  for (const file of files) {
+    const owner = moduleOf(srcRoot, 'core', file);
+    if (owner === undefined) continue;
+    const edges = graph.get(owner) ?? new Set<string>();
+    graph.set(owner, edges);
+    for (const spec of importSpecifiers(readFileSync(file, 'utf8'))) {
+      if (!spec.startsWith('.')) continue;
+      const target = relative(srcRoot, resolve(dirname(file), spec)).split(sep);
+      const targetModule = target[0] === 'core' ? target[1]?.replace(/\.(ts|js|mjs)$/, '') : undefined;
+      if (targetModule !== undefined && targetModule !== owner) edges.add(targetModule);
+    }
+  }
+  return graph;
+}
+
+/** Import cycles between core modules: modules of one layer may import each other, but never in a circle. */
+export function checkCycles(srcRoot: string): Violation[] {
+  const graph = moduleGraph(srcRoot);
+  const violations: Violation[] = [];
+  const done = new Set<string>();
+  const visit = (module: string, path: string[]): void => {
+    const at = path.indexOf(module);
+    if (at !== -1) {
+      violations.push({ file: `core/${module}`, message: `import cycle: ${[...path.slice(at), module].join(' -> ')}` });
+      return;
+    }
+    if (done.has(module)) return;
+    for (const next of [...(graph.get(module) ?? [])].sort()) visit(next, [...path, module]);
+    done.add(module);
+  };
+  for (const module of [...graph.keys()].sort()) visit(module, []);
+  return violations;
+}

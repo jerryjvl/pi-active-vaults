@@ -7,31 +7,21 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { recordAttestation, type Attestation } from '../../../src/core/attestations/index.ts';
 import { axesVersion, evaluateMerge } from '../../../src/core/policy/index.ts';
-import { withTestVault, type TestVault } from '../../support/vault.ts';
-
-const BOT = { identity: { name: 'Vault', email: 'vault@example.net' } };
+import { TEST_ATTRIBUTION } from '../../support/git-repo.ts';
+import { scriptSource, withTestVault, type TestVault } from '../../support/vault.ts';
 
 async function attest(v: TestVault, attestation: Omit<Attestation, 'at' | 'by'> & { by?: string }): Promise<void> {
-  const recorded = await recordAttestation(v.git, v.repo.path, { by: attestation.name, at: 't', ...attestation }, BOT);
+  const recorded = await recordAttestation(v.git, v.repo.path, { by: attestation.name, at: 't', ...attestation }, TEST_ATTRIBUTION);
   if (!recorded.ok) assert.fail(JSON.stringify(recorded.error));
-}
-
-/** Commits `files` on an actor branch from the accepted main and returns its tip. */
-function propose(v: TestVault, files: Record<string, string>): string {
-  v.repo.git('checkout', '--quiet', '-B', 'actor/gardener', 'main');
-  for (const [path, content] of Object.entries(files)) v.repo.write(path, content);
-  const head = v.repo.commit('proposal');
-  v.repo.git('checkout', '--quiet', 'main');
-  return head;
 }
 
 const RULES = 'merge:\n  - paths: ["**"]\n    require: [checks]\n  - paths: ["topics/**"]\n    require: [judgement:quality]\naxes:\n  quality: { type: bool, instructions: Is it right?, pass-when: "yes > 0.8" }';
 
 test('a proposal is judged by the accepted main\'s rules, even when it rewrites them', withTestVault(async (v) => {
-  v.repo.write('.vault/checks/links.sh', '#!/bin/sh\n# name: links\n# summary: Links resolve\nexit 0\n');
+  v.repo.write('.vault/checks/links.sh', scriptSource('links', 'exit 0'));
   v.repo.commit('add a check');
   const accepted = v.accept();
-  const head = propose(v, { '_contract.md': '---\nvault: { id: home }\n---\n', 'topics/a.md': 'claim' });
+  const head = v.propose({ '_contract.md': '---\nvault: { id: home }\n---\n', 'topics/a.md': 'claim' });
   const evaluated = await evaluateMerge(v.git, v.repo.path, { accepted, base: accepted.sha, head, tainted: false });
   assert.ok(evaluated.ok);
   assert.equal(evaluated.value.verdict.satisfied, false);
@@ -40,13 +30,13 @@ test('a proposal is judged by the accepted main\'s rules, even when it rewrites 
 }, { extra: RULES }));
 
 test('attestations count for the exact commit and content under review, at the accepted main\'s versions', withTestVault(async (v) => {
-  v.repo.write('.vault/checks/links.sh', '#!/bin/sh\n# name: links\n# summary: Links resolve\nexit 0\n');
+  v.repo.write('.vault/checks/links.sh', scriptSource('links', 'exit 0'));
   const sha = v.repo.commit('add a check');
   const accepted = v.accept();
   const linksVersion = v.repo.git('rev-parse', `${sha}:.vault/checks/links.sh`);
-  const earlier = propose(v, { 'topics/a.md': 'first draft' });
+  const earlier = v.propose({ 'topics/a.md': 'first draft' });
   await attest(v, { kind: 'check', name: 'links', subject: earlier, result: 'pass', version: linksVersion });
-  const head = propose(v, { 'topics/a.md': 'second draft' });
+  const head = v.propose({ 'topics/a.md': 'second draft' });
   const blob = v.repo.git('rev-parse', `${head}:topics/a.md`);
   const quality = { type: 'bool', instructions: 'Is it right?', 'pass-when': 'yes > 0.8' };
 
@@ -66,7 +56,7 @@ test('attestations count for the exact commit and content under review, at the a
 
 test('a merge policy that cannot be read blocks, naming where it is wrong', withTestVault(async (v) => {
   const accepted = v.accept();
-  const head = propose(v, { 'a.md': 'x' });
+  const head = v.propose({ 'a.md': 'x' });
   const evaluated = await evaluateMerge(v.git, v.repo.path, { accepted, base: accepted.sha, head, tainted: false });
   assert.equal(!evaluated.ok && evaluated.error.reason, 'invalid-policy');
 }, { extra: 'merge:\n  - paths: ["**"]\n    require: [ownr]' }));

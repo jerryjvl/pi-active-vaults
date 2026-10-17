@@ -1,12 +1,13 @@
-// Documented behaviour: dependencies point down and the core never imports an
-// adapter or Pi (implementation-plan.md "Layers"; core.md "Rules").
+// Documented behaviour: dependencies point down, without cycles, and the core
+// never imports an adapter or Pi (implementation-plan.md "Layers" and
+// "Refactoring passes"; core.md "Rules").
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkLayers, importSpecifiers } from '../support/layers.ts';
+import { checkCycles, checkLayers, importSpecifiers } from '../support/layers.ts';
 
 const srcRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../src');
 
@@ -19,8 +20,23 @@ function fixture(files: Record<string, string>): { root: string; cleanup(): void
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
-test('the real source tree respects the layers', () => {
+test('the real source tree respects the layers and has no import cycles', () => {
   assert.deepEqual(checkLayers(srcRoot), []);
+  assert.deepEqual(checkCycles(srcRoot), []);
+});
+
+test('modules of one layer importing each other in a circle is a violation', () => {
+  const f = fixture({
+    'core/policy/index.ts': "import { a } from '../actors/index.ts';",
+    'core/actors/index.ts': "import { e } from '../events/index.ts';",
+    'core/events/index.ts': "import { p } from '../policy/rules.ts';",
+  });
+  try {
+    assert.equal(checkLayers(f.root).length, 0, 'the layers alone allow it');
+    assert.match(checkCycles(f.root)[0]?.message ?? '', /import cycle: actors -> events -> policy -> actors/);
+  } finally {
+    f.cleanup();
+  }
 });
 
 test('importSpecifiers finds static, re-export, side-effect and dynamic imports', () => {

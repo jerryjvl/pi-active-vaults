@@ -38,6 +38,19 @@ export function rootContract(options: RootContractOptions = {}): string {
   ].join('\n');
 }
 
+/** Trailers that mark a commit as made by the package from an untainted session. */
+export const PACKAGE_TRAILERS = '\n\nVault-Trace: 01TRACE\nVault-Actor: gardener';
+
+/** A script or check file with a valid header. */
+export function scriptSource(
+  name: string,
+  body = '',
+  options: { readonly net?: 'yes' | 'no'; readonly interpreter?: string; readonly comment?: '#' | '//' } = {},
+): string {
+  const c = options.comment ?? '#';
+  return `#!${options.interpreter ?? '/bin/sh'}\n${c} name: ${name}\n${c} summary: The ${name} script\n${c} net: ${options.net ?? 'yes'}\n${body}\n`;
+}
+
 export interface TestVault {
   readonly repo: TempRepo;
   readonly git: Git;
@@ -48,6 +61,8 @@ export interface TestVault {
   readonly initial: string;
   /** Records `sha` (default: main's tip) as the accepted main, as `vault init` or an accept would. */
   accept(sha?: string): AcceptedMain;
+  /** Commits `files` on actor/gardener (made from main when missing), leaving main checked out; returns the branch tip. */
+  propose(files: Record<string, string>, message?: string): string;
 }
 
 export function withTestVault(run: (v: TestVault) => Promise<void>, contract: RootContractOptions = {}): () => Promise<void> {
@@ -67,7 +82,15 @@ export function withTestVault(run: (v: TestVault) => Promise<void>, contract: Ro
         if (!recorded.ok) throw new Error(`accept: ${JSON.stringify(recorded.error)}`);
         return recorded.value;
       };
-      await run({ repo, git: gitFor(repo), store, vault, clock, initial, accept });
+      const propose = (files: Record<string, string>, message = `Proposal${PACKAGE_TRAILERS}`): string => {
+        const exists = repo.git('branch', '--list', 'actor/gardener') !== '';
+        repo.git('checkout', '--quiet', ...(exists ? ['actor/gardener'] : ['-b', 'actor/gardener', 'main']));
+        for (const [path, content] of Object.entries(files)) repo.write(path, content);
+        const head = repo.commit(message);
+        repo.git('checkout', '--quiet', 'main');
+        return head;
+      };
+      await run({ repo, git: gitFor(repo), store, vault, clock, initial, accept, propose });
     } finally {
       store.close();
       state.cleanup();

@@ -5,9 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { listScripts, resolveScript, type BuiltinScript } from '../../../src/core/scripts/index.ts';
-import { withTestVault } from '../../support/vault.ts';
-
-const script = (name: string, body = 'echo hi', net = 'yes'): string => `#!/bin/sh\n# name: ${name}\n# summary: The ${name} script\n# net: ${net}\n${body}\n`;
+import { scriptSource as script, withTestVault } from '../../support/vault.ts';
 
 const notify: BuiltinScript = {
   name: 'notify',

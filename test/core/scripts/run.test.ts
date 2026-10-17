@@ -11,12 +11,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { probeNetworkSandbox, runScript, type BuiltinScript, type ScriptRunOptions } from '../../../src/core/scripts/index.ts';
 import { startStubServer } from '../../support/stub-server.ts';
-import { withTestVault, type TestVault } from '../../support/vault.ts';
+import { scriptSource as script, withTestVault, type TestVault } from '../../support/vault.ts';
 
 const posixOnly = { skip: process.platform === 'win32' ? 'POSIX shell scripts' : false };
-
-const script = (name: string, body: string, options: { net?: string; interpreter?: string } = {}): string =>
-  `#!${options.interpreter ?? '/bin/sh'}\n# name: ${name}\n# summary: Test script\n# net: ${options.net ?? 'yes'}\n${body}\n`;
 
 function options(v: TestVault, overrides: Partial<ScriptRunOptions> = {}): ScriptRunOptions {
   return {
@@ -122,8 +119,8 @@ test('net: no withdraws network access where the platform can, and net: yes keep
   const scratch = mkdtempSync(join(tmpdir(), 'pav-net-'));
   try {
     const fetcher = 'fetch(process.argv[2]).then(() => console.log("reached"), () => console.log("blocked"));';
-    v.repo.write('.vault/scripts/offline.js', script('offline', fetcher, { net: 'no', interpreter: process.execPath }).replace(/^# /gm, '// '));
-    v.repo.write('.vault/scripts/online.js', script('online', fetcher, { interpreter: process.execPath }).replace(/^# /gm, '// '));
+    v.repo.write('.vault/scripts/offline.js', script('offline', fetcher, { net: 'no', interpreter: process.execPath, comment: '//' }));
+    v.repo.write('.vault/scripts/online.js', script('online', fetcher, { interpreter: process.execPath, comment: '//' }));
     v.repo.commit('scripts');
     v.accept();
     const run = (name: string) => runScript({ git: v.git, store: v.store, vault: v.vault }, name, [server.url], options(v, { sandbox, cwd: scratch }));
