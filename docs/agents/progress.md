@@ -9,13 +9,17 @@ Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 3b review findings 1–4 (`767159c`..`09f0dd1`): existence
-  first in `processStartTime` and PowerShell by absolute path; `commitAsActor`
-  refuses while another hold stands; concepts.md judgements per axis; GitHub
-  rulesets, review pages, null reviewers.
-- **In progress:** Stage 4.
-- **Next:** check runner; config sections validated on load; operations
-  catalogue and permission sets; CLI; init, doctor, daemon commands, whoami.
+- **Done:** Stage 3b review findings 1–4 (`767159c`..`09f0dd1`). Stage 4
+  core: permission sets and the mcp section; loading the installation whole
+  (notify and mcp validated); registering vaults; prepared commits; the check
+  runner and blocking checks on commit; documents' conditions; actor sync;
+  notify test; empty vaults; the operations catalogue with every operation
+  (`001080c`).
+- **In progress:** the CLI adapter generated from the catalogue.
+- **Next:** CLI (argument parsing, notices on every command, exit statuses,
+  --json, interactive adopt), daemon and mcp commands saying they need the
+  daemon; docs (cli.md, core.md, concepts.md checks protocol); refactoring
+  pass; progress entry.
 
 ## Stage entries
 
