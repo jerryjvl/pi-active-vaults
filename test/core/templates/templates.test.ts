@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { parseDocument } from '../../../src/core/documents/index.ts';
 import { integrityStatus } from '../../../src/core/integrity/index.ts';
 import { openStateStore } from '../../../src/core/operations/index.ts';
-import { createFromTemplate, inspectTemplate, resolveTemplateSpec } from '../../../src/core/templates/index.ts';
+import { createEmptyVault, createFromTemplate, inspectTemplate, resolveTemplateSpec } from '../../../src/core/templates/index.ts';
 import { fakeClock } from '../../support/clock.ts';
 import { TEST_ATTRIBUTION, createTempRepo, gitFor, type TempRepo } from '../../support/git-repo.ts';
 import { withTempDir, type TempDir } from '../../support/temp-dir.ts';
@@ -162,5 +162,33 @@ test('creating refuses a directory that is not empty, an invalid id, a transport
     assert.equal(existsSync(dir.file('c')), false);
   } finally {
     store.value.close();
+  }
+}));
+
+test('an empty vault is a new repository with a root contract naming its id and its owner, accepted from its first commit', withTempDir(async (dir) => {
+  const state = openStateStore({ stateDb: dir.file('state.sqlite') });
+  assert.ok(state.ok);
+  try {
+    const git = gitFor(createTempRepo());
+    const deps = { git, store: state.value, clock: fakeClock(), attribution: TEST_ATTRIBUTION };
+    const path = dir.file('vaults', 'notes');
+    const created = await createEmptyVault(deps, { path, id: 'notes', by: 'alice' });
+    assert.ok(created.ok, JSON.stringify(created));
+    const contract = parseDocument(readFileSync(join(path, '_contract.md'), 'utf8'));
+    assert.ok(contract.ok);
+    assert.deepEqual(contract.value.frontmatter['vault'], { id: 'notes', purpose: { summary: 'The notes vault.' }, audience: 'alice', owners: ['alice'], actors: [] });
+    assert.deepEqual(contract.value.frontmatter['merge'], [{ paths: ['**'], require: ['checks', 'owner'] }]);
+    const status = await integrityStatus(git, state.value, { id: 'notes', path });
+    assert.equal(status.ok && status.value.state, 'accepted');
+    assert.equal(created.value.accepted.how, 'init');
+
+    mkdirSync(dir.file('occupied'));
+    writeFileSync(dir.file('occupied', 'x'), 'x');
+    assert.deepEqual(await createEmptyVault(deps, { path: dir.file('occupied'), id: 'other', by: 'alice' }), { ok: false, error: { reason: 'not-empty', path: dir.file('occupied') } });
+    const badId = await createEmptyVault(deps, { path: dir.file('bad'), id: 'not ok', by: 'alice' });
+    assert.equal(!badId.ok && badId.error.reason, 'invalid-argument');
+    assert.equal(existsSync(dir.file('bad')), false);
+  } finally {
+    state.value.close();
   }
 }));
