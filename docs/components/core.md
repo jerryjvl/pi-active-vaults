@@ -32,6 +32,7 @@ it; no vault logic lives anywhere else.
 | `integrity` | The accepted `main` per vault: record it on accept and adopt, detect unaccepted changes, provide the notice every surface shows |
 | `scripts` | Resolve built-ins and the vault's scripts and checks from the accepted `main`, parse headers, run them with their declared limits |
 | `templates` | Validate a template's marker, create a vault from it with fresh history and recorded origin |
+| `judgements` | Run judgement checks: build the state from a document, ask the contract's axes of the judgement model, apply `pass-when`, record the attestation (see Judgements) |
 | `notify` | Validate recipients and messages, write to the outbox, deliver through the configured transport, retry |
 | `budgets` | Allot budgets down a session tree; account for tokens; enforce limits |
 | `traces` | Issue trace IDs; write compact records and provenance; write and rotate full logs |
