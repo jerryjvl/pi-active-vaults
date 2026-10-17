@@ -3,26 +3,16 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 3b — in progress
+**Current stage:** 3b — complete, awaiting review
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 3a, reviewed and approved. `impl/v1` fast-forwarded to
-  `ce1c0ce` (design changes from the concurrency stress test).
-- **In progress:** Stage 3b, in this order: (1) review finding — model
-  requests never follow redirects; (2) bring built modules in line with
-  `ce1c0ce`: conditions (`actor`, `script`), events (attribution per change),
-  attestations (line-by-line notes merge), adopt (concerns first), actors
-  (the hold), queue (`no-change`, `restart`); (3) judgements, `notify`,
-  `templates`, `forge` (with `vault/policy`); (4) refactoring pass, docs
-  proposal, this log.
-- **Next:** step (3), `templates` then `forge`; judgements (`9db5558`) and
-  `notify` (`52b56b5`) are done. Steps (1) and (2) are done: `http`
-  module (`37a7f9a`); conditions/events/scripts (`fb446aa`); attestations
-  (`937c114`); adopt moved to `actors` (`a5edf3d`); process identity and
-  holds (`1631db0`); queue (`no-change`, `restart`).
+- **Done:** Stage 3 (3a and 3b): the work machinery, with the Stage 3a
+  review findings and the alignment with `ce1c0ce`; see the Stage 3b entry.
+- **In progress:** nothing.
+- **Next:** review of Stage 3b. Then, when told, Stage 4 (operations and CLI).
 
 ## Stage entries
 
@@ -219,3 +209,57 @@ Copy this block for each stage:
   2. *Accept bound to the approver's own review* (`0eedbd2`): review records are kept per reviewer (an appended `actors` migration moves existing rows under their reviewer); accept reads only the approver's latest record and refuses with `not-reviewed` (naming the approver) otherwise, before recording any approval. Fail-closed tests: another owner's or the actor's review of the exact tip, and a later review by someone else, never satisfy the owner's accept; `main` and the attestations are untouched. `architecture.md`, `cli.md`, `api.md` and `concepts.md` now say whose review counts.
   3. *Accept interface:* `core.md`'s `accept` row now reads "Vault, actor, approver → merge of the SHA from the approver's own latest review…", and `review`'s row includes the reviewer (`0eedbd2`).
   4. *Process module* (`2ed0663` tests, `4fe2444` implementation): `src/core/process` in L0 is the only importer of `node:child_process`; git, secret commands and scripts run through it. The boundary test allows only `process` (either specifier). `core.md`, `AGENTS.md` and the plan list the module.
+
+### Stage 3b — Work machinery, second half (L2): judgements, notify, templates, forge
+
+- **Commits:** `0689dcd..` on `impl/v1`, after fast-forwarding to `ce1c0ce` — the review finding (`6307136`, `37a7f9a`), the alignment with `ce1c0ce` (`7f82e93`–`e9577f0`), then tests-first and implementation commits for judgements, `notify`, templates and `forge`, two refactor commits (`f4688c3`, `9385833`), the documentation proposal (`a4a6f80`), and this entry as the last commit. As before, each `test(…)` commit fails until the commit after it; every other commit passes.
+- **Results:** `npm test`: 497 tests, 497 pass, none skipped. `npm run check`: no errors. `npm run build`: compiles, and all 28 compiled core modules import under plain Node. Node v24.18.0, git 2.55.0, OpenSSL 3.6 (test certificate generated once and committed), Linux.
+- **Built:** in `src/core/`:
+  - `http` (new, L0) — `requestJson`: the one place a request is made; `redirect: manual`, any 3xx an error with its status; time limit; errors carry a status, never a body. Model clients and forge adapters use it; a boundary test keeps `fetch` and `node:http(s)` inside it.
+  - `models` — `askSystemOne` (the judgement role: `POST <url>/systemone`, `bool` as `noul` on the wire, every answer read in full against its question, optional usage).
+  - `judgements` — `parseAxes`, `axisVerdict` (each `pass-when`), `judgeDocument`, `judgeProposal`.
+  - `notify` — `parseNotifyConfig`, the outbox (`notifySchema`), `sendNotification`, `deliverDue`, `undeliveredNotifications`, `notifyBuiltin`; nodemailer for MIME and SMTP.
+  - `templates` — `resolveTemplateSpec`, `inspectTemplate`, `createFromTemplate`.
+  - `forge` — one `ForgeAdapter` with Gitea, GitHub and GitLab implementations, `forgeProject`, `protectionProblems`, and `pushToForge`, `proposeToForge`, `publishStatuses` (with `vault/policy`), `syncWithForge`.
+  - Aligned with `ce1c0ce`: `conditions` (`actor`; `script` with `narrowByScripts`; `eventJson`), `events` (each change's commit, actor and run, across merges), `attestations` (`mergeAttestations` with cat_sort_uniq; latest by `at`), adopt (moved to `actors`; concerns and acknowledgement), `actors` (`takeActorHold`, `releaseActorHold`, `actorHold`, `listActorHolds`), `process` (`processStartTime` per platform), `queue` (`noChangeSpawn`, `StopReason` with `restart`), `traces` (`no-change` outcome).
+  - Additions below L2: `git` (`notesMergeLines`, remotes: `checkRemote`, `fetchCommit`, `fetchRefs`, `pushRefs`, `remoteUrl`; `stageExecutable`, `fastForward`), `documents` (`markdownSections`, `documentTitle`, `utf8Text`), `result` (`canonicalJson`, `isRecord`), `clock` (`parseDuration`), `scripts` (standard input for a run), `policy` (`MergeRequest.approvals`, `RequirementVerdict.failed`, `findControlChanges` from nothing), `config` (forge `api`).
+- **Tests:** each module's documented behaviour, local stubs only (HTTP, SMTP with a test CA, forge APIs, bare repositories as remotes), and fail-closed cases:
+  - *No redirects:* 301–308 from embed, rerank, judgement and forge endpoints are errors naming the role or forge, and nothing reaches the redirect's target.
+  - *Judgements:* the accepted main's axes even when the proposal loosens them; refused during an unaccepted change with nothing sent; no permitted model sends nothing; model errors, content too large (413) and malformed or impossible answers (a missing axis, a wrong type, probabilities over 1, a score outside the levels) fail and record nothing.
+  - *Notifications:* raw addresses and unknown aliases refused with nothing queued; text in a subject or body cannot add a recipient or a header; port 587 never authenticates without STARTTLS (a server not offering it gets no AUTH and no MAIL); an untrusted certificate and TLS 1.1 fail before anything is sent; the password is never in the outbox, an error or a record; cooldown, per-hour and size limits; retry as the same Message-ID.
+  - *Forge:* only actor branches and notes are pushable, never `main` (four refspecs refused, `main` untouched); proposing is refused during an unaccepted change; `vault/policy` counts only owners' approvals of the exact commit; a GitLab approval without a bindable commit counts for nothing; syncing never discards local commits on `main`.
+  - *Templates and remotes:* `ext::`, `fd::`, `http://`, `git://` and option-like remotes refused before git runs; a template with a symbolic link refused and nothing created; an occupied directory refused.
+  - *Alignment:* a condition's script runs from the accepted main only, and a missing script, a refusal, a time-out or an unaccepted change drops the match; equally late attestations resolve to the non-pass; adopt refuses an acknowledgement for concerns that have grown; a hold whose holder cannot be checked stands, and a reused process ID holds nothing.
+- **Refactoring:** `f4688c3` moved the Markdown section scan and title rule to `documents` so judgements name documents as search does; `9385833` gave `isRecord` and strict UTF-8 text one home each and shared the Gitea/GitHub pull shape, account read and single-pull reading; during the stage, canonical JSON (`axesVersion` and `eventJson`) and duration parsing (budgets and notify) got one home each, and `actorsSchema` moved to its own file. Comments and documents checked against behaviour.
+- **Decisions:**
+  - *http:* a new L0 module rather than a copy in each client: the no-redirect property is a security property, and a boundary test now enforces one access path (`core.md` lists it; see Needs owner approval).
+  - *Judgements:* one request asks every axis in effect for the path; each axis is its own attestation named after it (so `judgement:<axis>` requires it), `subject` the blob, `by` the model ID, `version` the axis's version; state is the purpose summary, path, title, labels and the full file text; axes already judged by the same model under the same version are not asked again; a judgement that cannot be made records nothing (the requirement stays unmet). Probabilities must be within 0–1 and a choice's sum at most 1; `pass-when` compares with a 1e-9 tolerance. A judgement is refused during an unaccepted change, like any check.
+  - *Conditions:* `actor` is matched per change, never across vaults; `script` names a vault script, never a built-in (built-ins act), runs in its vault's directory with the event as canonical JSON. `ChangedDocument` carries `commit`, `actor`, `trace`; within a merge, the last ordinary commit it brought that changed the path, a merge commit only as a fallback.
+  - *Attestations:* `at` must be `toISOString`-shaped UTC; latest by time, and at equal times a non-pass. Merging uses a separate fetched ref (`refs/notes/vault-forge/*`), merged into ours.
+  - *Adopt:* moved to `actors` (policy depends on integrity, so integrity cannot use policy). Concerns are checks on the accepted main whose status is not `pass` (missing included) and control changes; none are computed for checks when nothing was accepted yet. The acknowledgement is a SHA-256 over the starting point, the SHA and the concerns; fewer concerns than acknowledged need none.
+  - *Holds:* the process identity is `linux:<boot_id>:<start ticks>`, `darwin:<ps lstart>`, `win32:<start ticks>`; a holder taking its own hold again succeeds; up to three compare-and-swap attempts, then `actor-busy`.
+  - *Queue:* `no-change` is a state from `running` only, recorded like the others.
+  - *Notify:* the section is validated by `notify` (Stage 4 must call it when the config loads); only ports 465 and 587; defaults `per-hour` 10, `max-bytes` 200000 (body bytes), `cooldown` 12h; dedup by key alone; the outbox keeps the alias, never the address, which is looked up at each attempt; `Message-ID` `<trace.hash(key#n)@from-domain>`; backoff 1m, 5m, 30m, 2h, then 6h; a removed alias makes a message undeliverable. The SMTP stub port and an extra trusted CA are a test seam (`NotifyDeps.smtp`); verification is never off.
+  - *Templates:* fetched with `--depth=1` into a scratch repository; files written fresh and one commit made (fresh history); `vault.from-template` is `{ url, commit }`; `init` records the accepted main `by` the person creating it, without an owner check; the marker's `version` is a positive whole number.
+  - *Remotes:* https, ssh (also scp-like) and local paths only, enforced by `checkRemote` and git's protocol allow-list, with `fetch.fsckObjects`.
+  - *Forge:* the remote is `origin`; the forge is found by host name (ports ignored); API bases default per type, `api` overrides; a forge's `vault/policy` is `success` when satisfied, `failure` when something failed, else `pending`; check statuses `vault/check/<name>`; approvals by owners for the head only; the executor's forge account is recorded as `by` for `sync`; sync moves local `main` only forward and leaves it when its checkout has uncommitted changes. GitHub "direct pushes" means no required reviews; Gitea branches cannot be deleted while protected.
+- **Needs owner approval:**
+  1. `a4a6f80` — formats implemented against: `builtin:notify` outcomes and exit statuses, sendmail `command`/`args`, ports 465/587 only, limit defaults, backoff and undeliverable messages, the `Message-ID` ordinal; forge pushes to `origin`, `vault/check/<name>`, owners' approvals of the exact commit; templates only over https, ssh or local paths, links refused; GitLab's setup caveats; no judgement cache in `state.sqlite`.
+  2. Made in the same commits as the code, as accuracy additions, but worth a look: the `http` module in `core.md` (`37a7f9a`); adopt's home and interface in `core.md` (`a5edf3d`); how judgements are recorded in `core.md` (`9db5558`); the attestation tie rule in `concepts.md` (`937c114`); the optional forge `api` key (`48abd92`).
+  3. Owner decisions on `c479714` (Stage 3a review) are recorded as given: policy stays an allow list (Stage 4's `vault doctor` must say when search is keyword-only because no entry names the vault); no cascade-pool; the queue-time limit stays a parameter (a config key to be proposed in Stage 6).
+- **Gaps:**
+  - Daemon-side pieces of `ce1c0ce`, for Stage 6: one job per actor in the scheduler (spawns do not yet record their actor), start-up recovery (stopping running spawns with `restart`, ending recorded processes, resetting worktrees), chain continuation when matching (choosing the session tree from the matched changes' traces), timer identity by local date and slot, the daemon singleton, outbox retry scheduling, forge sync scheduling. Stage 4: `vault doctor` checks (holds, `core.hooksPath`, remotes on local vaults, Git locks, protection problems, undelivered notifications), validating `notify` when the config loads, `vault init` registering the vault. Stage 5: the extension taking and releasing holds, and handing jobs `eventJson`.
+  - `commitAsActor` does not check the hold; the hold is taken by sessions and the scheduler.
+  - Check runner: nothing runs `.vault/checks/` yet (adopt reports unpassed checks; it does not run them).
+  - Forge APIs: request and response shapes follow each forge's documentation (Gitea's 1.24 schema and GitLab's API pages were checked; GitHub from its well-known API); tested against stubs only, never a live forge. GitLab Premium settings (approvals, approval rules) read as unavailable on lower tiers. A template's submodules are skipped silently (only blobs are listed).
+  - Process identity: Linux tested for real; macOS and Windows through injected answers only.
+  - Real-time waits added: a 100 ms script time-out in the condition-script tests; SMTP and forge tests use local sockets with a 5 s limit.
+  - As before, Node 22.18 and git 2.36 (the declared minimums) are untested; Windows and macOS are untested on real machines.
+- **Review findings addressed:**
+  1. *Fast-forward to `design/stress-test`:* done (`ce1c0ce`); read before continuing.
+  2. *Owner decisions on `c479714`:* recorded under Needs owner approval (3) and Gaps.
+  3. *Redirects:* tests first (`6307136`), then `37a7f9a`: requests go through `http` with `redirect: manual`; a redirect is `{ reason: 'redirected', role, status }`. Applies to embed, rerank and judgement, and to forge requests (as `forge` instead of `role`).
+  4. *Judgement API:* implemented to `core.md` "Judgements" and `concepts.md` "Judgement axes"; Pi's `system-one-shared.js` was read for the wire shapes only, nothing imported.
+  5. *Alignment with `ce1c0ce`:* conditions (`fb446aa`), events (`fb446aa`), attestations (`937c114`), adopt (`a5edf3d`), holds (`1631db0`), queue (`e9577f0`), each with its tests first; daemon-side pieces listed under Gaps.
+  6. *Stage 3b:* as above.
+
