@@ -1,0 +1,152 @@
+// Documented behaviour: concepts.md "Actor", architecture.md "Review and
+// accept" and security.md — a proposal is an actor's branch ahead of the
+// accepted `main`; review shows its commits, changes, check results and
+// control-change flags and records the SHA reviewed; accept, by an owner,
+// gathers attestations for that SHA, evaluates the merge policy, merges only
+// that SHA, and records the result as the accepted `main`. It refuses if the
+// branch has moved, if `main` has an unaccepted change, or in forge mode.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { accept, readProposal, review, reviewRecord } from '../../../src/core/actors/index.ts';
+import { readAttestations } from '../../../src/core/attestations/index.ts';
+import { acceptedMain, integrityStatus } from '../../../src/core/integrity/index.ts';
+import { withTestVault, type TestVault } from '../../support/vault.ts';
+
+const ALICE = { name: 'Alice', email: 'alice@example.net' };
+const PACKAGE_COMMIT = '\n\nVault-Trace: 01TRACE\nVault-Actor: gardener';
+
+/** Commits `files` on actor/gardener (created from main if missing) and returns its tip. */
+function propose(v: TestVault, files: Record<string, string>, message = `Proposal${PACKAGE_COMMIT}`): string {
+  const exists = v.repo.git('branch', '--list', 'actor/gardener') !== '';
+  v.repo.git('checkout', '--quiet', ...(exists ? ['actor/gardener'] : ['-b', 'actor/gardener', 'main']));
+  for (const [path, content] of Object.entries(files)) v.repo.write(path, content);
+  const head = v.repo.commit(message);
+  v.repo.git('checkout', '--quiet', 'main');
+  return head;
+}
+
+const context = (v: TestVault) => ({ git: v.git, store: v.store, clock: v.clock });
+const OWNER_ONLY = 'merge:\n  - paths: ["**"]\n    require: [owner]';
+
+test('a proposal is the actor\'s commits ahead of the accepted main, with its changes and taint', withTestVault(async (v) => {
+  const accepted = v.accept();
+  propose(v, { 'notes/a.md': 'a' });
+  const clean = await readProposal(v.git, v.repo.path, accepted, 'gardener');
+  assert.ok(clean.ok);
+  assert.equal(clean.value.base, accepted.sha);
+  assert.deepEqual(clean.value.changes, [{ path: 'notes/a.md', change: 'created' }]);
+  assert.equal(clean.value.tainted, false);
+  propose(v, { 'notes/b.md': 'b' }, 'made by hand, outside the package');
+  const handMade = await readProposal(v.git, v.repo.path, accepted, 'gardener');
+  assert.ok(handMade.ok && handMade.value.tainted);
+  assert.equal(handMade.value.commits.length, 2);
+  const none = await readProposal(v.git, v.repo.path, accepted, 'librarian');
+  assert.equal(!none.ok && none.error.reason, 'no-proposal');
+}));
+
+test('review shows checks, control changes and the policy verdict, and records the SHA reviewed', withTestVault(async (v) => {
+  v.repo.write('.vault/checks/links.sh', '#!/bin/sh\n# name: links\n# summary: Links resolve\n');
+  v.repo.commit('check');
+  v.accept();
+  const head = propose(v, { 'notes/a.md': 'a', 'topics/_contract.md': '---\nindex: none\n---\n' });
+  const reviewed = await review(context(v), v.vault, 'gardener', 'bob');
+  assert.ok(reviewed.ok);
+  assert.equal(reviewed.value.record.sha, head);
+  assert.deepEqual(reviewed.value.evaluation.checks, [{ name: 'links', status: 'missing' }]);
+  assert.deepEqual(reviewed.value.evaluation.control.map((c) => c.path), ['topics/_contract.md']);
+  assert.deepEqual(reviewed.value.evaluation.verdict.requirements.map((r) => [r.requirement, r.met]), [['checks', false], ['owner', false]]);
+  assert.deepEqual(reviewRecord(v.store, 'home', 'gardener'), { vault: 'home', actor: 'gardener', sha: head, reviewer: 'bob', at: '2026-01-01T00:00:00.000Z' });
+}, { extra: 'merge:\n  - paths: ["**"]\n    require: [checks]' }));
+
+test('review continues while main has an unaccepted change; there must be something to review', withTestVault(async (v) => {
+  v.accept();
+  const nothing = await review(context(v), v.vault, 'gardener', 'bob');
+  assert.equal(!nothing.ok && nothing.error.reason, 'no-proposal');
+  propose(v, { 'a.md': 'a' });
+  v.repo.write('stray.md', 'x');
+  v.repo.commit('stray on main');
+  assert.ok((await review(context(v), v.vault, 'gardener', 'bob')).ok);
+}));
+
+test('accept merges exactly the reviewed SHA as the owner, records the approval, and makes the merge the accepted main', withTestVault(async (v) => {
+  const before = v.accept();
+  const head = propose(v, { 'notes/a.md': 'a' });
+  assert.ok((await review(context(v), v.vault, 'gardener', 'alice')).ok);
+  v.clock.advance(1000);
+  const accepted = await accept(context(v), v.vault, 'gardener', { approver: 'alice', identity: ALICE });
+  assert.ok(accepted.ok);
+  const mainTip = v.repo.git('rev-parse', 'main');
+  assert.equal(accepted.value.accepted.sha, mainTip);
+  assert.equal(v.repo.git('rev-parse', `${mainTip}^1`), before.sha);
+  assert.equal(v.repo.git('rev-parse', `${mainTip}^2`), head);
+  assert.equal(v.repo.git('log', '-1', '--format=%an <%ae>', mainTip), 'Alice <alice@example.net>');
+  assert.deepEqual({ ...acceptedMain(v.store, 'home') }, { vault: 'home', sha: mainTip, how: 'accept', by: 'alice', at: '2026-01-01T00:00:01.000Z' });
+  const approvals = await readAttestations(v.git, v.repo.path, head);
+  assert.ok(approvals.ok);
+  assert.deepEqual(approvals.value.map((a) => [a.kind, a.name, a.result, a.by]), [['approval', 'alice', 'pass', 'alice']]);
+  const status = await integrityStatus(v.git, v.store, v.vault);
+  assert.equal(status.ok && status.value.state, 'accepted');
+}, { extra: OWNER_ONLY }));
+
+test('a branch that moved after review is refused, and main is left alone', withTestVault(async (v) => {
+  const before = v.accept();
+  propose(v, { 'a.md': 'reviewed' });
+  assert.ok((await review(context(v), v.vault, 'gardener', 'alice')).ok);
+  propose(v, { 'a.md': 'slipped in after review' });
+  const refused = await accept(context(v), v.vault, 'gardener', { approver: 'alice', identity: ALICE });
+  assert.equal(!refused.ok && refused.error.reason, 'branch-moved');
+  assert.equal(v.repo.git('rev-parse', 'main'), before.sha);
+}, { extra: OWNER_ONLY }));
+
+test('accept needs a review, an owner, and no unaccepted change on main', withTestVault(async (v) => {
+  v.accept();
+  propose(v, { 'a.md': 'a' });
+  const unreviewed = await accept(context(v), v.vault, 'gardener', { approver: 'alice', identity: ALICE });
+  assert.equal(!unreviewed.ok && unreviewed.error.reason, 'not-reviewed');
+  assert.ok((await review(context(v), v.vault, 'gardener', 'alice')).ok);
+  const stranger = await accept(context(v), v.vault, 'gardener', { approver: 'gardener', identity: ALICE });
+  assert.equal(!stranger.ok && stranger.error.reason, 'not-owner');
+  v.repo.write('stray.md', 'x');
+  v.repo.commit('stray on main');
+  const paused = await accept(context(v), v.vault, 'gardener', { approver: 'alice', identity: ALICE });
+  assert.equal(!paused.ok && paused.error.reason, 'unaccepted-change');
+}, { extra: OWNER_ONLY }));
+
+test('an unmet merge policy refuses the accept, says what is missing, and leaves main alone', withTestVault(async (v) => {
+  v.repo.write('.vault/checks/links.sh', '#!/bin/sh\n# name: links\n# summary: Links resolve\n');
+  v.repo.commit('check');
+  const before = v.accept();
+  propose(v, { 'a.md': 'a' });
+  assert.ok((await review(context(v), v.vault, 'gardener', 'alice')).ok);
+  const refused = await accept(context(v), v.vault, 'gardener', { approver: 'alice', identity: ALICE });
+  assert.ok(!refused.ok && refused.error.reason === 'policy-unmet');
+  assert.deepEqual(refused.error.verdict.requirements.filter((r) => !r.met).map((r) => r.requirement), ['checks']);
+  assert.equal(v.repo.git('rev-parse', 'main'), before.sha);
+  assert.equal(acceptedMain(v.store, 'home')?.sha, before.sha);
+}, { extra: 'merge:\n  - paths: ["**"]\n    require: [checks, owner]' }));
+
+test('a tainted proposal meets the rules\' when-tainted requirements too', withTestVault(async (v) => {
+  v.accept();
+  propose(v, { 'a.md': 'a' }, 'made outside the package');
+  assert.ok((await review(context(v), v.vault, 'gardener', 'alice')).ok);
+  const refused = await accept(context(v), v.vault, 'gardener', { approver: 'alice', identity: ALICE });
+  assert.ok(!refused.ok && refused.error.reason === 'policy-unmet');
+  assert.deepEqual(refused.error.verdict.requirements.filter((r) => !r.met).map((r) => r.requirement), ['judgement:quality']);
+}, { extra: 'merge:\n  - paths: ["**"]\n    require: [owner]\n    when-tainted: [judgement:quality]\naxes:\n  quality: { type: bool, instructions: Right?, pass-when: "yes > 0.8" }' }));
+
+test('forge-mode vaults are merged by the forge, never by a local accept', withTestVault(async (v) => {
+  v.accept();
+  propose(v, { 'a.md': 'a' });
+  assert.ok((await review(context(v), v.vault, 'gardener', 'alice')).ok);
+  const refused = await accept(context(v), v.vault, 'gardener', { approver: 'alice', identity: ALICE });
+  assert.equal(!refused.ok && refused.error.reason, 'forge-mode');
+}, { review: 'forge', extra: OWNER_ONLY }));
+
+test('main must be checked out in the vault to merge into it', withTestVault(async (v) => {
+  v.accept();
+  propose(v, { 'a.md': 'a' });
+  assert.ok((await review(context(v), v.vault, 'gardener', 'alice')).ok);
+  v.repo.git('checkout', '--quiet', '--detach');
+  const refused = await accept(context(v), v.vault, 'gardener', { approver: 'alice', identity: ALICE });
+  assert.equal(!refused.ok && refused.error.reason, 'main-not-checked-out');
+}, { extra: OWNER_ONLY }));
