@@ -33,27 +33,9 @@ notify:
     host: smtp.example.net
     port: 465                     # 465: TLS from the start; 587: STARTTLS, required
     user: vault@example.net
-    auth:
-      type: oauth2                # preferred; or `password` with a `password:` secret
-      authorize-url: https://accounts.example.net/o/oauth2/auth
-      token-url: https://oauth2.example.net/token
-      scope: https://mail.example.net/
-      client-id: ${SMTP_CLIENT_ID}
-      client-secret: "!<command that prints the client secret>"
-      refresh-token: "!<command that prints the refresh token>"
+    password: "!<command that prints the password>"   # or ${SMTP_PASSWORD}
   limits: { per-hour: 10, max-bytes: 200000, cooldown: 12h }
 ```
-
-With `oauth2`, the package exchanges the refresh token for short-lived access
-tokens and authenticates with SMTP `XOAUTH2`. Every endpoint and the scope are
-configuration, so any provider that supports OAuth for SMTP works.
-
-`vault notify authorize` obtains the refresh token once: it opens the provider's
-consent page in a browser, receives the result on a local loopback address,
-and prints the refresh token for the user to store in their keyring. The daemon
-refreshes the access token at least monthly so the refresh token does not
-expire from disuse; a failure is reported by `vault status` and `vault doctor`
-(it cannot be emailed).
 
 | Transport | Use when |
 |---|---|
@@ -69,20 +51,16 @@ headers. Text in a message body or a prompt cannot add or change a recipient.
 
 **Secrets are never exposed.**
 
-- Credentials (refresh token, client secret, or password) are `!command`s
-  (typically a keyring lookup: `secret-tool` on Linux, `security` on macOS,
-  PowerShell `Get-Secret` on Windows) or `${ENV}` references — never literals,
-  and never in a vault.
+- The password is a `!command` (typically a keyring lookup: `secret-tool` on
+  Linux, `security` on macOS, PowerShell `Get-Secret` on Windows) or an `${ENV}`
+  reference — never a literal, and never in a vault.
 - It is resolved inside the sending process: not in arguments, logs, traces or
   anything a model sees.
 - SMTP connections are encrypted before authentication: port 465 uses TLS from
   the start; port 587 requires STARTTLS and fails if the server does not offer
   it. There is no plaintext fallback. Certificates are always verified; TLS 1.2
   is the minimum.
-- A dedicated sending account is recommended — especially with OAuth, where
-  providers often grant SMTP access only through a full-mailbox scope: on an
-  account that holds nothing but sent notifications, that scope exposes little
-  more than sending.
+- A dedicated sending account with an app-specific password is recommended.
 
 **Delivery is reliable without a dedicated provider.** Mail goes through an
 authenticated account at the user's own provider, so it is signed and accepted
@@ -107,5 +85,4 @@ outcome. Credentials and full addresses are not recorded.
 ## Implementation
 
 SMTP uses `nodemailer` (MIT-0, no dependencies) with `secure` for port 465 or
-`requireTLS` for 587, and its OAuth 2.0 support for `XOAUTH2`. Hand-written
-SMTP and MIME handling is avoided.
+`requireTLS` for 587. Hand-written SMTP and MIME handling is avoided.
