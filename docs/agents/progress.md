@@ -3,7 +3,16 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 1 — complete, awaiting review
+**Current stage:** 2 — Vault model (L1), in progress
+
+## Current stage status
+
+Kept current with every commit, so an interrupted session can resume.
+
+- **Done:** Stage 1 review finding 1 (`main` merged, `d8217ac`).
+- **In progress:** Stage 1 review findings 2–4 (per-module schema ownership,
+  trailers run in the repository's directory, `prepack` build).
+- **Next:** Stage 2 — read its documents, then tests first, module by module.
 
 ## Stage entries
 
