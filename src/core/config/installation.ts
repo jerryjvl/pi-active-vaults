@@ -11,8 +11,7 @@
 
 import { readFileSync } from 'node:fs';
 import { parseDocument } from 'yaml';
-import { err, ok, type Result } from '../result/index.ts';
-import type { ConfigIssue } from './issue.ts';
+import { DataReader, err, issuePath as join, type Issue, type Result } from '../result/index.ts';
 import { pathFor, type Host } from './platform.ts';
 import { parseSecretRef, type SecretRef } from './secrets.ts';
 
@@ -73,7 +72,7 @@ export type ConfigError =
   | { readonly reason: 'not-found'; readonly path: string }
   | { readonly reason: 'unreadable'; readonly path: string; readonly code: string }
   | { readonly reason: 'invalid-yaml'; readonly problems: readonly string[] }
-  | { readonly reason: 'invalid'; readonly issues: readonly ConfigIssue[] };
+  | { readonly reason: 'invalid'; readonly issues: readonly Issue[] };
 
 const DEFAULT_DEPTH_DECAY = 0.5;
 const DEFAULT_MAX_DEPTH = 4;
@@ -89,76 +88,13 @@ const TOP_LEVEL_KEYS = [
 
 type PlainObject = Record<string, unknown>;
 
-/** Collects issues while reading; every `read*` returns a usable value even after a problem. */
-class Reader {
-  readonly issues: ConfigIssue[] = [];
-
+/** The shared data reader, plus the two readings only the config has: host paths and secrets. */
+class Reader extends DataReader {
   private readonly host: Host;
 
   constructor(host: Host) {
+    super();
     this.host = host;
-  }
-
-  add(path: string, message: string): void {
-    this.issues.push({ path, message });
-  }
-
-  /** A mapping; when `allowed` is given, any other key is an error. */
-  record(value: unknown, path: string, allowed?: readonly string[]): PlainObject {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      this.add(path, 'must be a mapping');
-      return {};
-    }
-    for (const key of Object.keys(value)) {
-      if (allowed !== undefined && !allowed.includes(key)) this.add(join(path, key), 'unknown key');
-    }
-    return value as PlainObject;
-  }
-
-  list(value: unknown, path: string): unknown[] {
-    if (!Array.isArray(value)) {
-      this.add(path, 'must be a list');
-      return [];
-    }
-    return value;
-  }
-
-  string(value: unknown, path: string, pattern?: RegExp): string {
-    if (typeof value !== 'string' || value === '' || (pattern !== undefined && !pattern.test(value))) {
-      this.add(path, pattern === undefined ? 'must be a non-empty string' : 'is not in the expected form');
-      return '';
-    }
-    return value;
-  }
-
-  optionalString(record: PlainObject, key: string, path: string, pattern?: RegExp): string | undefined {
-    return record[key] === undefined ? undefined : this.string(record[key], join(path, key), pattern);
-  }
-
-  boolean(record: PlainObject, key: string, path: string, fallback: boolean): boolean {
-    const value = record[key];
-    if (value === undefined) return fallback;
-    if (typeof value !== 'boolean') {
-      this.add(join(path, key), 'must be true or false');
-      return fallback;
-    }
-    return value;
-  }
-
-  integer(record: PlainObject, key: string, path: string, fallback: number): number;
-  integer(record: PlainObject, key: string, path: string, fallback?: undefined): number | undefined;
-  integer(record: PlainObject, key: string, path: string, fallback?: number): number | undefined {
-    const value = record[key];
-    if (value === undefined) return fallback;
-    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-      this.add(join(path, key), 'must be a positive whole number');
-      return fallback;
-    }
-    return value;
-  }
-
-  stringList(value: unknown, path: string): string[] {
-    return this.list(value, path).map((item, i) => this.string(item, `${path}[${i}]`));
   }
 
   /** `~` expands to the home directory; the result must be absolute on the host's platform. */
@@ -183,10 +119,6 @@ class Reader {
     this.issues.push(parsed.error);
     return { kind: 'env', name: '_INVALID_', where: path };
   }
-}
-
-function join(path: string, key: string): string {
-  return path === '' ? key : `${path}.${key}`;
 }
 
 function readModel(r: Reader, value: unknown, path: string): ModelEndpoint {
@@ -249,8 +181,7 @@ function readForges(r: Reader, value: unknown): ForgeEntry[] {
     const host = r.string(f['host'], join(path, 'host'), FORGE_HOST);
     if (host !== '' && seen.has(host)) r.add(join(path, 'host'), 'duplicate forge host');
     seen.add(host);
-    const type = FORGE_TYPES.find((t) => t === f['type']);
-    if (type === undefined) r.add(join(path, 'type'), `must be one of ${FORGE_TYPES.join(', ')}`);
+    const type = r.oneOf(f['type'], join(path, 'type'), FORGE_TYPES);
     return { host, type: type ?? 'gitea', token: r.secret(f['token'], join(path, 'token')) };
   });
 }
@@ -274,9 +205,8 @@ function readSubscriptionsAndPolicy(r: Reader, raw: PlainObject, vaultIds: Reado
     const p = r.record(item, path, ['vaults', 'allow-models']);
     const vaults = r.stringList(p['vaults'] ?? [], join(path, 'vaults'));
     vaults.forEach((id, j) => known(id, `${join(path, 'vaults')}[${j}]`));
-    const allowModels = r.stringList(p['allow-models'] ?? [], join(path, 'allow-models')).flatMap((role, j) => {
-      const found = MODEL_ROLES.find((m) => m === role);
-      if (found === undefined && role !== '') r.add(`${join(path, 'allow-models')}[${j}]`, `must be one of ${MODEL_ROLES.join(', ')}`);
+    const allowModels = r.list(p['allow-models'] ?? [], join(path, 'allow-models')).flatMap((role, j) => {
+      const found = r.oneOf(role, `${join(path, 'allow-models')}[${j}]`, MODEL_ROLES);
       return found === undefined ? [] : [found];
     });
     return { vaults, allowModels };
@@ -360,7 +290,8 @@ export function parseInstallationConfig(text: string, host: Host): Result<Instal
     ...(mcp === undefined ? {} : { mcp }),
     ...(notify === undefined ? {} : { notify }),
   };
-  return r.issues.length > 0 ? err({ reason: 'invalid', issues: r.issues }) : ok(config);
+  const checked = r.result(config);
+  return checked.ok ? checked : err({ reason: 'invalid', issues: checked.error });
 }
 
 export function loadInstallationConfig(file: string, host: Host): Result<InstallationConfig, ConfigError> {

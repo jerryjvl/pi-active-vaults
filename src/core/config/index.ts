@@ -1,7 +1,6 @@
 // Public surface of the config module: the host and its directories, the
 // installation config, and secret resolution.
 
-export type { ConfigIssue } from './issue.ts';
 export {
   CONFIG_OVERRIDE_VARIABLE,
   STATE_OVERRIDE_VARIABLE,

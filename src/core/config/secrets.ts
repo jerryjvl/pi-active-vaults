@@ -10,8 +10,7 @@
 // variable's value — and an empty secret is a failure, not a pass.
 
 import { spawn } from 'node:child_process';
-import { err, ok, type Result } from '../result/index.ts';
-import type { ConfigIssue } from './issue.ts';
+import { err, ok, type Issue, type Result } from '../result/index.ts';
 
 export type SecretRef =
   | { readonly kind: 'env'; readonly name: string; readonly where: string }
@@ -40,7 +39,7 @@ const ENV_REFERENCE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
 const MAX_COMMAND_OUTPUT_CHARS = 64 * 1024;
 
-export function parseSecretRef(value: unknown, where: string): Result<SecretRef, ConfigIssue> {
+export function parseSecretRef(value: unknown, where: string): Result<SecretRef, Issue> {
   if (typeof value === 'string') {
     const env = ENV_REFERENCE.exec(value);
     if (env?.[1] !== undefined) return ok({ kind: 'env', name: env[1], where });
