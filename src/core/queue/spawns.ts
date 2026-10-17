@@ -1,0 +1,319 @@
+// The spawn queue and its claims (daemon.md "Spawn lifecycle", architecture.md
+// "Local storage" and "Scheduling").
+//
+// A spawn's identity is its document and the event that triggered it. Claiming
+// composes, in one transaction: the unique insert that is the claim, a new
+// trace ID, and the spawn's allotment from its session tree — so a crash
+// leaves either no claim or a claimed spawn with its budget, never half of
+// one. A spawn the tree refuses (no budget, too deep, already in the tree) is
+// still claimed, as stopped with the reason, so the same event never spawns
+// it again. `matched` is not stored: matching is a pure function of history.
+//
+// Invariants: every later state change is one transaction that moves the
+// spawn only from the state before it (queued → running → committed →
+// recorded; queued or running → stopped → recorded), and ending a run ends
+// its budget session, returning what it did not use to the tree's pool.
+
+import {
+  allot,
+  finishSession,
+  startSession,
+  type AllotRefusal,
+  type Budget,
+  type BudgetLimits,
+} from '../budgets/index.ts';
+import type { Clock } from '../clock/index.ts';
+import type { GitEvent, VaultEvent } from '../conditions/index.ts';
+import type { IdSource } from '../ids/index.ts';
+import { err, ok, type Result } from '../result/index.ts';
+import type { ModuleSchema, Queryable, Store } from '../store/index.ts';
+import { newTraceId } from '../traces/index.ts';
+
+export const queueSchema: ModuleSchema = {
+  module: 'queue',
+  migrations: [
+    {
+      version: 1,
+      sql: `CREATE TABLE queue_spawns (
+        id INTEGER PRIMARY KEY,
+        vault TEXT NOT NULL,
+        document TEXT NOT NULL,
+        event_key TEXT NOT NULL,
+        condition INTEGER,
+        event TEXT NOT NULL,
+        trace TEXT NOT NULL UNIQUE,
+        parent TEXT,
+        root TEXT,
+        depth INTEGER,
+        tokens INTEGER,
+        awaited INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL,
+        reason TEXT,
+        commit_sha TEXT,
+        claimed TEXT NOT NULL,
+        started TEXT,
+        ended TEXT,
+        UNIQUE (vault, document, event_key)
+      ) STRICT;
+      CREATE INDEX queue_spawns_by_state ON queue_spawns (state);
+      CREATE TABLE queue_cursors (
+        vault TEXT NOT NULL,
+        document TEXT NOT NULL,
+        stream TEXT NOT NULL,
+        position TEXT NOT NULL,
+        updated TEXT NOT NULL,
+        PRIMARY KEY (vault, document, stream)
+      ) STRICT`,
+    },
+  ],
+};
+
+/** The event a spawn answers: a Git event, a timer firing, or another event with its own ID. */
+export type SpawnEvent =
+  | GitEvent
+  | { readonly kind: 'timer'; readonly at: string }
+  | (Exclude<VaultEvent, GitEvent> & { readonly id: string })
+  /** `vault run`: a job run now, outside its conditions. */
+  | { readonly kind: 'manual'; readonly id: string };
+
+export type SpawnState = 'queued' | 'running' | 'committed' | 'stopped' | 'recorded';
+
+export interface SpawnRequest {
+  readonly vault: string;
+  readonly document: string;
+  /** The matching condition's position in the document; absent for a manual run. */
+  readonly condition?: number;
+  readonly event: SpawnEvent;
+  /** The trace of the session whose work triggered this one. */
+  readonly parent?: string;
+  /** The document's budget. */
+  readonly budget: Budget;
+  readonly relevance?: number;
+}
+
+export interface SpawnEntry {
+  readonly id: number;
+  readonly vault: string;
+  readonly document: string;
+  readonly condition?: number;
+  readonly event: SpawnEvent;
+  readonly trace: string;
+  readonly parent?: string;
+  /** Its place in the session tree; absent when the tree refused it. */
+  readonly root?: string;
+  readonly depth?: number;
+  /** Tokens allotted. */
+  readonly tokens?: number;
+  readonly awaited: boolean;
+  readonly state: SpawnState;
+  /** Why it stopped. */
+  readonly reason?: string;
+  readonly commit?: string;
+  readonly claimed: string;
+  readonly started?: string;
+  readonly ended?: string;
+}
+
+export type QueueError =
+  | { readonly reason: 'not-found'; readonly id: number }
+  | { readonly reason: 'wrong-state'; readonly id: number; readonly state: SpawnState };
+
+export interface QueueContext {
+  readonly ids: IdSource;
+  readonly clock: Clock;
+  readonly limits: BudgetLimits;
+}
+
+interface SpawnRow {
+  id: number;
+  vault: string;
+  document: string;
+  condition: number | null;
+  event: string;
+  trace: string;
+  parent: string | null;
+  root: string | null;
+  depth: number | null;
+  tokens: number | null;
+  awaited: number;
+  state: SpawnState;
+  reason: string | null;
+  commit_sha: string | null;
+  claimed: string;
+  started: string | null;
+  ended: string | null;
+}
+
+const SELECT = 'SELECT id, vault, document, condition, event, trace, parent, root, depth, tokens, awaited, state, reason, commit_sha, claimed, started, ended FROM queue_spawns';
+
+/** The identity of the event within a spawn's identity. */
+export function spawnEventKey(event: SpawnEvent): string {
+  switch (event.kind) {
+    case 'committed':
+    case 'merged':
+      return `${event.kind}:${event.vault}:${event.commit}`;
+    case 'timer':
+      return `timer:${event.at}`;
+    default:
+      return 'vault' in event ? `${event.kind}:${event.vault}:${event.id}` : `${event.kind}:${event.id}`;
+  }
+}
+
+function present<K extends string, V>(key: K, value: V | null): { [P in K]?: V } {
+  return (value === null ? {} : { [key]: value }) as { [P in K]?: V };
+}
+
+function entryOf(row: SpawnRow): SpawnEntry {
+  return {
+    id: row.id,
+    vault: row.vault,
+    document: row.document,
+    ...present('condition', row.condition),
+    event: JSON.parse(row.event) as SpawnEvent,
+    trace: row.trace,
+    ...present('parent', row.parent),
+    ...present('root', row.root),
+    ...present('depth', row.depth),
+    ...present('tokens', row.tokens),
+    awaited: row.awaited !== 0,
+    state: row.state,
+    ...present('reason', row.reason),
+    ...present('commit', row.commit_sha),
+    claimed: row.claimed,
+    ...present('started', row.started),
+    ...present('ended', row.ended),
+  };
+}
+
+function byId(tx: Queryable, id: number): SpawnEntry | undefined {
+  const row = tx.get<SpawnRow>(`${SELECT} WHERE id = ?`, [id]);
+  return row === undefined ? undefined : entryOf(row);
+}
+
+/**
+ * Claims the spawn for `request`, or returns the existing claim for the same
+ * document and event. A new claim is queued with its trace and allotment, or
+ * stopped when its session tree refuses it.
+ */
+export function enqueueSpawn(store: Store, context: QueueContext, request: SpawnRequest): { entry: SpawnEntry; claimed: boolean } {
+  const key = spawnEventKey(request.event);
+  return store.transaction((tx) => {
+    const existing = tx.get<SpawnRow>(`${SELECT} WHERE vault = ? AND document = ? AND event_key = ?`, [request.vault, request.document, key]);
+    if (existing !== undefined) return { entry: entryOf(existing), claimed: false };
+
+    const trace = newTraceId(context.ids);
+    const allotted = allot(tx, context.limits, context.clock, {
+      trace,
+      vault: request.vault,
+      document: request.document,
+      budget: request.budget,
+      ...(request.parent === undefined ? {} : { parent: request.parent }),
+      ...(request.relevance === undefined ? {} : { relevance: request.relevance }),
+    });
+    const now = context.clock.now().toISOString();
+    const placed = allotted.ok ? allotted.value : undefined;
+    const { lastInsertRowid } = tx.run(
+      `INSERT INTO queue_spawns (vault, document, event_key, condition, event, trace, parent, root, depth, tokens, state, reason, claimed, ended)
+       VALUES ($vault, $document, $key, $condition, $event, $trace, $parent, $root, $depth, $tokens, $state, $reason, $now, $ended)`,
+      {
+        vault: request.vault,
+        document: request.document,
+        key,
+        condition: request.condition ?? null,
+        event: JSON.stringify(request.event),
+        trace,
+        parent: request.parent ?? null,
+        root: placed?.root ?? null,
+        depth: placed?.depth ?? null,
+        tokens: placed?.tokens ?? null,
+        state: allotted.ok ? 'queued' : 'stopped',
+        reason: allotted.ok ? null : (allotted.error satisfies AllotRefusal).reason,
+        now,
+        ended: allotted.ok ? null : now,
+      },
+    );
+    const entry = byId(tx, Number(lastInsertRowid));
+    if (entry === undefined) throw new Error('a claimed spawn vanished');
+    return { entry, claimed: true };
+  });
+}
+
+/** Moves a spawn from one of `from` to `to` in one transaction, with what else that step changes. */
+function advance(
+  store: Store, id: number, from: readonly SpawnState[], to: SpawnState,
+  step: (tx: Queryable, entry: SpawnEntry) => Readonly<Record<string, string | number | null>>,
+): Result<SpawnEntry, QueueError> {
+  return store.transaction((tx) => {
+    const entry = byId(tx, id);
+    if (entry === undefined) return err({ reason: 'not-found', id });
+    if (!from.includes(entry.state)) return err({ reason: 'wrong-state', id, state: entry.state });
+    const fields = step(tx, entry);
+    const assignments = Object.keys(fields).map((column) => `, ${column} = $${column}`).join('');
+    tx.run(`UPDATE queue_spawns SET state = $state${assignments} WHERE id = $id`, { ...fields, state: to, id });
+    const updated = byId(tx, id);
+    if (updated === undefined) throw new Error('an advanced spawn vanished');
+    return ok(updated);
+  });
+}
+
+/** Ends the run's budget session; a spawn the tree refused has none. */
+function endSession(tx: Queryable, clock: Clock, entry: SpawnEntry): void {
+  if (entry.root !== undefined) finishSession(tx, clock, entry.trace);
+}
+
+export function startSpawn(store: Store, clock: Clock, id: number): Result<SpawnEntry, QueueError> {
+  return advance(store, id, ['queued'], 'running', (tx, entry) => {
+    startSession(tx, clock, entry.trace);
+    return { started: clock.now().toISOString() };
+  });
+}
+
+export function commitSpawn(store: Store, clock: Clock, id: number, commit: string): Result<SpawnEntry, QueueError> {
+  return advance(store, id, ['running'], 'committed', (tx, entry) => {
+    endSession(tx, clock, entry);
+    return { commit_sha: commit, ended: clock.now().toISOString() };
+  });
+}
+
+/** Stops a queued or running spawn: `budget`, `ttl`, `queue-time`, `error`, or another reason. */
+export function stopSpawn(store: Store, clock: Clock, id: number, reason: string): Result<SpawnEntry, QueueError> {
+  return advance(store, id, ['queued', 'running'], 'stopped', (tx, entry) => {
+    endSession(tx, clock, entry);
+    return { reason, ended: clock.now().toISOString() };
+  });
+}
+
+/** Marks a committed or stopped spawn as recorded in its trace: its last state. */
+export function recordSpawn(store: Store, id: number): Result<SpawnEntry, QueueError> {
+  return advance(store, id, ['committed', 'stopped'], 'recorded', () => ({}));
+}
+
+/** Another session is waiting on this spawn's result, so it runs first. */
+export function markAwaited(store: Store, id: number): Result<SpawnEntry, QueueError> {
+  return advance(store, id, ['queued'], 'queued', () => ({ awaited: 1 }));
+}
+
+/** Queued spawns in the order they should run. */
+export function nextSpawns(store: Queryable, limit: number): SpawnEntry[] {
+  return store
+    .all<SpawnRow>(`${SELECT} WHERE state = 'queued' ORDER BY awaited DESC, depth, root, id LIMIT ?`, [limit])
+    .map(entryOf);
+}
+
+/** Stops every spawn queued longer than `maxQueueMs`, with the reason `queue-time`. */
+export function expireQueued(store: Store, clock: Clock, maxQueueMs: number): SpawnEntry[] {
+  const cutoff = new Date(clock.now().getTime() - maxQueueMs).toISOString();
+  const stale = store.all<{ id: number }>("SELECT id FROM queue_spawns WHERE state = 'queued' AND claimed < ? ORDER BY id", [cutoff]);
+  return stale.flatMap(({ id }) => {
+    const stopped = stopSpawn(store, clock, id, 'queue-time');
+    return stopped.ok ? [stopped.value] : [];
+  });
+}
+
+/** Spawns in claim order, optionally only those of one vault or in some states. */
+export function listSpawns(store: Queryable, filter: { readonly vault?: string; readonly states?: readonly SpawnState[] } = {}): SpawnEntry[] {
+  return store
+    .all<SpawnRow>(`${SELECT} ORDER BY id`)
+    .filter((row) => (filter.vault === undefined || row.vault === filter.vault) && (filter.states === undefined || filter.states.includes(row.state)))
+    .map(entryOf);
+}

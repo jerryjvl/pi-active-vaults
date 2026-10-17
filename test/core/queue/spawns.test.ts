@@ -122,7 +122,7 @@ test('a spawn runs, commits and is recorded; each step only from the state befor
   const committed = commitSpawn(store, clock, entry.id, 'f'.repeat(40));
   assert.ok(committed.ok);
   assert.deepEqual([committed.value.state, committed.value.commit], ['committed', 'f'.repeat(40)]);
-  const recorded = recordSpawn(store, clock, entry.id);
+  const recorded = recordSpawn(store, entry.id);
   assert.ok(recorded.ok && recorded.value.state === 'recorded');
   assert.equal(stopSpawn(store, clock, entry.id, 'error').ok, false, 'a recorded spawn is final');
   const missing = startSpawn(store, clock, 999);
@@ -140,7 +140,7 @@ test('a spawn stops from the queue or while running; stopping ends its session, 
   assert.equal(sibling.tokens, 150_000, 'the stopped spawn used nothing, so the whole pool is back');
   const queued = stopSpawn(store, clock, sibling.id, 'budget');
   assert.ok(queued.ok && queued.value.state === 'stopped');
-  assert.ok(recordSpawn(store, clock, sibling.id).ok);
+  assert.ok(recordSpawn(store, sibling.id).ok);
 }));
 
 test('queued spawns come in order: awaited work, then shallower work, then earlier roots, then claim order', withQueue(({ store, context, clock }) => {
