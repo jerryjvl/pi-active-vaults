@@ -21,18 +21,7 @@ import {
   updateRef,
 } from '../../../src/core/git/index.ts';
 import { redactUrlCredentials } from '../../../src/core/git/exec.ts';
-import { createTempRepo, gitFor } from '../../support/git-repo.ts';
-
-function withRepo(run: (repo: ReturnType<typeof createTempRepo>) => Promise<void>) {
-  return async () => {
-    const repo = createTempRepo();
-    try {
-      await run(repo);
-    } finally {
-      repo.cleanup();
-    }
-  };
-}
+import { gitFor, withTempRepo } from '../../support/git-repo.ts';
 
 test('the installed git reports its version; a missing git is reported, not thrown', async () => {
   const version = await gitVersion(createGit());
@@ -41,7 +30,7 @@ test('the installed git reports its version; a missing git is reported, not thro
   assert.deepEqual(missing, { ok: false, error: { reason: 'git-unavailable' } });
 });
 
-test('a repository can be initialised with a chosen initial branch and its root found from a subdirectory', withRepo(async (repo) => {
+test('a repository can be initialised with a chosen initial branch and its root found from a subdirectory', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   const dir = mkdtempSync(join(tmpdir(), 'pav-init-'));
   try {
@@ -63,7 +52,7 @@ test('a repository can be initialised with a chosen initial branch and its root 
   }
 }));
 
-test('revisions resolve to full SHAs; unknown ones are an error value naming the revision', withRepo(async (repo) => {
+test('revisions resolve to full SHAs; unknown ones are an error value naming the revision', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   const sha = repo.commit('first');
@@ -76,7 +65,7 @@ test('revisions resolve to full SHAs; unknown ones are an error value naming the
   });
 }));
 
-test('revisions that could be read as options, ranges or other syntax are refused before git runs', withRepo(async (repo) => {
+test('revisions that could be read as options, ranges or other syntax are refused before git runs', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   repo.commit('first');
@@ -87,7 +76,7 @@ test('revisions that could be read as options, ranges or other syntax are refuse
   }
 }));
 
-test('the current branch is reported, and undefined when detached', withRepo(async (repo) => {
+test('the current branch is reported, and undefined when detached', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   const sha = repo.commit('first');
@@ -96,7 +85,7 @@ test('the current branch is reported, and undefined when detached', withRepo(asy
   assert.deepEqual(await currentBranch(git, repo.path), { ok: true, value: undefined });
 }));
 
-test('a ref is created only if absent, and moved only from the value the caller saw', withRepo(async (repo) => {
+test('a ref is created only if absent, and moved only from the value the caller saw', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   const first = repo.commit('first');
@@ -121,7 +110,7 @@ test('a ref is created only if absent, and moved only from the value the caller 
   assert.equal(repo.git('branch', '--list', 'actor/alice'), '');
 }));
 
-test('ref updates require a full ref name and a full SHA', withRepo(async (repo) => {
+test('ref updates require a full ref name and a full SHA', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   const sha = repo.commit('first');
@@ -131,7 +120,7 @@ test('ref updates require a full ref name and a full SHA', withRepo(async (repo)
   }
 }));
 
-test('refs under a prefix are listed with their SHAs', withRepo(async (repo) => {
+test('refs under a prefix are listed with their SHAs', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   const first = repo.commit('first');
@@ -150,7 +139,7 @@ test('refs under a prefix are listed with their SHAs', withRepo(async (repo) => 
   assert.deepEqual(await listRefs(git, repo.path, 'refs/heads/none/'), { ok: true, value: [] });
 }));
 
-test('ancestry distinguishes a descendant from a rewrite', withRepo(async (repo) => {
+test('ancestry distinguishes a descendant from a rewrite', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   const first = repo.commit('first');
@@ -163,7 +152,7 @@ test('ancestry distinguishes a descendant from a rewrite', withRepo(async (repo)
   assert.equal(unknown.ok === false && unknown.error.reason, 'unknown-revision');
 }));
 
-test('the ambient git environment of the caller cannot redirect an operation', withRepo(async (repo) => {
+test('the ambient git environment of the caller cannot redirect an operation', withTempRepo(async (repo) => {
   repo.write('a.md', 'a');
   const sha = repo.commit('first');
   const decoy = mkdtempSync(join(tmpdir(), 'pav-decoy-'));

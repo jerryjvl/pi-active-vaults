@@ -4,7 +4,7 @@
 // influence it.
 
 import { err, ok, type Result } from '../result/index.ts';
-import { failure, runForText, runGit, type Git, type GitError } from './exec.ts';
+import { failure, runChecked, runForText, runGit, type Git, type GitError } from './exec.ts';
 import { resolveRevision, type Sha } from './refs.ts';
 import { checkTreePath } from './validate.ts';
 
@@ -62,17 +62,7 @@ function parseCommits(output: string): CommitInfo[] {
   return commits;
 }
 
-/** Commits reachable from `to` but not from `from` (or all of `to`'s history when `from` is null), oldest first. */
-export async function commitsBetween(git: Git, repo: string, from: string | null, to: string): Promise<Result<CommitInfo[], GitError>> {
-  const range = await rangeEnds(git, repo, from, to);
-  if (!range.ok) return range;
-  const spec = range.value.from === null ? range.value.to : `${range.value.from}..${range.value.to}`;
-  const args = ['log', '--reverse', '--topo-order', '-z', '--no-show-signature', '--encoding=UTF-8', COMMIT_FORMAT, spec, '--'];
-  const ran = await runGit(git, args, { cwd: repo });
-  if (!ran.ok) return ran;
-  return ran.value.exitCode === 0 ? ok(parseCommits(ran.value.stdout.toString('utf8'))) : err(failure(args, ran.value));
-}
-
+/** Both ends of a range as SHAs; `from` null means "from nothing". Resolving first reports an unknown end by name. */
 async function rangeEnds(git: Git, repo: string, from: string | null, to: string): Promise<Result<{ from: Sha | null; to: Sha }, GitError>> {
   const toSha = await resolveRevision(git, repo, to);
   if (!toSha.ok) return toSha;
@@ -86,11 +76,22 @@ async function emptyTree(git: Git, repo: string): Promise<Result<string, GitErro
   return runForText(git, ['hash-object', '-t', 'tree', '--stdin'], { cwd: repo, input: '' });
 }
 
+/** Like `rangeEnds`, but "from nothing" becomes the empty tree, which diff commands need. */
 async function diffEnds(git: Git, repo: string, from: string | null, to: string): Promise<Result<{ from: string; to: Sha }, GitError>> {
-  const toSha = await resolveRevision(git, repo, to);
-  if (!toSha.ok) return toSha;
-  const fromRef = from === null ? await emptyTree(git, repo) : await resolveRevision(git, repo, from);
-  return fromRef.ok ? ok({ from: fromRef.value, to: toSha.value }) : fromRef;
+  const ends = await rangeEnds(git, repo, from, to);
+  if (!ends.ok) return ends;
+  const before = ends.value.from === null ? await emptyTree(git, repo) : ok(ends.value.from);
+  return before.ok ? ok({ from: before.value, to: ends.value.to }) : before;
+}
+
+/** Commits reachable from `to` but not from `from` (or all of `to`'s history when `from` is null), oldest first. */
+export async function commitsBetween(git: Git, repo: string, from: string | null, to: string): Promise<Result<CommitInfo[], GitError>> {
+  const ends = await rangeEnds(git, repo, from, to);
+  if (!ends.ok) return ends;
+  const spec = ends.value.from === null ? ends.value.to : `${ends.value.from}..${ends.value.to}`;
+  const args = ['log', '--reverse', '--topo-order', '-z', '--no-show-signature', '--encoding=UTF-8', COMMIT_FORMAT, spec, '--'];
+  const ran = await runChecked(git, args, { cwd: repo });
+  return ran.ok ? ok(parseCommits(ran.value.stdout.toString('utf8'))) : ran;
 }
 
 const STATUS: Readonly<Record<string, FileChange['change']>> = { A: 'created', M: 'modified', T: 'modified', D: 'deleted' };
@@ -100,9 +101,8 @@ export async function changedPaths(git: Git, repo: string, from: string | null, 
   const ends = await diffEnds(git, repo, from, to);
   if (!ends.ok) return ends;
   const args = ['diff-tree', '-r', '-z', '--name-status', '-M', '--no-commit-id', ends.value.from, ends.value.to];
-  const ran = await runGit(git, args, { cwd: repo });
+  const ran = await runChecked(git, args, { cwd: repo });
   if (!ran.ok) return ran;
-  if (ran.value.exitCode !== 0) return err(failure(args, ran.value));
   const tokens = ran.value.stdout.toString('utf8').split('\0');
   const changes: FileChange[] = [];
   for (let i = 0; i < tokens.length - 1; ) {
@@ -129,9 +129,8 @@ export async function diffText(git: Git, repo: string, from: string | null, to: 
     'diff', '--no-ext-diff', '--no-textconv', '--no-color', '-M', '--src-prefix=a/', '--dst-prefix=b/',
     ends.value.from, ends.value.to, '--',
   ];
-  const ran = await runGit(git, args, { cwd: repo });
-  if (!ran.ok) return ran;
-  return ran.value.exitCode === 0 ? ok(ran.value.stdout.toString('utf8')) : err(failure(args, ran.value));
+  const ran = await runChecked(git, args, { cwd: repo });
+  return ran.ok ? ok(ran.value.stdout.toString('utf8')) : ran;
 }
 
 /** Every file in the revision's tree, as slash-separated paths. */
@@ -139,10 +138,8 @@ export async function listFiles(git: Git, repo: string, revision: string): Promi
   const sha = await resolveRevision(git, repo, revision);
   if (!sha.ok) return sha;
   const args = ['ls-tree', '-r', '-z', '--name-only', sha.value];
-  const ran = await runGit(git, args, { cwd: repo });
-  if (!ran.ok) return ran;
-  if (ran.value.exitCode !== 0) return err(failure(args, ran.value));
-  return ok(ran.value.stdout.toString('utf8').split('\0').filter((p) => p !== ''));
+  const ran = await runChecked(git, args, { cwd: repo });
+  return ran.ok ? ok(ran.value.stdout.toString('utf8').split('\0').filter((p) => p !== '')) : ran;
 }
 
 /** A file's bytes as committed in `revision`. */

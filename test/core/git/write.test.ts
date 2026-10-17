@@ -12,23 +12,12 @@ import {
   hasTrackedChanges,
   mergeSha,
 } from '../../../src/core/git/index.ts';
-import { createTempRepo, gitFor, type TempRepo } from '../../support/git-repo.ts';
+import { gitFor, withTempRepo, type TempRepo } from '../../support/git-repo.ts';
 
 const BOB = { name: 'Bob Builder', email: 'bob@example.net' };
 
-function withRepo(run: (repo: TempRepo) => Promise<void>) {
-  return async () => {
-    const repo = createTempRepo();
-    try {
-      await run(repo);
-    } finally {
-      repo.cleanup();
-    }
-  };
-}
-
-test('trailers are appended to a message, replacing an existing trailer of the same key', async () => {
-  const git = gitFor(createTempRepo());
+test('trailers are appended to a message, replacing an existing trailer of the same key', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
   const once = await addTrailers(git, 'Subject\n\nBody.', [
     { key: 'Vault-Trace', value: 'T1' },
     { key: 'Vault-Actor', value: 'gardener' },
@@ -39,10 +28,10 @@ test('trailers are appended to a message, replacing an existing trailer of the s
   assert.ok(twice.ok);
   assert.equal(twice.value.match(/Vault-Trace/g)?.length, 1);
   assert.match(twice.value, /Vault-Trace: T2/);
-});
+}));
 
-test('trailer keys and values that could inject extra trailers or lines are refused', async () => {
-  const git = gitFor(createTempRepo());
+test('trailer keys and values that could inject extra trailers or lines are refused', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
   for (const trailer of [
     { key: 'Vault-Trace', value: 'x\nVault-Actor: root' },
     { key: 'Vault-Trace', value: 'x\r\ny' },
@@ -53,9 +42,9 @@ test('trailer keys and values that could inject extra trailers or lines are refu
     const result = await addTrailers(git, 'Subject', [trailer]);
     assert.equal(result.ok === false && result.error.reason, 'invalid-argument', JSON.stringify(trailer));
   }
-});
+}));
 
-test('a commit stages everything, takes the given identity and time, and carries trailers', withRepo(async (repo) => {
+test('a commit stages everything, takes the given identity and time, and carries trailers', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   repo.commit('base');
@@ -80,7 +69,7 @@ test('a commit stages everything, takes the given identity and time, and carries
   assert.deepEqual(log.ok && log.value.at(-1)?.trailers, [{ key: 'Vault-Trace', value: 'T1' }]);
 }));
 
-test('a commit can be limited to given paths', withRepo(async (repo) => {
+test('a commit can be limited to given paths', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   repo.commit('base');
@@ -91,7 +80,7 @@ test('a commit can be limited to given paths', withRepo(async (repo) => {
   assert.equal(repo.git('show', '--name-only', '--format=', 'HEAD'), 'wanted.md');
 }));
 
-test('committing nothing is an error value unless an empty commit is asked for', withRepo(async (repo) => {
+test('committing nothing is an error value unless an empty commit is asked for', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   repo.commit('base');
@@ -100,7 +89,7 @@ test('committing nothing is an error value unless an empty commit is asked for',
   assert.ok(empty.ok);
 }));
 
-test('package commits do not run the repository\'s own hooks or ask for signatures', withRepo(async (repo) => {
+test('package commits do not run the repository\'s own hooks or ask for signatures', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   repo.commit('base');
@@ -116,7 +105,7 @@ test('package commits do not run the repository\'s own hooks or ask for signatur
   assert.equal(existsSync(marker), false);
 }));
 
-test('tracked changes are detected, untracked files are not counted', withRepo(async (repo) => {
+test('tracked changes are detected, untracked files are not counted', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   repo.commit('base');
@@ -137,7 +126,7 @@ function proposal(repo: TempRepo): { base: string; reviewed: string } {
   return { base, reviewed };
 }
 
-test('the reviewed SHA is merged with a merge commit, using the approver\'s identity', withRepo(async (repo) => {
+test('the reviewed SHA is merged with a merge commit, using the approver\'s identity', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   const { base, reviewed } = proposal(repo);
   const merged = await mergeSha(git, repo.path, reviewed, {
@@ -152,7 +141,7 @@ test('the reviewed SHA is merged with a merge commit, using the approver\'s iden
   assert.equal(repo.git('log', '-1', '--format=%cn|%s'), 'Bob Builder|Accept actor/alice');
 }));
 
-test('a branch name is never merged — only a full SHA', withRepo(async (repo) => {
+test('a branch name is never merged — only a full SHA', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   const { base, reviewed } = proposal(repo);
   for (const name of ['actor/alice', 'HEAD', reviewed.slice(0, 10), '--abort', 'refs/heads/actor/alice']) {
@@ -162,7 +151,7 @@ test('a branch name is never merged — only a full SHA', withRepo(async (repo) 
   assert.equal(repo.git('rev-parse', 'main'), base, 'nothing was merged');
 }));
 
-test('merging into a tree with tracked changes is refused and leaves them alone', withRepo(async (repo) => {
+test('merging into a tree with tracked changes is refused and leaves them alone', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   const { reviewed } = proposal(repo);
   repo.write('a.md', 'local edit\n');
@@ -171,7 +160,7 @@ test('merging into a tree with tracked changes is refused and leaves them alone'
   assert.equal(repo.git('status', '--porcelain'), 'M a.md');
 }));
 
-test('a conflicting merge reports the paths and leaves no merge in progress', withRepo(async (repo) => {
+test('a conflicting merge reports the paths and leaves no merge in progress', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'base\n');
   repo.commit('base');
@@ -188,7 +177,7 @@ test('a conflicting merge reports the paths and leaves no merge in progress', wi
   assert.equal(existsSync(join(repo.path, '.git', 'MERGE_HEAD')), false);
 }));
 
-test('merging a SHA that is already part of history changes nothing', withRepo(async (repo) => {
+test('merging a SHA that is already part of history changes nothing', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   const { reviewed } = proposal(repo);
   const first = await mergeSha(git, repo.path, reviewed, { message: 'Accept' });
@@ -197,7 +186,7 @@ test('merging a SHA that is already part of history changes nothing', withRepo(a
   assert.deepEqual(again, { ok: true, value: { head: first.value.head, changed: false } });
 }));
 
-test('an identity or path that could smuggle extra header lines or leave the tree is refused', withRepo(async (repo) => {
+test('an identity or path that could smuggle extra header lines or leave the tree is refused', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   repo.commit('base');
@@ -218,7 +207,7 @@ test('an identity or path that could smuggle extra header lines or leave the tre
   assert.equal(repo.git('rev-list', '--count', 'HEAD'), '1', 'nothing was committed');
 }));
 
-test('a message line starting with # is kept, not stripped as a comment', withRepo(async (repo) => {
+test('a message line starting with # is kept, not stripped as a comment', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   const made = await createCommit(git, repo.path, { message: 'Subject\n\n# heading-like line' });

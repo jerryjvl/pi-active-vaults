@@ -236,8 +236,9 @@ commits made from a Pi session, `Vault-Session`.
 
 ## Trace
 
-Every run gets a unique, time-sortable ID at spawn. The ID propagates to
-everything the run causes.
+Every run gets a unique, time-sortable ID at spawn: 26 upper-case characters,
+the issue time in milliseconds followed by randomness, so the time can be read
+back from the ID. The ID propagates to everything the run causes.
 
 - **In the vault**: a compact record, `.vault/traces/<yyyy>/<mm>/<trace-id>.json`
   — triggers, sessions, judgements, scripts run, documents produced — committed
@@ -288,7 +289,13 @@ templates:                     # short names for template repositories
 ```
 
 Secrets are given as `${ENV}` references or `!command` (any command that prints
-the secret — a keyring lookup on each platform), never literally.
+the secret — a keyring lookup on each platform), never literally. They are
+resolved where they are used, not when the config loads.
+
+The file is validated strictly when loaded: an unknown key, a literal secret or
+any other invalid value is an error that lists every problem (without repeating
+the values), so a typo cannot silently disable a feature. Vault and worktree
+paths may start with `~` and must otherwise be absolute.
 
 Each model role speaks one HTTP API:
 

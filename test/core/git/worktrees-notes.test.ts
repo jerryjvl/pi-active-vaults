@@ -3,8 +3,7 @@
 // the repository (concepts.md "Attestation").
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   addWorktree,
@@ -17,22 +16,14 @@ import {
   notesShow,
   removeWorktree,
 } from '../../../src/core/git/index.ts';
-import { createTempRepo, gitFor, type TempRepo } from '../../support/git-repo.ts';
+import { gitFor, withTempRepo, type TempRepo } from '../../support/git-repo.ts';
+import { withTempDir } from '../../support/temp-dir.ts';
 
 const NOTES = 'refs/notes/vault/attestations';
 const BOB = { name: 'Bob Builder', email: 'bob@example.net' };
 
 function withRepo(run: (repo: TempRepo, scratch: string) => Promise<void>) {
-  return async () => {
-    const repo = createTempRepo();
-    const scratch = mkdtempSync(join(tmpdir(), 'pav-wt-'));
-    try {
-      await run(repo, scratch);
-    } finally {
-      repo.cleanup();
-      rmSync(scratch, { recursive: true, force: true });
-    }
-  };
+  return withTempRepo((repo) => withTempDir((scratch) => run(repo, scratch.path), 'pav-wt-')());
 }
 
 test('a worktree gets its own new branch from a start point, and commits there leave main alone', withRepo(async (repo, scratch) => {

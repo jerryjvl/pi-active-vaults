@@ -3,7 +3,7 @@
 
 import { isAbsolute } from 'node:path';
 import { err, ok, type Result } from '../result/index.ts';
-import { failure, runForSuccess, runGit, type Git, type GitError } from './exec.ts';
+import { runChecked, runForSuccess, type Git, type GitError } from './exec.ts';
 import type { Sha } from './refs.ts';
 import { checkBranchName, checkSha } from './validate.ts';
 
@@ -38,9 +38,8 @@ export function removeWorktree(git: Git, repo: string, dir: string, options: { f
 
 export async function listWorktrees(git: Git, repo: string): Promise<Result<Worktree[], GitError>> {
   const args = ['worktree', 'list', '--porcelain', '-z'];
-  const ran = await runGit(git, args, { cwd: repo });
+  const ran = await runChecked(git, args, { cwd: repo });
   if (!ran.ok) return ran;
-  if (ran.value.exitCode !== 0) return err(failure(args, ran.value));
   // Records are NUL-separated attribute lines, with an empty field between records.
   const worktrees: Worktree[] = [];
   let current: { path?: string; head?: string; branch?: string } = {};

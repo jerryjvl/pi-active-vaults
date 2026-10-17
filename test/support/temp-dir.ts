@@ -18,3 +18,15 @@ export function createTempDir(prefix = 'pav-'): TempDir {
     cleanup: () => rmSync(path, { recursive: true, force: true }),
   };
 }
+
+/** Wraps a test body so its directory is always removed afterwards. */
+export function withTempDir(run: (dir: TempDir) => void | Promise<void>, prefix?: string): () => Promise<void> {
+  return async () => {
+    const dir = createTempDir(prefix);
+    try {
+      await run(dir);
+    } finally {
+      dir.cleanup();
+    }
+  };
+}

@@ -65,3 +65,15 @@ export function createTempRepo(options: { branch?: string } = {}): TempRepo {
 export function gitFor(repo: TempRepo): Git {
   return createGit({ env: repo.env });
 }
+
+/** Wraps a test body so its repository is always removed afterwards. */
+export function withTempRepo(run: (repo: TempRepo) => Promise<void>): () => Promise<void> {
+  return async () => {
+    const repo = createTempRepo();
+    try {
+      await run(repo);
+    } finally {
+      repo.cleanup();
+    }
+  };
+}

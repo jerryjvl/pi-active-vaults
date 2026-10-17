@@ -12,20 +12,9 @@ import {
   listFiles,
   readFileAt,
 } from '../../../src/core/git/index.ts';
-import { createTempRepo, gitFor, type TempRepo } from '../../support/git-repo.ts';
+import { gitFor, withTempRepo } from '../../support/git-repo.ts';
 
-function withRepo(run: (repo: TempRepo) => Promise<void>) {
-  return async () => {
-    const repo = createTempRepo();
-    try {
-      await run(repo);
-    } finally {
-      repo.cleanup();
-    }
-  };
-}
-
-test('commits in a range come oldest first with author, parents, message and trailers', withRepo(async (repo) => {
+test('commits in a range come oldest first with author, parents, message and trailers', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   const base = repo.commit('base');
@@ -49,7 +38,7 @@ test('commits in a range come oldest first with author, parents, message and tra
   assert.ok(c3?.date instanceof Date && !Number.isNaN(c3.date.getTime()));
 }));
 
-test('a range from nothing covers all history, and an identical range is empty', withRepo(async (repo) => {
+test('a range from nothing covers all history, and an identical range is empty', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   const first = repo.commit('first');
@@ -61,7 +50,7 @@ test('a range from nothing covers all history, and an identical range is empty',
   assert.deepEqual(none, { ok: true, value: [] });
 }));
 
-test('changed paths report created, modified, deleted and renamed files', withRepo(async (repo) => {
+test('changed paths report created, modified, deleted and renamed files', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('keep.md', 'keep\n');
   repo.write('topics/.keep', '');
@@ -85,7 +74,7 @@ test('changed paths report created, modified, deleted and renamed files', withRe
   ]);
 }));
 
-test('paths with spaces and non-ASCII names come back exactly', withRepo(async (repo) => {
+test('paths with spaces and non-ASCII names come back exactly', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('seed.md', 's');
   const base = repo.commit('base');
@@ -95,7 +84,7 @@ test('paths with spaces and non-ASCII names come back exactly', withRepo(async (
   assert.deepEqual(result, { ok: true, value: [{ change: 'created', path: 'notes/café au lait.md' }] });
 }));
 
-test('from nothing, every file is created', withRepo(async (repo) => {
+test('from nothing, every file is created', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   repo.write('dir/b.md', 'b');
@@ -104,7 +93,7 @@ test('from nothing, every file is created', withRepo(async (repo) => {
   assert.deepEqual(result.ok && result.value.map((c) => `${c.change}:${c.path}`).sort(), ['created:a.md', 'created:dir/b.md']);
 }));
 
-test('the diff text between revisions is returned, and never runs configured external programs', withRepo(async (repo) => {
+test('the diff text between revisions is returned, and never runs configured external programs', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'one\n');
   repo.write('.gitattributes', '*.md diff=sneaky\n');
@@ -120,7 +109,7 @@ test('the diff text between revisions is returned, and never runs configured ext
   assert.equal(existsSync(marker), false, 'external diff or textconv ran');
 }));
 
-test('files are listed and read from the revision, not the working tree', withRepo(async (repo) => {
+test('files are listed and read from the revision, not the working tree', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('.vault/scripts/run.sh', '#!/bin/sh\necho trusted\n');
   repo.write('doc.md', 'committed\n');
@@ -134,7 +123,7 @@ test('files are listed and read from the revision, not the working tree', withRe
   assert.equal(script.ok && script.value.toString('utf8'), '#!/bin/sh\necho trusted\n');
 }));
 
-test('binary content is returned byte for byte', withRepo(async (repo) => {
+test('binary content is returned byte for byte', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   const bytes = Buffer.from([0, 255, 254, 10, 13, 128]);
   writeFileSync(join(repo.path, 'blob.bin'), bytes);
@@ -143,7 +132,7 @@ test('binary content is returned byte for byte', withRepo(async (repo) => {
   assert.ok(read.ok && Buffer.compare(read.value, bytes) === 0);
 }));
 
-test('a missing file and a missing revision are different errors', withRepo(async (repo) => {
+test('a missing file and a missing revision are different errors', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   const sha = repo.commit('first');
@@ -155,7 +144,7 @@ test('a missing file and a missing revision are different errors', withRepo(asyn
   assert.equal(unknown.ok === false && unknown.error.reason, 'unknown-revision');
 }));
 
-test('paths that escape or are absolute are refused', withRepo(async (repo) => {
+test('paths that escape or are absolute are refused', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('a.md', 'a');
   const sha = repo.commit('first');

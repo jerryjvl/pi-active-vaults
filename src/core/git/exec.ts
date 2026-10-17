@@ -119,16 +119,21 @@ export function failure(args: readonly string[], outcome: Outcome): GitError {
   };
 }
 
-/** Runs git and returns trimmed standard output on success, or the failure. */
-export async function runForText(git: Git, args: readonly string[], options: RunOptions): Promise<Result<string, GitError>> {
+/** Runs git where only exit status 0 is success; any other exit is the matching failure. */
+export async function runChecked(git: Git, args: readonly string[], options: RunOptions): Promise<Result<Outcome, GitError>> {
   const ran = await runGit(git, args, options);
   if (!ran.ok) return ran;
-  return ran.value.exitCode === 0 ? ok(ran.value.stdout.toString('utf8').trim()) : err(failure(args, ran.value));
+  return ran.value.exitCode === 0 ? ran : err(failure(args, ran.value));
 }
 
-/** Runs git where success is exit status 0 and the output is not needed. */
+/** Like `runChecked`, returning trimmed standard output. */
+export async function runForText(git: Git, args: readonly string[], options: RunOptions): Promise<Result<string, GitError>> {
+  const ran = await runChecked(git, args, options);
+  return ran.ok ? ok(ran.value.stdout.toString('utf8').trim()) : ran;
+}
+
+/** Like `runChecked`, for commands whose output is not needed. */
 export async function runForSuccess(git: Git, args: readonly string[], options: RunOptions): Promise<Result<void, GitError>> {
-  const ran = await runGit(git, args, options);
-  if (!ran.ok) return ran;
-  return ran.value.exitCode === 0 ? ok(undefined) : err(failure(args, ran.value));
+  const ran = await runChecked(git, args, options);
+  return ran.ok ? ok(undefined) : ran;
 }

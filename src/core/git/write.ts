@@ -10,7 +10,7 @@
 //    the repository is left as it was.
 
 import { err, ok, type Result } from '../result/index.ts';
-import { failure, runForSuccess, runForText, runGit, type Git, type GitError } from './exec.ts';
+import { failure, runChecked, runForSuccess, runForText, runGit, type Git, type GitError } from './exec.ts';
 import type { Trailer } from './history.ts';
 import { isAncestor, resolveRevision, type Sha } from './refs.ts';
 import { checkIdentity, checkSha, checkTreePath, checkTrailer } from './validate.ts';
@@ -63,9 +63,8 @@ export async function addTrailers(git: Git, message: string, trailers: readonly 
     if (!checked.ok) return checked;
     args.push('--trailer', `${key}: ${value}`);
   }
-  const ran = await runGit(git, args, { cwd: process.cwd(), input: message });
-  if (!ran.ok) return ran;
-  return ran.value.exitCode === 0 ? ok(ran.value.stdout.toString('utf8')) : err(failure(args, ran.value));
+  const ran = await runChecked(git, args, { cwd: process.cwd(), input: message });
+  return ran.ok ? ok(ran.value.stdout.toString('utf8')) : ran;
 }
 
 /** True when tracked files differ from HEAD (staged or not); untracked files are not counted. */
@@ -102,10 +101,8 @@ export async function createCommit(git: Git, repo: string, options: CommitOption
     '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '--no-gpg-sign', '--quiet', '--cleanup=whitespace',
     ...(options.allowEmpty === true ? ['--allow-empty'] : []), '-F', '-', ...pathspec,
   ];
-  const committed = await runGit(git, args, { cwd: repo, input: message.value, env: env.value });
-  if (!committed.ok) return committed;
-  if (committed.value.exitCode !== 0) return err(failure(args, committed.value));
-  return resolveRevision(git, repo, 'HEAD');
+  const committed = await runChecked(git, args, { cwd: repo, input: message.value, env: env.value });
+  return committed.ok ? resolveRevision(git, repo, 'HEAD') : committed;
 }
 
 async function unmergedPaths(git: Git, repo: string): Promise<string[]> {

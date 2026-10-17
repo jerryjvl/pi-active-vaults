@@ -255,7 +255,7 @@ function readForges(r: Reader, value: unknown): ForgeEntry[] {
   });
 }
 
-function readCrossReferences(r: Reader, raw: PlainObject, vaultIds: ReadonlySet<string>) {
+function readSubscriptionsAndPolicy(r: Reader, raw: PlainObject, vaultIds: ReadonlySet<string>) {
   const known = (id: string, path: string): void => {
     if (id !== '' && !vaultIds.has(id)) r.add(path, 'is not a registered vault');
   };
@@ -338,7 +338,7 @@ export function parseInstallationConfig(text: string, host: Host): Result<Instal
   const name = r.optionalString(installation, 'name', 'installation', NO_WHITESPACE);
   const person = r.optionalString(installation, 'person', 'installation', NO_WHITESPACE);
   const vaults = readVaults(r, raw['vaults']);
-  const { subscriptions, policy } = readCrossReferences(r, raw, new Set(vaults.map((v) => v.id)));
+  const { subscriptions, policy } = readSubscriptionsAndPolicy(r, raw, new Set(vaults.map((v) => v.id)));
   const logs = r.record(raw['logs'] ?? {}, 'logs', ['keep-days']);
   const taint = r.record(raw['taint'] ?? {}, 'taint', ['trusted-tools']);
   const mcp = readOpaqueSection(r, raw, 'mcp');
