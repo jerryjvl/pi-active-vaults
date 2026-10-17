@@ -14,6 +14,7 @@ import {
   gitVersion,
   initRepository,
   isAncestor,
+  meetsMinimumGitVersion,
   listRefs,
   repositoryRoot,
   resolveRevision,
@@ -181,4 +182,12 @@ test('credentials embedded in a URL are redacted from anything git reports', () 
   const redacted = redactUrlCredentials(text);
   assert.ok(!redacted.includes('hunter2') && !redacted.includes('tok3n'));
   assert.match(redacted, /https:\/\/example\.net\/x\.git/);
+});
+
+test('the minimum supported git version is enforced by comparison, not string order', () => {
+  assert.equal(meetsMinimumGitVersion('2.36.0'), true);
+  assert.equal(meetsMinimumGitVersion('2.55.0'), true);
+  assert.equal(meetsMinimumGitVersion('3.0.1'), true);
+  assert.equal(meetsMinimumGitVersion('2.9.5'), false);
+  assert.equal(meetsMinimumGitVersion('1.99.0'), false);
 });

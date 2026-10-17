@@ -3,7 +3,7 @@
 // the repository (concepts.md "Attestation").
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -72,7 +72,7 @@ test('worktrees are listed with their branches and removed; dirty ones need forc
   const actor = listed.value.find((w) => w.branch === 'actor/gardener');
   assert.equal(actor?.head, base);
   assert.ok(actor?.path.endsWith('gardener'));
-  assert.equal(listed.value.find((w) => w.branch === 'main')?.path.length === repo.path.length || true, true);
+  assert.equal(listed.value.find((w) => w.branch === 'main')?.path, realpathSync(repo.path), 'the main checkout is listed too');
 
   writeFileSync(join(dir, 'a.md'), 'uncommitted');
   const refused = await removeWorktree(git, repo.path, dir, {});

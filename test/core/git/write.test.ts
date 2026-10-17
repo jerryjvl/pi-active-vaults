@@ -70,7 +70,11 @@ test('a commit stages everything, takes the given identity and time, and carries
   });
   assert.ok(made.ok);
   assert.equal(repo.git('rev-parse', 'HEAD'), made.value);
-  assert.equal(repo.git('log', '-1', '--format=%an <%ae> | %cn <%ce> | %aI | %cI'), 'Bob Builder <bob@example.net> | Bob Builder <bob@example.net> | 2026-02-03T04:05:06+00:00 | 2026-02-03T04:05:06+00:00');
+  const epoch = date.getTime() / 1000;
+  assert.equal(
+    repo.git('log', '-1', '--format=%an <%ae> | %cn <%ce> | %at | %ct'),
+    `Bob Builder <bob@example.net> | Bob Builder <bob@example.net> | ${epoch} | ${epoch}`,
+  );
   assert.equal(repo.git('show', '--stat', '--format=', 'HEAD').split('\n').length, 3);
   const log = await commitsBetween(git, repo.path, null, made.value);
   assert.deepEqual(log.ok && log.value.at(-1)?.trailers, [{ key: 'Vault-Trace', value: 'T1' }]);
@@ -191,4 +195,33 @@ test('merging a SHA that is already part of history changes nothing', withRepo(a
   assert.ok(first.ok && first.value.changed);
   const again = await mergeSha(git, repo.path, reviewed, { message: 'Accept again' });
   assert.deepEqual(again, { ok: true, value: { head: first.value.head, changed: false } });
+}));
+
+test('an identity or path that could smuggle extra header lines or leave the tree is refused', withRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('a.md', 'a');
+  repo.commit('base');
+  repo.write('b.md', 'b');
+  for (const options of [
+    { message: 'x', identity: { name: 'Eve\nCommitter: root', email: 'eve@example.net' } },
+    { message: 'x', identity: { name: 'Eve', email: 'eve@example.net>\nX: y' } },
+    { message: 'x', stage: ['../outside.md'] },
+  ]) {
+    const result = await createCommit(git, repo.path, options);
+    assert.equal(result.ok === false && result.error.reason, 'invalid-argument', JSON.stringify(options));
+  }
+  // A path is always literal: option-like text and pathspec magic name no file.
+  for (const stage of ['--all', ':(top)*', '*']) {
+    const result = await createCommit(git, repo.path, { message: 'x', stage: [stage] });
+    assert.equal(result.ok, false, stage);
+  }
+  assert.equal(repo.git('rev-list', '--count', 'HEAD'), '1', 'nothing was committed');
+}));
+
+test('a message line starting with # is kept, not stripped as a comment', withRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('a.md', 'a');
+  const made = await createCommit(git, repo.path, { message: 'Subject\n\n# heading-like line' });
+  assert.ok(made.ok);
+  assert.equal(repo.git('log', '-1', '--format=%B'), 'Subject\n\n# heading-like line');
 }));

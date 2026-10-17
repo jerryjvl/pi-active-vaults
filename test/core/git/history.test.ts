@@ -64,6 +64,7 @@ test('a range from nothing covers all history, and an identical range is empty',
 test('changed paths report created, modified, deleted and renamed files', withRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('keep.md', 'keep\n');
+  repo.write('topics/.keep', '');
   repo.write('edit.md', 'one\n');
   repo.write('gone.md', 'bye\n');
   repo.write('old-name.md', 'a long enough body to be recognised as the same file after a rename\n'.repeat(3));

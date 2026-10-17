@@ -218,5 +218,5 @@ docs/
   tests.
 - `sqlite-vec`, loaded as a SQLite extension from its prebuilt per-platform
   packages, for vector search; FTS5 for keyword search.
-- The `git` command line for all Git operations.
+- The `git` command line (2.36 or later) for all Git operations.
 - Minimal runtime dependencies; each one needs a stated reason.
