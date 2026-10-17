@@ -16,10 +16,15 @@
 //    (source URL and commit); the rest of every file is as the template wrote
 //    it. That commit is recorded as the accepted main (`how: init`). If any
 //    step fails, a directory it made is removed again.
+//
+// An empty vault is made the same way, from a root contract naming its id and
+// its creator as owner, with the merge rule a new vault should start from:
+// every change needs its checks and an owner.
 
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { stringify } from 'yaml';
 import type { Clock } from '../clock/index.ts';
 import { VAULT_ID } from '../config/index.ts';
 import { ROOT_CONTRACT } from '../contracts/index.ts';
@@ -172,40 +177,60 @@ export interface CreatedVault {
 }
 
 /** Creates a vault from a template: its content, fresh history, its own id, the recorded origin, accepted. */
-export async function createFromTemplate(
-  deps: { readonly git: Git; readonly store: Store; readonly clock: Clock; readonly attribution: Attribution },
-  request: CreateFromTemplate,
-): Promise<Result<CreatedVault, TemplateError>> {
+export async function createFromTemplate(deps: VaultDeps, request: CreateFromTemplate): Promise<Result<CreatedVault, TemplateError>> {
   const { git } = deps;
   const { path, id, source } = request;
-  if (!VAULT_ID.test(id)) return err({ reason: 'invalid-argument', argument: 'id' });
+  const checked = checkNewVault(path, id);
+  if (!checked.ok) return checked;
   const remote = checkRemote(source.url);
   if (!remote.ok) return remote;
-  const existed = existsSync(path);
-  if (existed && readdirSync(path).length > 0) return err({ reason: 'not-empty', path });
 
   return withScratch(async (scratch) => {
     const fetched = await fetchTemplate(git, scratch, source);
     if (!fetched.ok) return fetched;
     const link = fetched.value.entries.find((entry) => entry.mode === TREE_MODES.symlink);
     if (link !== undefined) return err({ reason: 'unsupported-entry', path: link.path });
-
-    const made = await populate(deps, scratch, fetched.value, request);
-    if (!made.ok && !existed) rmSync(path, { recursive: true, force: true });
+    const message = `Create vault ${id} from template ${fetched.value.marker.name} ${fetched.value.marker.version}`;
+    const made = await newVault(deps, request, message, () => populate(git, scratch, fetched.value, request));
     return made.ok ? ok({ vault: { id, path }, accepted: made.value, template: summaryOf(source, fetched.value) }) : made;
   });
 }
 
-/** Writes the template's files into the new repository, with the root contract made the new vault's, and commits and accepts them. */
-async function populate(
-  deps: { readonly git: Git; readonly store: Store; readonly clock: Clock; readonly attribution: Attribution },
-  scratch: string, fetched: FetchedTemplate, request: CreateFromTemplate,
-): Promise<Result<AcceptedMain, TemplateError>> {
-  const { git } = deps;
-  mkdirSync(request.path, { recursive: true });
-  const initialised = await initRepository(git, request.path, { initialBranch: 'main' });
-  if (!initialised.ok) return initialised;
+type VaultDeps = { readonly git: Git; readonly store: Store; readonly clock: Clock; readonly attribution: Attribution };
 
+/**
+ * A new repository at `path` (new or empty) with `main`, filled by `fill`,
+ * committed once and recorded as the vault's accepted main; a directory it
+ * made is removed again if anything fails.
+ */
+async function newVault(
+  deps: VaultDeps, request: { readonly path: string; readonly id: string; readonly by: string }, message: string,
+  fill: () => Promise<Result<void, TemplateError>>,
+): Promise<Result<AcceptedMain, TemplateError>> {
+  const existed = existsSync(request.path);
+  const made = await (async (): Promise<Result<AcceptedMain, TemplateError>> => {
+    mkdirSync(request.path, { recursive: true });
+    const initialised = await initRepository(deps.git, request.path, { initialBranch: 'main' });
+    if (!initialised.ok) return initialised;
+    const filled = await fill();
+    if (!filled.ok) return filled;
+    const sha = await createCommit(deps.git, request.path, { message, ...deps.attribution, date: deps.clock.now() });
+    if (!sha.ok) return sha;
+    return recordAccepted(deps.store, request.id, { sha: sha.value, how: 'init', by: request.by, at: deps.clock.now() }, null);
+  })();
+  if (!made.ok && !existed) rmSync(request.path, { recursive: true, force: true });
+  return made;
+}
+
+/** Whether a vault can be made at `path` with `id`: a new or empty directory, a valid id. */
+function checkNewVault(path: string, id: string): Result<void, TemplateError> {
+  if (!VAULT_ID.test(id)) return err({ reason: 'invalid-argument', argument: 'id' });
+  if (existsSync(path) && readdirSync(path).length > 0) return err({ reason: 'not-empty', path });
+  return ok(undefined);
+}
+
+/** Writes the template's files into the new repository, with the root contract made the new vault's. */
+async function populate(git: Git, scratch: string, fetched: FetchedTemplate, request: CreateFromTemplate): Promise<Result<void, TemplateError>> {
   for (const entry of fetched.entries) {
     const bytes = await readFileAt(git, scratch, fetched.commit, entry.path);
     if (!bytes.ok) return bytes;
@@ -217,14 +242,33 @@ async function populate(
   const contract = updateFrontmatter(fetched.contract, { template: undefined, vault });
   if (!contract.ok) return err({ reason: 'invalid-template', issues: [{ path: ROOT_CONTRACT, message: describeDocumentError(contract.error) }] });
   writeFileSync(join(request.path, ROOT_CONTRACT), contract.value);
-  const executable = await stageExecutable(git, request.path, fetched.entries.filter((e) => e.mode === TREE_MODES.executable).map((e) => e.path));
-  if (!executable.ok) return executable;
+  return stageExecutable(git, request.path, fetched.entries.filter((e) => e.mode === TREE_MODES.executable).map((e) => e.path));
+}
 
-  const sha = await createCommit(git, request.path, {
-    message: `Create vault ${request.id} from template ${fetched.marker.name} ${fetched.marker.version}`,
-    ...deps.attribution,
-    date: deps.clock.now(),
+export interface CreateEmptyVault {
+  /** A new or empty directory. */
+  readonly path: string;
+  readonly id: string;
+  /** The person creating it: its owner, and who its accepted main is recorded as accepted by. */
+  readonly by: string;
+}
+
+/** The root contract of a new, empty vault. */
+function emptyVaultContract(id: string, owner: string): string {
+  const frontmatter = {
+    vault: { id, purpose: { summary: `The ${id} vault.` }, audience: owner, owners: [owner], actors: [] },
+    merge: [{ paths: ['**'], require: ['checks', 'owner'] }],
+  };
+  return `---\n${stringify(frontmatter)}---\nDescribe what this vault is for and how its documents are organised.\n`;
+}
+
+/** Creates an empty vault: a root contract owned by its creator, fresh history, accepted. */
+export async function createEmptyVault(deps: VaultDeps, request: CreateEmptyVault): Promise<Result<{ vault: { id: string; path: string }; accepted: AcceptedMain }, TemplateError>> {
+  const checked = checkNewVault(request.path, request.id);
+  if (!checked.ok) return checked;
+  const accepted = await newVault(deps, request, `Create vault ${request.id}`, async () => {
+    writeFileSync(join(request.path, ROOT_CONTRACT), emptyVaultContract(request.id, request.by));
+    return ok(undefined);
   });
-  if (!sha.ok) return sha;
-  return recordAccepted(deps.store, request.id, { sha: sha.value, how: 'init', by: request.by, at: deps.clock.now() }, null);
+  return accepted.ok ? ok({ vault: { id: request.id, path: request.path }, accepted: accepted.value }) : accepted;
 }

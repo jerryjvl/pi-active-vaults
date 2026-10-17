@@ -169,7 +169,8 @@ test('an empty vault is a new repository with a root contract naming its id and 
   const state = openStateStore({ stateDb: dir.file('state.sqlite') });
   assert.ok(state.ok);
   try {
-    const git = gitFor(createTempRepo());
+    const scratch = createTempRepo();
+    const git = gitFor(scratch);
     const deps = { git, store: state.value, clock: fakeClock(), attribution: TEST_ATTRIBUTION };
     const path = dir.file('vaults', 'notes');
     const created = await createEmptyVault(deps, { path, id: 'notes', by: 'alice' });
@@ -188,6 +189,7 @@ test('an empty vault is a new repository with a root contract naming its id and 
     const badId = await createEmptyVault(deps, { path: dir.file('bad'), id: 'not ok', by: 'alice' });
     assert.equal(!badId.ok && badId.error.reason, 'invalid-argument');
     assert.equal(existsSync(dir.file('bad')), false);
+    scratch.cleanup();
   } finally {
     state.value.close();
   }
