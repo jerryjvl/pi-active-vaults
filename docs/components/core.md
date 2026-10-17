@@ -24,7 +24,7 @@ it; no vault logic lives anywhere else.
 | `git` | Wrapper around the `git` command line: refs, notes, worktrees, diffs, merges, trailers |
 | `documents` | Parse and write Markdown with frontmatter, preserving formatting of untouched content |
 | `contracts` | Find `_contract.md` files, merge them into an effective contract with per-key strategies, report the origin of each key |
-| `conditions` | Parse `applies-when`; match Git and session events against conditions |
+| `conditions` | Parse `applies-when`; match Git and session events against conditions; the path globs merge rules share |
 | `events` | Derive Git events from a ref range (paths, change kinds, renames, labels) |
 | `policy` | Evaluate merge rules against changed paths and attestations |
 | `attestations` | Read and write attestation records in Git notes |
