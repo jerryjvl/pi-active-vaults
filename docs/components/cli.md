@@ -56,7 +56,7 @@ the system. Commands mirror the Pi extension's tools and commands.
 | `vault run <document>` | Run a job now, outside its conditions |
 | `vault trigger <name> [--payload <file>]` | Emit an external event |
 | `vault script <name> [args]` | Run an approved script |
-| `vault notify --to <alias> --subject <text>` | Send a notification (body on standard input); `vault notify test` checks the transport |
+| `vault notify --to <alias> --subject <text>` | Send a notification (body on standard input); `vault notify test` checks the transport; `vault notify authorize` obtains an OAuth refresh token |
 | `vault trace <id>` | Show a trace; full detail while logs are retained |
 
 ### Daemon

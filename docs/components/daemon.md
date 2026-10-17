@@ -16,7 +16,7 @@ Git changes, and queued spawns. One per machine, as a user service.
 | **Budgets** | Enforces document budgets, cascade pools and the installation's daily ceiling |
 | **Execution** | Starts `pi --mode rpc` with the spawn's context: forked from the originating session when available, fresh otherwise |
 | **Traces** | Issues trace IDs, writes full logs and rotates them |
-| **Outbox** | Retries undelivered notifications with backoff |
+| **Outbox** | Retries undelivered notifications with backoff; refreshes OAuth access tokens at least monthly |
 | **Forge sync** | For `forge`-mode vaults: pushes actor branches, keeps pull requests and commit statuses current, fetches to detect merges |
 | **MCP server** | Serves each configured MCP profile on its own endpoint — see [MCP](../mcp.md) |
 
