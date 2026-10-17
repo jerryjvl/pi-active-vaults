@@ -190,7 +190,7 @@ export const scriptOperation: Operation = {
   surfaces: { cli: true, command: false, mcp: true, tool: 'direct' },
   params: [
     { name: 'name', kind: 'string', required: true, positional: true, description: 'The script, or builtin:<name>' },
-    { name: 'args', kind: 'strings', positional: true, description: 'Its arguments' },
+    { name: 'args', kind: 'strings', positional: true, passthrough: true, description: 'Its arguments' },
     { name: 'input', kind: 'string', stdin: true, surfaces: ['cli'], description: 'Its standard input' },
   ],
   async run(context, request) {

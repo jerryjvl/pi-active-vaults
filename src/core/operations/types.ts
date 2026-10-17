@@ -30,6 +30,8 @@ export interface ParamSpec {
   readonly stdin?: boolean;
   /** CLI: a file whose content is the value. */
   readonly file?: boolean;
+  /** CLI: a positional list that takes everything after it as given, options included (a script's arguments). */
+  readonly passthrough?: boolean;
   /** The surfaces that offer it; all of the operation's when absent. */
   readonly surfaces?: readonly ParamSurface[];
 }
