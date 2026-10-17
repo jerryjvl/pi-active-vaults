@@ -1,5 +1,6 @@
 // Public surface of the conditions module: path globs, `applies-when`
-// parsing, and matching Git, session and external events against conditions.
+// parsing, matching Git, session and external events against conditions, the
+// event as structured data, and narrowing matches by their scripts.
 
 export { globIssue, matchesGlob } from './globs.ts';
 export {
@@ -11,6 +12,7 @@ export {
   type EventKind,
 } from './parse.ts';
 export {
+  eventJson,
   matchConditions,
   type Candidate,
   type ChangedDocument,
@@ -19,3 +21,4 @@ export {
   type MatchContext,
   type VaultEvent,
 } from './match.ts';
+export { narrowByScripts, type Narrowed, type ScriptFilterContext, type ScriptFilterOptions } from './script.ts';

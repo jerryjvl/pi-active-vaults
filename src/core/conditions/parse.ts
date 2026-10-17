@@ -5,7 +5,9 @@
 // misplaced field is an issue rather than ignored, because an ignored filter
 // would make a condition fire more widely than its author meant. Only session
 // events can inject (there is no session to inject into otherwise), and only
-// spawns take a context.
+// spawns take a context or a script. A condition's script must be one of the
+// vault's own: built-ins act (`builtin:notify` sends mail), and a filter only
+// decides.
 
 import { DataReader, issuePath, type Issue, type Result } from '../result/index.ts';
 import { globIssue } from './globs.ts';
@@ -30,23 +32,27 @@ export interface Condition {
   readonly paths?: readonly string[];
   readonly change?: readonly ChangeKind[];
   readonly labels?: readonly string[];
+  /** Git events: the actors whose changes match (their `Vault-Actor`). */
+  readonly actor?: readonly string[];
   readonly tools?: readonly string[];
   readonly model?: string;
   /** External: the event name given to `vault trigger`. */
   readonly name?: string;
+  /** Spawn only: a vault script that must exit 0, given the event, for the spawn to happen. */
+  readonly script?: string;
   /** Spawn only (default `session-preferred`). */
   readonly context?: (typeof SPAWN_CONTEXTS)[number];
 }
 
-type Filter = 'schedule' | 'missed' | 'paths' | 'change' | 'labels' | 'tools' | 'model' | 'name';
+type Filter = 'schedule' | 'missed' | 'paths' | 'change' | 'labels' | 'actor' | 'tools' | 'model' | 'name';
 
 /** Read in this order, so issues come in a stable order. */
-const FILTER_ORDER: readonly Filter[] = ['schedule', 'missed', 'paths', 'change', 'labels', 'tools', 'model', 'name'];
+const FILTER_ORDER: readonly Filter[] = ['schedule', 'missed', 'paths', 'change', 'labels', 'actor', 'tools', 'model', 'name'];
 
 const FILTERS: Readonly<Record<EventKind, readonly Filter[]>> = {
   timer: ['schedule', 'missed'],
-  committed: ['paths', 'change', 'labels'],
-  merged: ['paths', 'change', 'labels'],
+  committed: ['paths', 'change', 'labels', 'actor'],
+  merged: ['paths', 'change', 'labels', 'actor'],
   'session.start': ['model'],
   'session.tool': ['tools', 'model'],
   'session.path': ['paths', 'model'],
@@ -58,6 +64,9 @@ const REQUIRED: Readonly<Partial<Record<EventKind, Filter>>> = { timer: 'schedul
 // Five whitespace-separated fields; the schedule's meaning is checked where
 // timers are evaluated.
 const CRON_SHAPE = /^\S+(?:\s+\S+){4}$/;
+
+// A script in `.vault/scripts/` by name: no directory, not hidden, not a built-in.
+const VAULT_SCRIPT_NAME = /^[A-Za-z0-9_-][^/\\:\s]*$/;
 
 function nonEmptyList(r: DataReader, value: unknown, path: string): unknown[] {
   const items = r.list(value, path);
@@ -88,6 +97,7 @@ function readFilter(r: DataReader, field: Filter, value: unknown, path: string):
     case 'change':
       return { change: nonEmptyList(r, value, path).flatMap((item, i) => r.oneOf(item, `${path}[${i}]`, CHANGE_KINDS) ?? []) };
     case 'labels':
+    case 'actor':
     case 'tools':
       return { [field]: nonEmptyList(r, value, path).map((item, i) => r.string(item, `${path}[${i}]`)) };
     case 'model':
@@ -98,7 +108,7 @@ function readFilter(r: DataReader, field: Filter, value: unknown, path: string):
 
 /** Reads one condition into `r`; undefined when its event is unknown (nothing else can be checked). */
 export function readCondition(r: DataReader, value: unknown, path: string): Condition | undefined {
-  const c = r.record(value, path, ['on', 'effect', ...FILTER_ORDER, 'context']);
+  const c = r.record(value, path, ['on', 'effect', ...FILTER_ORDER, 'script', 'context']);
   const on = r.oneOf(c['on'], issuePath(path, 'on'), EVENT_KINDS);
   const effect = r.oneOf(c['effect'], issuePath(path, 'effect'), EFFECTS);
   if (on === undefined) return undefined;
@@ -117,6 +127,13 @@ export function readCondition(r: DataReader, value: unknown, path: string): Cond
   if (on === 'timer' && condition.missed === undefined) condition = { ...condition, missed: 'run-once' };
 
   if (effect === 'inject' && !on.startsWith('session.')) r.add(issuePath(path, 'effect'), 'inject needs a session event');
+  if (c['script'] !== undefined && effect !== 'spawn') {
+    r.add(issuePath(path, 'script'), 'applies only to spawn');
+  } else if (c['script'] !== undefined) {
+    const script = r.string(c['script'], issuePath(path, 'script'));
+    if (script !== '' && !VAULT_SCRIPT_NAME.test(script)) r.add(issuePath(path, 'script'), 'must name one of the vault\'s scripts');
+    condition = { ...condition, script };
+  }
   if (c['context'] !== undefined && effect !== 'spawn') {
     r.add(issuePath(path, 'context'), 'applies only to spawn');
   } else if (effect === 'spawn') {

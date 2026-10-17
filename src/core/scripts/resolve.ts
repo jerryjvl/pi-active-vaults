@@ -37,7 +37,10 @@ export interface ScriptOutput {
 export interface BuiltinScript {
   readonly name: string;
   readonly header: Omit<ScriptHeader, 'name' | 'interpreter'>;
-  run(args: readonly string[], context: { readonly cwd: string; readonly env: Readonly<Record<string, string>> }): Promise<ScriptOutput>;
+  run(
+    args: readonly string[],
+    context: { readonly cwd: string; readonly env: Readonly<Record<string, string>>; readonly input?: string },
+  ): Promise<ScriptOutput>;
 }
 
 export interface VaultScript {

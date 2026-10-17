@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import { latestAttestation, type Attestation } from '../attestations/index.ts';
 import { matchesGlob } from '../conditions/index.ts';
 import type { Sha } from '../git/index.ts';
+import { canonicalJson } from '../result/index.ts';
 import { isJudgement, judgementName, type MergeRule, type Requirement } from './rules.ts';
 
 /** One changed path, with what the accepted main says about it. */
@@ -65,12 +66,7 @@ export interface PolicyVerdict {
 
 /** A judgement's version: a hash of its axis definition, independent of key order. */
 export function axesVersion(definition: unknown): string {
-  const canonical = (value: unknown): unknown =>
-    Array.isArray(value) ? value.map(canonical)
-    : typeof value === 'object' && value !== null
-      ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical((value as Record<string, unknown>)[key])]))
-      : value;
-  return createHash('sha256').update(JSON.stringify(canonical(definition))).digest('hex');
+  return createHash('sha256').update(canonicalJson(definition)).digest('hex');
 }
 
 /** What one path needs. */

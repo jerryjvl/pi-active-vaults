@@ -7,7 +7,8 @@
 // working tree's version of the script or its support files can never run;
 // the copy is removed afterwards.
 //
-// Limits: standard input is closed (scripts never prompt); the environment is
+// Limits: standard input is closed (scripts never prompt) unless the caller
+// gives input, such as the event a condition's script filters; the environment is
 // exactly what the caller passes (nothing ambient, so no secret leaks in by
 // accident); output and run time are bounded, and a run past its time is
 // killed with everything it started; `net: no` is enforced where the platform
@@ -30,6 +31,8 @@ export interface ScriptRunOptions extends ResolveOptions {
   readonly cwd: string;
   /** The script's whole environment. */
   readonly env: Readonly<Record<string, string>>;
+  /** Its standard input; closed when absent. */
+  readonly input?: string;
   readonly timeoutMs: number;
   /** Standard output kept; more is cut off. Default 1 MiB. */
   readonly maxOutputBytes?: number;
@@ -55,12 +58,14 @@ const MAX_STDERR_BYTES = 64 * 1024;
 
 /** Runs a command with no input, bounded output and a time limit; a timed-out run is killed with its process group. */
 async function runBounded(
-  command: Command, options: { cwd: string; env: Readonly<Record<string, string>>; timeoutMs: number; maxOutputBytes: number },
+  command: Command,
+  options: { cwd: string; env: Readonly<Record<string, string>>; input?: string; timeoutMs: number; maxOutputBytes: number },
 ): Promise<Result<Omit<ScriptOutcome, 'network'>, { reason: 'cannot-run'; detail: string }>> {
   const ran = await runProcess({
     program: { file: command.command, args: command.args },
     cwd: options.cwd,
     env: options.env,
+    ...(options.input === undefined ? {} : { input: options.input }),
     timeoutMs: options.timeoutMs,
     maxStdoutBytes: options.maxOutputBytes,
     maxStderrBytes: MAX_STDERR_BYTES,
@@ -103,7 +108,9 @@ export async function runScript(
   if (!resolved.ok) return resolved;
 
   if (resolved.value.source === 'builtin') {
-    const output = await resolved.value.builtin.run(args, { cwd: options.cwd, env: options.env });
+    const output = await resolved.value.builtin.run(args, {
+      cwd: options.cwd, env: options.env, ...(options.input === undefined ? {} : { input: options.input }),
+    });
     return ok({ ...output, timedOut: false, truncated: false, network: 'unrestricted' });
   }
 
@@ -121,6 +128,7 @@ export async function runScript(
     const ran = await runBounded(limited.command, {
       cwd: options.cwd,
       env: options.env,
+      ...(options.input === undefined ? {} : { input: options.input }),
       timeoutMs: options.timeoutMs,
       maxOutputBytes: options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
     });

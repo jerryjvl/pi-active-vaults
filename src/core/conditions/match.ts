@@ -5,10 +5,12 @@
 // document's vault to the event's vault; even then a path filter never matches
 // it, because a condition's paths are paths in its own vault, and a label
 // matches only where the installation declares the two vaults' labels
-// equivalent. Session-wide events (start, tool) carry no vault: the caller
+// equivalent. Actors, like paths, are names in the condition's own vault, so
+// an actor filter never matches another vault's event. Session-wide events (start, tool) carry no vault: the caller
 // offers the documents of the vaults the session uses.
 
 import type { Sha } from '../git/index.ts';
+import { canonicalJson } from '../result/index.ts';
 import { matchesGlob } from './globs.ts';
 import type { ChangeKind, Condition } from './parse.ts';
 
@@ -19,6 +21,12 @@ export interface ChangedDocument {
   readonly oldPath?: string;
   /** The labels the document carries (before deletion, for a deleted one). */
   readonly labels: readonly string[];
+  /** The commit that made the change — within a merge, the commit it brought that last changed the path. */
+  readonly commit: Sha;
+  /** That commit's `Vault-Actor`, when the package made it. */
+  readonly actor?: string;
+  /** That commit's `Vault-Trace`: the run whose tree the change continues. */
+  readonly trace?: string;
 }
 
 export interface GitEvent {
@@ -76,12 +84,13 @@ function anyPath(paths: readonly string[], change: ChangedDocument): boolean {
 }
 
 function gitEventMatches(condition: Condition, event: GitEvent, vault: string, reached: Reach, context: MatchContext): boolean {
-  const { paths, change, labels } = condition;
-  if (paths === undefined && change === undefined && labels === undefined) return true;
-  if (paths !== undefined && reached !== 'own') return false;
+  const { paths, change, labels, actor } = condition;
+  if (paths === undefined && change === undefined && labels === undefined && actor === undefined) return true;
+  if ((paths !== undefined || actor !== undefined) && reached !== 'own') return false;
   return event.changes.some((changed) =>
     (paths === undefined || anyPath(paths, changed)) &&
     (change === undefined || change.includes(changed.change)) &&
+    (actor === undefined || (changed.actor !== undefined && actor.includes(changed.actor))) &&
     (labels === undefined ||
       labels.some((wanted) => changed.labels.some((carried) => sameLabel(`${vault}:${wanted}`, `${event.vault}:${carried}`, context)))),
   );
@@ -104,6 +113,14 @@ function matches(condition: Condition, event: VaultEvent, vault: string, reached
     case 'external':
       return condition.name === event.name;
   }
+}
+
+/**
+ * The event as the structured data a spawned job, or a condition's script,
+ * receives: canonical JSON, so the same event always gives the same text.
+ */
+export function eventJson(event: VaultEvent): string {
+  return canonicalJson(event);
 }
 
 const byPosition = (a: Match, b: Match): number =>
