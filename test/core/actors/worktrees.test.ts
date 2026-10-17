@@ -2,13 +2,20 @@
 // contract's actors or owners) writes on its own branch, `actor/<name>`, in its
 // own worktree, `<worktrees>/<name>`. New work starts from the accepted
 // `main`. Package commits carry the actor's trailers and never land anywhere
-// but the actor's branch.
+// but the actor's branch — and never while another session holds the actor
+// (one writer at a time).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { actorBranch, commitAsActor, ensureActorWorktree } from '../../../src/core/actors/index.ts';
-import { withTestVault } from '../../support/vault.ts';
+import { actorBranch, commitAsActor, ensureActorWorktree, takeActorHold, type Holder } from '../../../src/core/actors/index.ts';
+import type { ProcessLiveness } from '../../../src/core/process/index.ts';
+import { withTestVault, type TestVault } from '../../support/vault.ts';
+
+/** Processes that are running, by ID, with their start times. */
+const running = (live: Record<number, string>): ProcessLiveness => async (pid) => ({ ok: true, value: live[pid] });
+const nobody = running({});
+const holds = (v: TestVault, alive: ProcessLiveness = nobody) => ({ git: v.git, store: v.store, alive });
 
 test('an actor\'s worktree is made on its own branch, starting from the accepted main rather than main\'s tip', withTestVault(async (v) => {
   const accepted = v.accept();
@@ -58,7 +65,7 @@ test('commits as an actor carry its trailers and are refused off its branch', wi
   assert.ok(made.ok);
   const worktree = made.value.path;
   writeIn(worktree, 'notes/a.md');
-  const committed = await commitAsActor(v.git, worktree, {
+  const committed = await commitAsActor(holds(v), v.vault.id, worktree, {
     origin: { trace: '01TRACE', actor: 'gardener', session: 'S1' },
     message: 'Add a note',
     date: v.clock.now(),
@@ -66,11 +73,37 @@ test('commits as an actor carry its trailers and are refused off its branch', wi
   assert.ok(committed.ok);
   assert.match(v.repo.git('log', '-1', '--format=%B', committed.value), /Vault-Trace: 01TRACE\nVault-Actor: gardener\nVault-Session: S1/);
   writeIn(worktree, 'notes/b.md');
-  const wrongActor = await commitAsActor(v.git, worktree, { origin: { trace: 'T', actor: 'librarian' }, message: 'x', date: v.clock.now() });
+  const wrongActor = await commitAsActor(holds(v), v.vault.id, worktree, { origin: { trace: 'T', actor: 'librarian' }, message: 'x', date: v.clock.now() });
   assert.equal(!wrongActor.ok && wrongActor.error.reason, 'wrong-branch');
   v.repo.write('c.md', 'c');
-  const onMain = await commitAsActor(v.git, v.repo.path, { origin: { trace: 'T', actor: 'gardener' }, message: 'x', date: v.clock.now() });
+  const onMain = await commitAsActor(holds(v), v.vault.id, v.repo.path, { origin: { trace: 'T', actor: 'gardener' }, message: 'x', date: v.clock.now() });
   assert.equal(!onMain.ok && onMain.error.reason, 'wrong-branch');
+}));
+
+test('a commit as an actor is refused while another session holds it; its holder, or a void hold, does not stop it', withTestVault(async (v) => {
+  const accepted = v.accept();
+  const made = await ensureActorWorktree(v.git, v.vault, accepted, 'gardener');
+  assert.ok(made.ok);
+  const worktree = made.value.path;
+  const session: Holder = { process: { pid: 100, started: 'boot:1' }, session: 'S-other' };
+  const live = running({ 100: 'boot:1' });
+  assert.ok((await takeActorHold(v.store, live, v.clock, { vault: v.vault.id, actor: 'gardener', holder: session })).ok);
+  const origin = { trace: '01TRACE', actor: 'gardener' };
+  writeIn(worktree, 'notes/held.md');
+  const before = v.repo.git('rev-parse', 'refs/heads/actor/gardener');
+
+  const refused = await commitAsActor(holds(v, live), v.vault.id, worktree, { origin, message: 'While held', date: v.clock.now() });
+  assert.deepEqual(!refused.ok && refused.error.reason === 'actor-busy' && refused.error.hold.holder, session);
+  assert.equal(v.repo.git('rev-parse', 'refs/heads/actor/gardener'), before, 'nothing committed');
+  const other = await commitAsActor(holds(v, live), v.vault.id, worktree, { origin, message: 'Not the holder either', date: v.clock.now(), holder: { ...session, session: 'S-mine' } });
+  assert.equal(!other.ok && other.error.reason, 'actor-busy');
+
+  const byHolder = await commitAsActor(holds(v, live), v.vault.id, worktree, { origin, message: 'As the holder', date: v.clock.now(), holder: session });
+  assert.ok(byHolder.ok, JSON.stringify(byHolder));
+  writeIn(worktree, 'notes/after.md');
+  const afterEnd = await commitAsActor(holds(v, nobody), v.vault.id, worktree, { origin, message: 'Holder ended', date: v.clock.now() });
+  assert.ok(afterEnd.ok, 'a hold whose process ended holds nothing');
+  assert.equal(v.store.get<{ n: number }>('SELECT count(*) AS n FROM actors_holds')?.n, 1, 'a commit checks the hold; it never takes one');
 }));
 
 function writeIn(root: string, path: string): void {
