@@ -3,16 +3,19 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 3b — complete, awaiting review
+**Current stage:** 4 — operations and CLI, in progress
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 3 (3a and 3b): the work machinery, with the Stage 3a
-  review findings and the alignment with `ce1c0ce`; see the Stage 3b entry.
-- **In progress:** nothing.
-- **Next:** review of Stage 3b. Then, when told, Stage 4 (operations and CLI).
+- **Done:** Stage 3b review findings 1–4 (`767159c`..`09f0dd1`): existence
+  first in `processStartTime` and PowerShell by absolute path; `commitAsActor`
+  refuses while another hold stands; concepts.md judgements per axis; GitHub
+  rulesets, review pages, null reviewers.
+- **In progress:** Stage 4.
+- **Next:** check runner; config sections validated on load; operations
+  catalogue and permission sets; CLI; init, doctor, daemon commands, whoami.
 
 ## Stage entries
 
