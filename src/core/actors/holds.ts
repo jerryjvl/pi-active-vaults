@@ -8,8 +8,10 @@
 // Invariants:
 //  - taking a hold never waits: a busy actor is refused at once, naming the
 //    session that holds it, so the session can wait or choose another actor;
-//  - a holder whose state cannot be told still holds (fail closed: at most
-//    one writer is the guarantee, not progress);
+//  - a holder whose process has ended holds nothing, on every platform; one
+//    whose process exists but whose start time cannot be told still holds
+//    (fail closed: at most one writer is the guarantee, not progress), and
+//    listing says so, for `vault doctor` to report;
 //  - a hold is replaced only if it is still the record that was found void,
 //    so two sessions taking a free actor at once cannot both get it;
 //  - a holder releases only its own hold.
@@ -34,6 +36,11 @@ export interface ActorHold {
 
 export type HoldError = { readonly reason: 'actor-busy'; readonly hold: ActorHold };
 
+/** A hold that stands: its holder runs, or exists but cannot be told apart from a process that reused its ID. */
+export interface StandingHold extends ActorHold {
+  readonly standing: 'running' | 'cannot-tell';
+}
+
 type Row = { vault: string; actor: string; pid: number; started: string; session: string; since: string };
 
 const SELECT = 'SELECT vault, actor, pid, started, session, since FROM actors_holds';
@@ -46,10 +53,15 @@ function sameHolder(a: Holder, b: Holder): boolean {
   return a.process.pid === b.process.pid && a.process.started === b.process.started && a.session === b.session;
 }
 
-/** Whether the recorded holder still runs; when that cannot be told, it is taken to. */
-async function stands(hold: ActorHold, alive: ProcessLiveness): Promise<boolean> {
+/** Whether the recorded holder still runs: when that cannot be told, it is taken to. */
+async function standing(hold: ActorHold, alive: ProcessLiveness): Promise<StandingHold['standing'] | undefined> {
   const started = await alive(hold.holder.process.pid);
-  return !started.ok || started.value === hold.holder.process.started;
+  if (!started.ok) return 'cannot-tell';
+  return started.value === hold.holder.process.started ? 'running' : undefined;
+}
+
+async function stands(hold: ActorHold, alive: ProcessLiveness): Promise<boolean> {
+  return (await standing(hold, alive)) !== undefined;
 }
 
 function readRow(store: Queryable, vault: string, actor: string): Row | undefined {
@@ -64,11 +76,13 @@ export async function actorHold(store: Queryable, alive: ProcessLiveness, vault:
   return (await stands(hold, alive)) ? hold : undefined;
 }
 
-/** Every hold that stands, by vault and actor. */
-export async function listActorHolds(store: Queryable, alive: ProcessLiveness): Promise<ActorHold[]> {
-  const holds: ActorHold[] = [];
+/** Every hold that stands, by vault and actor, with why it stands. */
+export async function listActorHolds(store: Queryable, alive: ProcessLiveness): Promise<StandingHold[]> {
+  const holds: StandingHold[] = [];
   for (const row of store.all<Row>(`${SELECT} ORDER BY vault, actor`)) {
-    if (await stands(holdOf(row), alive)) holds.push(holdOf(row));
+    const hold = holdOf(row);
+    const how = await standing(hold, alive);
+    if (how !== undefined) holds.push({ ...hold, standing: how });
   }
   return holds;
 }

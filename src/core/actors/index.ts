@@ -14,7 +14,7 @@ export {
 } from './worktrees.ts';
 export { readProposal, type Proposal, type ProposalError } from './proposal.ts';
 export { actorsSchema } from './schema.ts';
-export { actorHold, listActorHolds, releaseActorHold, takeActorHold, type ActorHold, type HoldError, type Holder } from './holds.ts';
+export { actorHold, listActorHolds, releaseActorHold, takeActorHold, type ActorHold, type HoldError, type Holder, type StandingHold } from './holds.ts';
 export { review, reviewRecord, type Review, type ReviewError, type ReviewRecord } from './review.ts';
 export { accept, type AcceptError, type AcceptRequest } from './accept.ts';
 export {
