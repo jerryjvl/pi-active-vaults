@@ -8,11 +8,11 @@
 // it; a condition's script can only narrow a match.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { BudgetLimits } from '../../../src/core/budgets/index.ts';
+import { allot, type BudgetLimits } from '../../../src/core/budgets/index.ts';
 import type { VaultEvent } from '../../../src/core/conditions/index.ts';
 import { createIdSource } from '../../../src/core/ids/index.ts';
 import {
-  enqueueSpawn, listSpawns, matchSpawns, reachedVaults, submitSpawns,
+  enqueueSpawn, listSpawns, matchSpawns, reachedVaults, spawnEventKey, submitSpawns,
   type QueueContext, type SpawnMatching, type SpawnSender,
 } from '../../../src/core/queue/index.ts';
 import type { RegisteredVault } from '../../../src/core/registry/index.ts';
@@ -132,4 +132,43 @@ test('a request runs as the job\'s actor; a job with no actor is not matched', w
   assert.deepEqual(matched.value.requests.map((r) => [r.document, r.actor]), [['jobs/refresh.md', 'gardener']]);
   const [entry] = await submitSpawns(v.store, queueContext(v), matched.value.requests);
   assert.equal(entry?.actor, 'gardener', 'the claim records whom it runs as');
+}));
+
+// concepts.md "Session tree": an event from a commit carrying a run's
+// Vault-Trace continues that run's tree; commits without one start new trees;
+// a merge's changes are attributed to the commits that made them, so one
+// merge can continue several trees.
+test('a merge\'s changes continue the trees of the runs that made them; a person\'s change starts a new one', withTestVault(async (v) => {
+  v.repo.write('jobs/watch.md', job('merged'));
+  v.repo.commit('job');
+  v.accept();
+  const run = 'R'.repeat(26);
+  v.store.transaction((tx) => allot(tx, LIMITS, v.clock, { trace: run, budget: { tokens: 1000, ttlMs: 60_000 } }));
+  const elsewhere = 'E'.repeat(26);
+  const change = (path: string, trace?: string) => ({ path, change: 'created' as const, labels: [], commit: 'c'.repeat(40), ...(trace === undefined ? {} : { trace }) });
+  const event: VaultEvent = { kind: 'merged', vault: 'home', commit: 'm'.repeat(40), changes: [change('a.md', run), change('b.md'), change('c.md', elsewhere)] };
+  const matched = await matchSpawns(matching(v), { event }, [v.vault]);
+  assert.ok(matched.ok);
+  const requests = matched.value.requests.map((r) => ({ tree: (r.event as { tree?: string }).tree, parent: r.parent, paths: (r.event as { changes: { path: string }[] }).changes.map((c) => c.path) }));
+  assert.deepEqual(requests, [
+    { tree: undefined, parent: undefined, paths: ['b.md'] },
+    { tree: elsewhere, parent: undefined, paths: ['c.md'] },
+    { tree: run, parent: run, paths: ['a.md'] },
+  ], 'one spawn per tree; a run not known here starts a new tree, still under its own identity');
+  const keys = matched.value.requests.map((r) => spawnEventKey(r.event));
+  assert.equal(new Set(keys).size, 3);
+  assert.equal(keys[2], `merged:home:${'m'.repeat(40)}@${run}`);
+}));
+
+test('a job whose own run made the change does not fire again in that run\'s tree', withTestVault(async (v) => {
+  v.repo.write('jobs/watch.md', job('merged'));
+  v.repo.commit('job');
+  v.accept();
+  const context = queueContext(v);
+  const first = enqueueSpawn(v.store, context, { vault: 'home', document: 'jobs/watch.md', event: { kind: 'manual', id: 'M' }, budget: { tokens: 100, ttlMs: 60_000 }, actor: 'gardener' }).entry;
+  const event: VaultEvent = { kind: 'merged', vault: 'home', commit: 'm'.repeat(40), changes: [{ path: 'out.md', change: 'created', labels: [], commit: 'c'.repeat(40), trace: first.trace }] };
+  const matched = await matchSpawns(matching(v), { event }, [v.vault]);
+  assert.ok(matched.ok);
+  const [again] = await submitSpawns(v.store, context, matched.value.requests);
+  assert.deepEqual([again?.state, again?.reason], ['stopped', 'already-in-tree']);
 }));
