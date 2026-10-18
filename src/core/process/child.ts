@@ -5,12 +5,9 @@
 // lines, and read line by line until it exits.
 //
 // Invariants:
-//  - output lines are split on line feeds only (a trailing carriage return
-//    dropped), never on other Unicode separators, which may appear inside a
-//    JSON string (Pi's RPC framing);
-//  - a line longer than the limit is dropped rather than held, and standard
-//    error is kept only up to its limit, so a misbehaving child cannot
-//    exhaust memory;
+//  - output is read as JSON lines (`lineSplitter`: line feeds only, as Pi's
+//    RPC framing needs), and standard error is kept only up to its limit, so
+//    a misbehaving child cannot exhaust memory;
 //  - killing ends the whole process group on POSIX, so what the child
 //    started ends with it (on Windows only the child itself);
 //  - a recorded process is ended only after its start time is checked to be
@@ -18,7 +15,7 @@
 //    another process is never touched — and never by name.
 
 import { spawn } from 'node:child_process';
-import { err, ok, type Result } from '../result/index.ts';
+import { err, lineSplitter, ok, type Result } from '../result/index.ts';
 import { processStartTime, type ProcessLiveness } from './identity.ts';
 import { ownProcessGroup, type ProcessError, type ProcessRequest } from './run.ts';
 
@@ -52,44 +49,6 @@ const DEFAULT_MAX_STDERR = 64 * 1024;
 
 function definedEntries(env: ChildRequest['env']): Record<string, string> {
   return Object.fromEntries(Object.entries(env).filter((e): e is [string, string] => e[1] !== undefined));
-}
-
-/** Splits a byte stream into lines on LF only, dropping a trailing CR and lines over `max` bytes. */
-function lineSplitter(max: number, emit: (line: string) => void): { push(chunk: Buffer): void; end(): void } {
-  let pending: Buffer[] = [];
-  let size = 0;
-  let overlong = false;
-  const flush = (last: Buffer): void => {
-    if (!overlong) {
-      let line = Buffer.concat([...pending, last]);
-      if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
-      emit(line.toString('utf8'));
-    }
-    pending = [];
-    size = 0;
-    overlong = false;
-  };
-  return {
-    push(chunk) {
-      let start = 0;
-      for (let at = chunk.indexOf(0x0a); at !== -1; at = chunk.indexOf(0x0a, start)) {
-        flush(chunk.subarray(start, at));
-        start = at + 1;
-      }
-      const rest = chunk.subarray(start);
-      if (rest.length === 0) return;
-      size += rest.length;
-      if (size > max) {
-        overlong = true;
-        pending = [];
-      } else {
-        pending.push(rest);
-      }
-    },
-    end() {
-      if (size > 0 || pending.length > 0) flush(Buffer.alloc(0));
-    },
-  };
 }
 
 /** Starts a long-lived child; an error value when it cannot be started at all. */

@@ -5,6 +5,7 @@
 // architecture.md "Data locations" — the socket lives in `<state>`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { existsSync, statSync, writeFileSync } from 'node:fs';
 import { connectSocket, listenSocket, requestOverSocket, type Channel } from '../../../src/core/socket/index.ts';
 import { withTempDir } from '../../support/temp-dir.ts';
@@ -28,15 +29,17 @@ test('one listener holds the socket; a second is refused while it runs', posixOn
     assert.deepEqual(!second.ok && second.error, { reason: 'in-use' });
     assert.equal(await requestOverSocket(path, 'ping', {}).then((r) => r.ok && r.value), 'ping', 'the first still answers');
   } finally {
-    await first.ok && first.value.close();
+    await first.value.close();
   }
 }));
 
 test('a socket left by a listener that has gone is taken over', posixOnly, withTempDir(async (dir) => {
   const path = dir.file('daemon.sock');
-  const first = await listenSocket(path, echo);
-  assert.ok(first.ok);
-  await first.value.close({ keepFile: true });
+  // A listener that crashes leaves its socket file behind.
+  const crashed = spawn(process.execPath, ['-e', `require('node:net').createServer().listen(${JSON.stringify(path)}, () => console.log('up'))`], { stdio: ['ignore', 'pipe', 'ignore'] });
+  await new Promise((resolve) => crashed.stdout.once('data', resolve));
+  crashed.kill('SIGKILL');
+  await new Promise((resolve) => crashed.once('exit', resolve));
   assert.ok(existsSync(path), 'a stale socket file');
   const again = await listenSocket(path, echo);
   assert.ok(again.ok, JSON.stringify(again));

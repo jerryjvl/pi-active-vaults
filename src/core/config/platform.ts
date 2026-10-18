@@ -4,6 +4,7 @@
 //
 // Path flavour follows the host's platform, not the platform running the code.
 
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { homedir, hostname, platform, userInfo } from 'node:os';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
@@ -31,6 +32,12 @@ export interface InstallationPaths {
   readonly logs: string;
   /** Where actor worktrees go for vaults that do not configure their own: `<worktrees>/<vault-id>`. */
   readonly worktrees: string;
+  /** The daemon's socket: a Unix domain socket in the state directory, a named pipe on Windows. */
+  readonly socket: string;
+  /** The run files the daemon writes for its headless sessions. */
+  readonly runs: string;
+  /** Where vaults' Git hooks leave word that refs changed, one file per vault. */
+  readonly refs: string;
 }
 
 export type PlatformDirsError = { reason: 'relative-override'; variable: string };
@@ -121,7 +128,15 @@ export function installationPaths(dirs: PlatformDirs, os: PlatformKind): Install
     indexDb: p.join(dirs.state, 'index.sqlite'),
     logs: p.join(dirs.state, 'logs'),
     worktrees: p.join(dirs.state, 'worktrees'),
+    socket: os === 'win32' ? windowsPipe(dirs.state) : p.join(dirs.state, 'daemon.sock'),
+    runs: p.join(dirs.state, 'runs'),
+    refs: p.join(dirs.state, 'refs'),
   };
+}
+
+/** Named pipes share one namespace per machine, so the pipe is named after the state directory it belongs to. */
+function windowsPipe(state: string): string {
+  return `\\\\.\\pipe\\${APP_DIR}-${createHash('sha256').update(state.toLowerCase()).digest('hex').slice(0, 16)}`;
 }
 
 /**

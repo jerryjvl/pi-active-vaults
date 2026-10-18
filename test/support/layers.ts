@@ -8,7 +8,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 
 export const LAYERS: Readonly<Record<string, number>> = {
   // L0 Foundations
-  result: 0, clock: 0, ids: 0, process: 0, http: 0, config: 0, store: 0, git: 0, documents: 0,
+  result: 0, clock: 0, ids: 0, process: 0, http: 0, socket: 0, config: 0, store: 0, git: 0, documents: 0,
   // L1 Vault model
   registry: 1, contracts: 1, conditions: 1, events: 1, attestations: 1,
   policy: 1, integrity: 1, actors: 1, scripts: 1,
