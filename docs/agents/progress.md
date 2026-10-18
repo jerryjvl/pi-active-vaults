@@ -3,15 +3,15 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 4 — complete, awaiting review
+**Current stage:** 5 — in progress
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 4, with the Stage 3b review findings; see the Stage 4 entry.
-- **In progress:** nothing.
-- **Next:** review of Stage 4. Then, when told, Stage 5 (Pi extension).
+- **Done:** Stage 4 review findings — exit statuses 0/1/2/3 (`0679c8e`–`32ade84`), MCP writes documented (`5751368`); command-line reading moved to `operations` for the CLI and `/vault` (`efc4f83`).
+- **In progress:** Stage 5 — core `sessions` module (L3): run file, session open/close with actor hold and budget, write guard, taint, injection, session-event spawns, per-turn budget records, catalog text; then the extension adapter.
+- **Next:** extension adapter tested through the Pi 1.3.0 SDK (in-memory sessions, faux model); docs; refactoring pass; Stage 5 entry.
 
 ## Stage entries
 
