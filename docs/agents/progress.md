@@ -3,15 +3,15 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 6a — complete, awaiting review
+**Current stage:** 6b — in progress
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 6a (daemon core), with the Stage 5 review decisions; see the Stage 6a entry.
-- **In progress:** nothing.
-- **Next:** review of Stage 6a. Then, when told, Stage 6b (MCP, forge sync scheduling, outbox retry).
+- **Done:** Stage 6a review: compact traces as notes on `refs/notes/vault/traces` (tests `40d356b`, code `f8985e4`, docs `70294f0`); squash merges checked by doctor.
+- **In progress:** Stage 6b — MCP profiles (HTTP and standard I/O).
+- **Next:** forge sync scheduling and outbox retry in the daemon; the launchd daemon variant; the opt-in real-Pi smoke test; refactoring pass; progress entry.
 
 ## Stage entries
 
