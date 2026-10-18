@@ -10,5 +10,5 @@ export { guardToolCall, type GuardedCall, type GuardVerdict } from './guard.ts';
 export { taints, type TaintedCall } from './taint.ts';
 export { injectionsFor, renderInjections, type Injection, type SessionEvent } from './injection.ts';
 export { sessionEvent, type SessionEventOutcome } from './events.ts';
-export { recordTurn, type TurnRecord, type TurnStop } from './turns.ts';
+export { recordTurn, workLeft, type TurnRecord, type TurnStop } from './turns.ts';
 export { catalogText } from './catalog.ts';

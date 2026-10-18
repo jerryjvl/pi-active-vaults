@@ -7,7 +7,7 @@
 // or its run time is past. An interactive session is the person's: its work
 // counts towards the day, so it limits what is spawned, but it is not stopped.
 
-import { accountUsage, type BudgetState, type RequestUsage } from '../budgets/index.ts';
+import { accountUsage, budgetState, type BudgetState, type RequestUsage } from '../budgets/index.ts';
 import type { OperationContext } from '../operations/index.ts';
 import type { VaultSession } from './session.ts';
 
@@ -32,4 +32,12 @@ export function recordTurn(context: OperationContext, session: VaultSession, usa
   if (session.mode === 'interactive') return { state };
   if (state.exhausted || state.dailyExhausted) return { state, stop: 'budget' };
   return state.overTime ? { state, stop: 'ttl' } : { state };
+}
+
+/** The tokens a headless run may still use — none once its budget, the day's ceiling or its run time is spent; undefined for an interactive session, which is not bounded so. */
+export function workLeft(context: OperationContext, session: VaultSession): number | undefined {
+  if (session.mode === 'interactive') return undefined;
+  const state = budgetState(context.state, context.installation.config.budgets, context.clock, session.trace);
+  if (state === undefined || state.dailyExhausted || state.overTime) return 0;
+  return state.remaining;
 }
