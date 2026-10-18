@@ -81,8 +81,15 @@ test('the installation files live at the documented places under those directori
     indexDb: '/s/index.sqlite',
     logs: '/s/logs',
     worktrees: '/s/worktrees',
+    socket: '/s/daemon.sock',
+    runs: '/s/runs',
+    refs: '/s/refs',
   });
   assert.equal(installationPaths({ config: 'C:\\c', state: 'C:\\s' }, 'win32').stateDb, 'C:\\s\\state.sqlite');
+  // A named pipe on Windows, unique to the state directory, so two installations never share one.
+  const pipe = installationPaths({ config: 'C:\\c', state: 'C:\\s' }, 'win32').socket;
+  assert.match(pipe, /^\\\\\.\\pipe\\pi-active-vaults-[0-9a-f]{16}$/);
+  assert.notEqual(installationPaths({ config: 'C:\\c', state: 'C:\\t' }, 'win32').socket, pipe);
   assert.equal(installationPaths({ config: 'C:\\c', state: 'C:\\s' }, 'win32').worktrees, 'C:\\s\\worktrees');
 });
 
