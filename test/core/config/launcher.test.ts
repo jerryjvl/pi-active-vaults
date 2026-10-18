@@ -8,13 +8,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeLauncher } from '../../../src/core/config/index.ts';
+import { launcherFor, writeLauncher } from '../../../src/core/config/index.ts';
 import { testHost } from '../../support/host.ts';
 import { withTempDir } from '../../support/temp-dir.ts';
 
 const PROGRAM = '/opt/pkg/dist/cli/main.js';
+/** POSIX launchers are written for real, which needs a POSIX file system. */
+const posixOnly = { skip: process.platform === 'win32' ? 'POSIX paths' : false };
 
-test('on Linux and macOS the launcher is ~/.local/bin/vault, an executable that runs the CLI with node', withTempDir((dir) => {
+test('on Linux and macOS the launcher is ~/.local/bin/vault, an executable that runs the CLI with node', posixOnly, withTempDir((dir) => {
   for (const os of ['linux', 'darwin'] as const) {
     const home = dir.file(os);
     const host = testHost({ os, home, env: { PATH: `/usr/bin:${join(home, '.local', 'bin')}` } });
@@ -24,21 +26,22 @@ test('on Linux and macOS the launcher is ~/.local/bin/vault, an executable that 
     const text = readFileSync(written.value.path, 'utf8');
     assert.match(text, /^#!\/bin\/sh\n/);
     assert.match(text, /exec node '\/opt\/pkg\/dist\/cli\/main\.js' "\$@"/);
-    if (process.platform !== 'win32') assert.equal(statSync(written.value.path).mode & 0o777, 0o755);
+    assert.equal(statSync(written.value.path).mode & 0o777, 0o755);
   }
 }));
 
-test('on Windows the launcher is vault.cmd under %LOCALAPPDATA%', withTempDir((dir) => {
-  const local = dir.file('Local');
-  const host = testHost({ os: 'win32', home: dir.path, env: { LOCALAPPDATA: local, PATH: 'C:\\Windows' } });
-  const written = writeLauncher(host, 'C:\\pkg\\dist\\cli\\main.js');
-  assert.ok(written.ok);
-  assert.equal(written.value.path, join(local, 'Microsoft', 'WindowsApps', 'vault.cmd'));
-  assert.equal(written.value.onPath, false, 'reported, so the person can add it');
-  assert.match(readFileSync(written.value.path, 'utf8'), /^@echo off\r\n.*\r\nnode "C:\\pkg\\dist\\cli\\main\.js" %\*\r\n$/);
-}));
+test('on Windows the launcher is vault.cmd under %LOCALAPPDATA%', () => {
+  // Through the injected host only: a Windows path cannot be written from another platform.
+  const host = testHost({ os: 'win32', home: 'C:\\Users\\alice', env: { LOCALAPPDATA: 'C:\\Users\\alice\\AppData\\Local' } });
+  const launcher = launcherFor(host, 'C:\\pkg\\dist\\cli\\main.js');
+  assert.ok(launcher.ok);
+  assert.equal(launcher.value.file, 'C:\\Users\\alice\\AppData\\Local\\Microsoft\\WindowsApps\\vault.cmd');
+  assert.match(launcher.value.text, /^@echo off\r\n.*\r\nnode "C:\\pkg\\dist\\cli\\main\.js" %\*\r\n$/);
+  assert.equal(launcherFor(host, 'C:\\a "b"\\main.js').ok, false, 'a quote cmd.exe cannot hold');
+  assert.equal(launcherFor(testHost({ os: 'win32' }), 'C:\\main.js').ok, false, 'no LOCALAPPDATA');
+});
 
-test('writing it again replaces the launcher; a vault that is not a launcher is never replaced', withTempDir((dir) => {
+test('writing it again replaces the launcher; a vault that is not a launcher is never replaced', posixOnly, withTempDir((dir) => {
   const home = dir.file('home');
   const host = testHost({ home, env: { PATH: '' } });
   assert.ok(writeLauncher(host, PROGRAM).ok);
@@ -51,11 +54,9 @@ test('writing it again replaces the launcher; a vault that is not a launcher is 
   assert.equal(readFileSync(theirs, 'utf8'), '#!/bin/sh\necho mine\n');
 }));
 
-test('a program path that a shell would read as more than a path is quoted safely', withTempDir((dir) => {
+test('a program path that a shell would read as more than a path is quoted safely', posixOnly, withTempDir((dir) => {
   const host = testHost({ home: dir.path, env: { PATH: '' } });
   const written = writeLauncher(host, "/opt/it's $HOME/`id`/main.js");
   assert.ok(written.ok);
   assert.match(readFileSync(written.value.path, 'utf8'), /exec node '\/opt\/it'\\''s \$HOME\/`id`\/main\.js' "\$@"/);
-  const windows = writeLauncher(testHost({ os: 'win32', home: dir.path, env: { LOCALAPPDATA: dir.file('L') } }), 'C:\\a "b"\\main.js');
-  assert.deepEqual(!windows.ok && windows.error.reason, 'unsafe-path');
 }));

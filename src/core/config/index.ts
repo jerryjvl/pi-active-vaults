@@ -43,3 +43,4 @@ export {
   type VaultEntry,
 } from './installation.ts';
 export { registerVault, type NewVaultEntry, type RegisterError } from './register.ts';
+export { launcherFor, writeLauncher, type Launcher, type LauncherError } from './launcher.ts';
