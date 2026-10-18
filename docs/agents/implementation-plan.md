@@ -103,7 +103,7 @@ Check, and fix:
 ## Dependencies
 
 Pre-approved when a stage needs them: a YAML parser (frontmatter and config),
-`sqlite-vec`, `nodemailer`, the MCP SDK (`@modelcontextprotocol/sdk`), a cron
+`sqlite-vec`, `nodemailer`, the MCP SDK (its v2 server package, `@modelcontextprotocol/server`, as approved at the Stage 6b review), a cron
 expression parser, and Pi (`@earendil-works/pi-coding-agent` ≥ 1.3) as a dev
 dependency for types, its shipped documentation and SDK-based tests. Anything
 else needs a one-line justification in the commit message and the progress log.
