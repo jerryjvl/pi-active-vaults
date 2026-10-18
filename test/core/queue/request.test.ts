@@ -149,7 +149,7 @@ test('a merge\'s changes continue the trees of the runs that made them; a person
   const event: VaultEvent = { kind: 'merged', vault: 'home', commit: 'm'.repeat(40), changes: [change('a.md', run), change('b.md'), change('c.md', elsewhere)] };
   const matched = await matchSpawns(matching(v), { event }, [v.vault]);
   assert.ok(matched.ok);
-  const requests = matched.value.requests.map((r) => ({ tree: (r.event as { tree?: string }).tree, parent: r.parent, paths: (r.event as { changes: { path: string }[] }).changes.map((c) => c.path) }));
+  const requests = matched.value.requests.map((r) => ({ tree: (r.event as { tree?: string }).tree, parent: r.parent, paths: 'changes' in r.event ? r.event.changes.map((c) => c.path) : [] }));
   assert.deepEqual(requests, [
     { tree: undefined, parent: undefined, paths: ['b.md'] },
     { tree: elsewhere, parent: undefined, paths: ['c.md'] },

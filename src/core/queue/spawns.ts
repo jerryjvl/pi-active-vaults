@@ -72,6 +72,22 @@ export const queueSchema: ModuleSchema = {
       version: 2,
       sql: 'ALTER TABLE queue_spawns ADD COLUMN actor TEXT',
     },
+    {
+      // The daemon's own record (one row: the singleton) and the process of
+      // each headless session it runs, for start-up recovery (runs.ts).
+      version: 3,
+      sql: `CREATE TABLE queue_daemon (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        pid INTEGER NOT NULL,
+        started TEXT NOT NULL,
+        since TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE queue_runs (
+        spawn INTEGER PRIMARY KEY REFERENCES queue_spawns (id),
+        pid INTEGER NOT NULL,
+        started TEXT NOT NULL
+      ) STRICT`,
+    },
   ],
 };
 
@@ -171,7 +187,8 @@ export function spawnEventKey(event: SpawnEvent): string {
   switch (event.kind) {
     case 'committed':
     case 'merged':
-      return `${event.kind}:${event.vault}:${event.commit}`;
+      // Each run's part of a Git event is its own identity, so one merge can continue several trees.
+      return `${event.kind}:${event.vault}:${event.commit}${event.tree === undefined ? '' : `@${event.tree}`}`;
     case 'timer':
       return `timer:${event.at}`;
     default:

@@ -14,8 +14,8 @@
 //  - only spawn conditions spawn, only jobs with a budget and an actor, and
 //    a condition's script only narrows; a request writes as the job's actor.
 
-import type { Budget } from '../budgets/index.ts';
-import { isGitEvent, matchConditions, narrowByScripts, type Candidate, type MatchContext, type ScriptFilterOptions, type VaultEvent } from '../conditions/index.ts';
+import { hasSession, type Budget } from '../budgets/index.ts';
+import { isGitEvent, matchConditions, narrowByScripts, type Candidate, type ChangedDocument, type GitEvent, type MatchContext, type ScriptFilterOptions, type VaultEvent } from '../conditions/index.ts';
 import type { Git, GitError } from '../git/index.ts';
 import { requireNoUnacceptedChange, type AcceptedReads } from '../integrity/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
@@ -84,19 +84,41 @@ export async function matchSpawns(
       runnable.set(`${vault.id}:${job.path}`, { budget: job.budget, actor: job.actor });
     }
   }
-  const spawning = matchConditions(given.event, candidates, m.match).filter((match) => match.condition.effect === 'spawn');
-  const narrowed = await narrowByScripts(
-    { git: m.git, store: m.store, locate: (id) => m.vaults.find((v) => v.id === id) }, m.scripts, given.event, spawning,
-  );
-  const event = spawnEvent(given.event, given.id);
-  return ok({
-    requests: narrowed.kept.map((match) => ({
+  const requests: SpawnRequest[] = [];
+  const dropped: MatchedSpawns['dropped'][number][] = [];
+  for (const part of eventParts(m.store, given.event, tree)) {
+    const spawning = matchConditions(part.event, candidates, m.match).filter((match) => match.condition.effect === 'spawn');
+    const narrowed = await narrowByScripts(
+      { git: m.git, store: m.store, locate: (id) => m.vaults.find((v) => v.id === id) }, m.scripts, part.event, spawning,
+    );
+    const event = spawnEvent(part.event, given.id);
+    requests.push(...narrowed.kept.map((match) => ({
       vault: match.vault, document: match.document, condition: match.index, event,
       ...(runnable.get(`${match.vault}:${match.document}`) as { budget: Budget; actor: string }),
-      ...(tree.parent === undefined ? {} : { parent: tree.parent }),
-    })),
-    dropped: narrowed.dropped.map((d) => ({ vault: d.match.vault, document: d.match.document, reason: d.reason })),
-    paused,
+      ...(part.parent === undefined ? {} : { parent: part.parent }),
+    })));
+    dropped.push(...narrowed.dropped.map((d) => ({ vault: d.match.vault, document: d.match.document, reason: d.reason })));
+  }
+  return ok({ requests, dropped, paused });
+}
+
+/**
+ * The parts of an event that spawn on their own, each in its session tree
+ * (concepts.md "Session tree"): a Git event's changes grouped by the run that
+ * made them (their `Vault-Trace`) — the part no run made first, then by
+ * trace — each continuing its run's tree when that run is known here, and
+ * otherwise starting a new one; any other event is one part, in `tree`.
+ */
+function eventParts(store: Store, event: VaultEvent, tree: { readonly parent?: string }): { event: VaultEvent; parent?: string }[] {
+  if (!isGitEvent(event)) return [{ event, ...(tree.parent === undefined ? {} : { parent: tree.parent }) }];
+  // Keyed by trace, '' for the part no run made, which so sorts first.
+  const byRun = new Map<string, ChangedDocument[]>();
+  for (const change of event.changes) byRun.set(change.trace ?? '', [...(byRun.get(change.trace ?? '') ?? []), change]);
+  if (byRun.size === 0) byRun.set('', []);
+  return [...byRun.keys()].sort().map((run) => {
+    const part: GitEvent = { ...event, changes: byRun.get(run) ?? [], ...(run === '' ? {} : { tree: run }) };
+    const parent = run === '' ? tree.parent : hasSession(store, run) ? run : undefined;
+    return { event: part, ...(parent === undefined ? {} : { parent }) };
   });
 }
 

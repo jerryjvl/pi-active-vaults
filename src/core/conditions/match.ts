@@ -37,6 +37,12 @@ export interface GitEvent {
   /** From the commit's trailers, when the package made it. */
   readonly trace?: string;
   readonly session?: string;
+  /**
+   * As a spawn answers it: the run whose session tree this part of the event
+   * continues — the `Vault-Trace` of the changes it holds (concepts.md
+   * "Session tree"); absent for the part no run made.
+   */
+  readonly tree?: string;
 }
 
 export type VaultEvent =

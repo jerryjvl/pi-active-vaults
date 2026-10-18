@@ -8,6 +8,7 @@ export {
   budgetState,
   budgetsSchema,
   finishSession,
+  hasSession,
   startSession,
   treePath,
   type AllotRefusal,

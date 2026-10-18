@@ -93,6 +93,19 @@ export async function uncommittedPaths(git: Git, repo: string): Promise<Result<s
   return ok([...new Set(entries.map((entry) => entry.slice(3)))].sort());
 }
 
+/** The tracked changes from HEAD in the working tree, as a diff (no external diff or text conversion runs). */
+export async function uncommittedDiff(git: Git, repo: string): Promise<Result<string, GitError>> {
+  const ran = await runChecked(git, ['diff', '--no-ext-diff', '--no-textconv', '--no-color', 'HEAD', '--'], { cwd: repo });
+  return ran.ok ? ok(ran.value.stdout.toString('utf8')) : ran;
+}
+
+/** Returns a worktree to its last commit: tracked changes undone, untracked files removed (ignored ones stay). */
+export async function discardUncommitted(git: Git, repo: string): Promise<Result<void, GitError>> {
+  const reset = await runForSuccess(git, ['reset', '--hard', '--quiet', 'HEAD'], { cwd: repo });
+  if (!reset.ok) return reset;
+  return runForSuccess(git, ['clean', '-d', '--force', '--quiet'], { cwd: repo });
+}
+
 /** A commit made but not yet on any branch: what a blocking check assesses before it lands. */
 export interface PreparedCommit {
   readonly sha: Sha;

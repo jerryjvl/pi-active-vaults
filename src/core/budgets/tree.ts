@@ -233,3 +233,8 @@ export function treePath(store: Queryable, trace: string): string[] {
   }
   return path;
 }
+
+/** Whether `trace` is a session in this installation's ledger: a tree work can continue here. */
+export function hasSession(store: Queryable, trace: string): boolean {
+  return store.get('SELECT 1 FROM budgets_sessions WHERE trace = ?', [trace]) !== undefined;
+}
