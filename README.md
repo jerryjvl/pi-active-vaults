@@ -62,4 +62,5 @@ PAV_SMOKE_BASE_URL=http://localhost:8080/v1 PAV_SMOKE_MODEL=my-model npm run smo
 
 Optional: `PAV_SMOKE_API` (Pi's API type, default `openai-completions`),
 `PAV_SMOKE_API_KEY`, `PAV_SMOKE_TIMEOUT` (seconds, default 600) and
-`PAV_SMOKE_KEEP=1` to keep the temporary directories.
+`PAV_SMOKE_KEEP=1` to keep the temporary directories, which are otherwise
+removed however the run ends.

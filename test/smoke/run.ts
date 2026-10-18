@@ -15,6 +15,8 @@
 //   PAV_SMOKE_API_KEY    its key, if it needs one
 //   PAV_SMOKE_TIMEOUT    how long to wait for both runs, in seconds (default 600)
 //   PAV_SMOKE_KEEP=1     keep the temporary directories, to look at afterwards
+//                        (otherwise they are removed however it ends: passed,
+//                        failed, thrown or interrupted)
 //
 // It reports each run's outcome, commit, trailers, trace record and whether
 // the second was forked, and exits 0 only when both committed and the second
@@ -49,6 +51,23 @@ if (!existsSync(EXTENSION) || !existsSync(PI_CLI)) {
 const timeoutMs = Number(env['PAV_SMOKE_TIMEOUT'] ?? '600') * 1000;
 
 const box = mkdtempSync(join(tmpdir(), 'pav-smoke-'));
+const keep = env['PAV_SMOKE_KEEP'] === '1';
+// Removed on every way out — set-up failures and throws included — so nothing is left in the temporary directory.
+process.on('exit', () => {
+  if (keep) return;
+  try {
+    rmSync(box, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (error) {
+    process.stderr.write(`npm run smoke: could not remove ${box} (${error instanceof Error ? error.message : String(error)})\n`);
+  }
+});
+// An interrupt stops the daemon first, so no Pi it started outlives the directory.
+let daemonRunning: { stop(): Promise<void> } | undefined;
+for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]] as const) {
+  process.on(signal, () => {
+    void (daemonRunning?.stop() ?? Promise.resolve()).finally(() => process.exit(code));
+  });
+}
 const dirs = { vault: join(box, 'vault'), config: join(box, 'config'), state: join(box, 'state'), agent: join(box, 'agent'), sessions: join(box, 'sessions'), home: join(box, 'home') };
 for (const dir of Object.values(dirs)) mkdirSync(dir, { recursive: true, mode: 0o700 });
 
@@ -124,6 +143,7 @@ async function main(): Promise<number> {
 
   const daemon = await startDaemon({ host, pi: { file: process.execPath, args: [PI_CLI] }, env: machineEnv });
   if (!daemon.ok) throw new Error(`the daemon did not start: ${JSON.stringify(daemon.error)}`);
+  daemonRunning = daemon.value;
   const finished = new Map<string, Notice>();
   const bothFinished = new Promise<void>((done) => {
     daemon.value.automation.watch((notice) => {
@@ -140,6 +160,7 @@ async function main(): Promise<number> {
     const ended = await Promise.race([bothFinished.then(() => 'done' as const), timedOut]);
     if (ended === 'timeout') process.stdout.write(`Timed out after ${timeoutMs / 1000}s; reporting what finished.\n`);
   } finally {
+    daemonRunning = undefined;
     await daemon.value.stop();
   }
   return report(finished);
@@ -180,7 +201,7 @@ async function report(finished: ReadonlyMap<string, Notice>): Promise<number> {
   const [a, b] = runs;
   const passed = a?.commit !== undefined && a.record !== undefined && b?.commit !== undefined && typeof b.forked === 'string';
   process.stdout.write(`\n${passed ? 'PASS' : 'FAIL'}: ${passed ? 'both runs committed with their records, the second forked from the first\'s session' : 'see above'}.\n`);
-  process.stdout.write(env['PAV_SMOKE_KEEP'] === '1' ? `Kept: ${box}\n` : '');
+  process.stdout.write(keep ? `Kept: ${box}\n` : '');
   return passed ? 0 : 1;
 }
 
@@ -189,7 +210,5 @@ try {
   code = await main();
 } catch (error) {
   process.stderr.write(`npm run smoke: ${error instanceof Error ? error.message : String(error)}\n`);
-} finally {
-  if (env['PAV_SMOKE_KEEP'] !== '1') rmSync(box, { recursive: true, force: true });
 }
 process.exit(code);
