@@ -11,6 +11,7 @@
 
 import { readFileSync } from 'node:fs';
 import { parseDocument } from 'yaml';
+import { parseDuration } from '../clock/index.ts';
 import { DataReader, err, issuePath as join, type Issue, type Result } from '../result/index.ts';
 import { pathFor, type Host } from './platform.ts';
 import { parseSecretRef, type SecretRef } from './secrets.ts';
@@ -65,6 +66,8 @@ export interface InstallationConfig {
   /** Tools that do not taint a session; every other tool does. */
   readonly taint: { readonly trustedTools: readonly string[] };
   readonly logs: { readonly keepDays: number };
+  /** What the daemon does: how long a spawn may be queued, and how many headless sessions run at once (the agent model's capacity). */
+  readonly daemon: { readonly queueTimeMs: number; readonly parallel: number };
   readonly templates: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, unknown>>;
   readonly notify?: Readonly<Record<string, unknown>>;
@@ -79,6 +82,7 @@ export type ConfigError =
 const DEFAULT_DEPTH_DECAY = 0.5;
 const DEFAULT_MAX_DEPTH = 4;
 const DEFAULT_KEEP_DAYS = 7;
+const DEFAULT_QUEUE_TIME_MS = 24 * 60 * 60 * 1000;
 /** A vault id, as the config and a root contract give it. */
 export const VAULT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const FORGE_HOST = /^[A-Za-z0-9.-]+(:\d+)?$/;
@@ -86,7 +90,7 @@ const NO_WHITESPACE = /^\S+$/;
 
 const TOP_LEVEL_KEYS = [
   'installation', 'vaults', 'models', 'forges', 'mcp', 'labels', 'subscriptions',
-  'policy', 'budgets', 'taint', 'logs', 'notify', 'templates',
+  'policy', 'budgets', 'taint', 'logs', 'daemon', 'notify', 'templates',
 ] as const;
 
 type PlainObject = Record<string, unknown>;
@@ -241,6 +245,13 @@ function readBudgets(r: Reader, value: unknown): InstallationConfig['budgets'] {
   };
 }
 
+function readDaemon(r: Reader, value: unknown): InstallationConfig['daemon'] {
+  const d = r.record(value ?? {}, 'daemon', ['queue-time', 'parallel']);
+  const queueTimeMs = d['queue-time'] === undefined ? DEFAULT_QUEUE_TIME_MS : parseDuration(d['queue-time']);
+  if (queueTimeMs === undefined) r.add('daemon.queue-time', 'must be a duration such as 90s, 30m or 2h');
+  return { queueTimeMs: queueTimeMs ?? DEFAULT_QUEUE_TIME_MS, parallel: r.integer(d, 'parallel', 'daemon', 1) };
+}
+
 function readOpaqueSection(r: Reader, raw: PlainObject, key: 'mcp' | 'notify'): PlainObject | undefined {
   return raw[key] === undefined ? undefined : r.record(raw[key], key);
 }
@@ -295,6 +306,7 @@ export function parseInstallationConfig(text: string, host: Host): Result<Instal
     budgets: readBudgets(r, raw['budgets']),
     taint: { trustedTools: r.stringList(taint['trusted-tools'] ?? [], 'taint.trusted-tools') },
     logs: { keepDays: r.integer(logs, 'keep-days', 'logs', DEFAULT_KEEP_DAYS) },
+    daemon: readDaemon(r, raw['daemon']),
     templates: readTemplates(r, raw['templates']),
     ...(mcp === undefined ? {} : { mcp }),
     ...(notify === undefined ? {} : { notify }),
