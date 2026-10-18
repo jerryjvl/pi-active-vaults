@@ -18,7 +18,7 @@ export { bearerMatches, callMcpTool, mcpTools, type JsonSchema, type McpTool } f
 export { MODEL_TEXT_LIMIT, modelResult, outcomeData, type ModelResult, type OutcomeData } from './results.ts';
 export { unacceptedNotices, type VaultNotice } from './notices.ts';
 export { doctorFindings, type Finding } from './ops/doctor.ts';
-export { notifyDeps } from './ops/common.ts';
+export { forgeDeps, identityOf, notifyDeps } from './ops/common.ts';
 export { queueContext, requestSpawns, spawnLines, spawnMatching, type RequestedSpawns } from './spawning.ts';
 export type {
   Caller, Operation, OperationOutcome, OperationRequest, OperationStatus, ParamKind, ParamSpec, ParamSurface, Surfaces, VaultScope,

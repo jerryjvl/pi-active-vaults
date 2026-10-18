@@ -6,9 +6,10 @@
 //
 //  - start: start-up recovery (queue), then a first tick, which catches up on
 //    everything since the cursors — the slots missed while it was down too;
-//  - tick: which vaults it runs and which are paused (their owners told
+//  - tick: forge sync first (a merge in the forge moves the accepted main),
+//    then which vaults it runs and which are paused (their owners told
 //    once), the Git events since each job's cursor, the timers that came due,
-//    queued work past its queue time, and log rotation;
+//    queued work past its queue time, the outbox's retries, and log rotation;
 //  - schedule: starts what may start — in priority order, within capacity,
 //    one job per actor, nothing for a paused vault — and tells subscribers
 //    as runs start and finish;
@@ -18,9 +19,11 @@ import { rotateLogs } from '../traces/index.ts';
 import type { Slot } from '../conditions/index.ts';
 import { localSlot } from '../conditions/index.ts';
 import { usedToday } from '../budgets/index.ts';
-import { spawnMatching, type OperationContext } from '../operations/index.ts';
+import { deliverDue } from '../notify/index.ts';
+import { notifyDeps, scriptEnvironment, spawnMatching, type OperationContext } from '../operations/index.ts';
 import { expireQueued, listSpawns, recoverRuns, runProcesses, schedulable, type RecoveryReport, type SpawnEntry, type SpawnMatching } from '../queue/index.ts';
 import { scanGitEvents } from './events.ts';
+import { createForgeSync } from './forge.ts';
 import { METHODS, answer, claimRequested, inTree, noticeOf, readRequest, refuse, type Notice, type Reply } from './protocol.ts';
 import { startRun, type PiCommand, type RunHandle } from './run.ts';
 import { tickTimers } from './timers.ts';
@@ -70,6 +73,7 @@ export function createAutomation(context: OperationContext, options: AutomationO
   let lastRotation = Number.NEGATIVE_INFINITY;
   let matching: Promise<SpawnMatching> | undefined;
   const matchingOf = (): Promise<SpawnMatching> => (matching ??= spawnMatching(context));
+  const forge = createForgeSync(context);
 
   const tell = (notice: Notice): void => {
     for (const listener of listeners) listener(notice);
@@ -78,6 +82,7 @@ export function createAutomation(context: OperationContext, options: AutomationO
 
   const tick = async (only?: string): Promise<void> => {
     const now = context.clock.now();
+    if (only === undefined) await forge.tick(await hostedVaults(context));
     const hosted = await hostedVaults(context);
     const unaccepted = await pausedVaults(context, context.installation.vaults);
     for (const vault of hosted) {
@@ -96,6 +101,8 @@ export function createAutomation(context: OperationContext, options: AutomationO
       });
       lastTick = { at: now.getTime(), slot: localSlot(now, options.timeZone) };
       expireQueued(context.state, context.clock, context.installation.config.daemon.queueTimeMs);
+      const outbox = notifyDeps(context, scriptEnvironment(context.installation));
+      if (outbox !== undefined) await deliverDue(outbox);
       if (now.getTime() - lastRotation >= HOUR_MS) {
         rotateLogs(context.installation.paths.logs, context.clock, context.installation.config.logs.keepDays);
         lastRotation = now.getTime();
@@ -136,6 +143,7 @@ export function createAutomation(context: OperationContext, options: AutomationO
       queued: listSpawns(context.state, { states: ['queued'] }).map((s) => ({ vault: s.vault, document: s.document, trace: s.trace, actor: s.actor, claimed: s.claimed })),
       running: running.map((s) => ({ vault: s.vault, document: s.document, trace: s.trace, actor: s.actor, started: s.started, pid: processes.get(s.id) })),
       paused: [...paused].sort(),
+      forge: forge.outcomes(),
       budgets: { dailyUsed: usedToday(context.state, context.clock), ...(dailyTokens === undefined ? {} : { dailyTokens }) },
     };
   };

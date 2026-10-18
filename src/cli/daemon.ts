@@ -47,12 +47,14 @@ function statusText(status: unknown): string {
   const queued = Array.isArray(status['queued']) ? status['queued'] : [];
   const running = Array.isArray(status['running']) ? status['running'] : [];
   const paused = Array.isArray(status['paused']) ? status['paused'] : [];
+  const forge = Array.isArray(status['forge']) ? status['forge'].filter(isRecord) : [];
   const line = (s: unknown): string => (isRecord(s) ? `  ${String(s['vault'])}:${String(s['document'])} (trace ${String(s['trace'])})` : '');
   return [
     `The daemon runs: ${queued.length} queued, ${running.length} running.`,
     ...running.map((s) => `${line(s)} running`),
     ...queued.map((s) => `${line(s)} queued`),
     ...(paused.length === 0 ? [] : [`Paused (unaccepted change): ${paused.join(', ')}`]),
+    ...forge.map((f) => `Forge ${String(f['vault'])}: ${f['error'] === undefined ? 'synced' : `failed (${String(f['error'])})`} at ${String(f['at'])}${Array.isArray(f['proposed']) && f['proposed'].length > 0 ? `; proposing ${f['proposed'].join(', ')}` : ''}`),
   ].join('\n');
 }
 

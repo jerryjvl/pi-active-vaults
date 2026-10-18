@@ -17,8 +17,8 @@ Git changes, and queued spawns. One per machine, as a user service.
 | **Budgets** | Enforces document budgets, cascade pools and the installation's daily ceiling |
 | **Execution** | Starts `pi --mode rpc` with the spawn's context: forked from the originating session when available, fresh otherwise |
 | **Traces** | Issues trace IDs, writes full logs and rotates them |
-| **Outbox** | Retries undelivered notifications with backoff |
-| **Forge sync** | For `forge`-mode vaults: pushes actor branches, keeps pull requests, commit statuses and the `vault/policy` status current, fetches to detect merges; merges attestation and trace notes line by line |
+| **Outbox** | Each minute, retries the undelivered notifications that are due, with backoff (see [Notifications](../notifications.md)) |
+| **Forge sync** | For `forge`-mode vaults: pushes actor branches, keeps pull requests, commit statuses and the `vault/policy` status current, fetches to detect merges; merges attestation and trace notes line by line (see Forge sync) |
 | **MCP server** | Serves each MCP profile that has an endpoint on it; one that cannot be served (its token unresolved, its address in use) is reported at start and the others still are — see [MCP](../mcp.md) |
 
 ## Spawn lifecycle
@@ -161,6 +161,17 @@ installation config. `vault whoami` prints it — the value to put in
 
 Spawns from interactive sessions always run on the machine of that session.
 
+## Forge sync
+
+Each minute, before anything else, every `forge`-mode vault is fetched: the
+forge's `main` becomes the accepted `main` and the local `main` follows it
+forward, so a merge in the forge is matched like any other. For the vaults the
+daemon runs, each of the vault's `actors` with a proposal has it kept current
+at the forge: when its branch's head moves, the branch is pushed and its pull
+request opened or updated, with its statuses; otherwise its statuses are
+published again every five minutes, to pick up reviews made in the forge. A
+failure is shown by `vault daemon status` and tried again the next minute.
+
 ## Socket protocol
 
 JSON lines over a local socket accessible only to the user (a Unix domain
@@ -172,7 +183,7 @@ directory). A request is `{ id, method, params }`, answered
 |---|---|---|
 | `ping` | — | `version`, `capabilities` (the methods) |
 | `spawn` | A spawn request: `vault`, `document`, `condition`, `event`, optional `parent` and `relevance` | The spawn as claimed |
-| `status` | — | `queued`, `running` (with process IDs), `paused` vaults, `budgets` (`dailyUsed`, `dailyTokens`) |
+| `status` | — | `queued`, `running` (with process IDs), `paused` vaults, `budgets` (`dailyUsed`, `dailyTokens`), `forge` (per vault: `at`, `accepted`, `proposed` actors, `error`) |
 | `subscribe` | `trace`; optionally `session` and its `file` | — then notices for the spawns in that session's tree |
 | `stop` | `trace` | — the running spawn is stopped (`requested`) |
 
