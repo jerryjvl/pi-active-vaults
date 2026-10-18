@@ -3,9 +3,10 @@
 // status, review, accept (and adopt, confirmed first), contract, jobs, run,
 // trace, doctor, and `install-cli` to put the launcher on PATH. Arguments are
 // read like the CLI's. Tested through Pi 1.3.0's SDK.
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { acceptedMain } from '../../src/core/integrity/index.ts';
 import { listSpawns } from '../../src/core/queue/index.ts';
@@ -14,6 +15,12 @@ import { withPi } from '../support/pi.ts';
 import { RUNNING } from '../support/session.ts';
 
 const OUTPUT = 'pav:vault';
+
+// A `vault` of someone else's, early on PATH.
+const SHADOW = mkdtempSync(join(tmpdir(), 'pav-shadow-'));
+writeFileSync(join(SHADOW, 'vault'), '#!/bin/sh\n');
+chmodSync(join(SHADOW, 'vault'), 0o755);
+after(() => rmSync(SHADOW, { recursive: true, force: true }));
 
 test('/vault alone lists the commands; an unknown one says so', withInstallation(async (t) => {
   await withPi(t, {}, async (pi) => {
@@ -73,3 +80,12 @@ test('/vault install-cli writes the launcher where the person\'s PATH can find i
     assert.match(pi.customMessages(OUTPUT).at(-1) ?? '', new RegExp(`Wrote ${launcher.replace(/[\\/.]/g, '.')}`));
   });
 }, { running: RUNNING }));
+
+test('/vault install-cli says when another vault is on PATH and which one runs (here, the launcher\'s directory is not on PATH)', { skip: process.platform === 'win32' ? 'POSIX launcher' : false }, withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    await pi.prompt('/vault install-cli');
+    const message = pi.customMessages(OUTPUT).at(-1) ?? '';
+    assert.ok(message.includes(`${join(SHADOW, 'vault')} is the vault that runs`), message);
+    assert.ok(message.includes('not on PATH'), message);
+  });
+}, { running: RUNNING, env: { PATH: `${SHADOW}:${process.env['PATH'] ?? ''}` } }));
