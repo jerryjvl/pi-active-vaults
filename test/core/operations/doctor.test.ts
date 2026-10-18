@@ -8,11 +8,15 @@
 // entry names a vault, and no budgets.daily-tokens.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { takeActorHold } from '../../../src/core/actors/index.ts';
+import { listSpawns, takeDaemonRecord } from '../../../src/core/queue/index.ts';
 import { runProcess } from '../../../src/core/process/index.ts';
 import { withInstallation, type TestInstallation } from '../../support/installation.ts';
+import { RUNNING, startedSpawn } from '../../support/session.ts';
+
+const live: Record<number, string> = { ...RUNNING, 9: 's' };
 
 type Finding = { level: string; check: string; vault?: string; message: string };
 const findings = async (t: TestInstallation, params: Record<string, unknown> = {}) => {
@@ -79,3 +83,47 @@ test('doctor reports a job that cannot run, with why', withInstallation(async (t
   assert.deepEqual(jobs.map((f) => f.level), ['warning']);
   assert.match(jobs[0]?.message ?? '', /jobs\/actorless\.md cannot run: actor: is required/);
 }));
+
+// daemon.md "Responsibilities": a reference-transaction hook in each vault
+// tells the daemon of ref updates; cli.md `vault doctor --fix` installs hooks
+// where none of the user's is in the way, and runs start-up recovery when no
+// daemon is running; doctor checks the daemon.
+test('doctor --fix installs the refs hook, which tells the daemon a vault\'s refs changed, only once they have', { skip: process.platform === 'win32' ? 'POSIX hook' : false }, withInstallation(async (t) => {
+  const hook = join(t.repo.path, '.git', 'hooks', 'reference-transaction');
+  assert.match(about((await findings(t)).found, 'hooks').map((f) => f.message).join('\n'), /refs hook is not installed/);
+  await findings(t, { fix: true });
+  assert.ok(existsSync(hook));
+  const word = join(t.installation.paths.refs, 'home');
+  const run = (state: string) => runProcess({ program: { file: '/bin/sh', args: [hook, state] }, env: { PATH: process.env['PATH'] ?? '' }, input: 'x y refs/heads/main\n', timeoutMs: 5000, maxStdoutBytes: 1024, maxStderrBytes: 1024 });
+  assert.equal((await run('prepared')).ok, true);
+  assert.equal(existsSync(word), false, 'nothing until the transaction is committed');
+  const committed = await run('committed');
+  assert.equal(committed.ok && committed.value.exitCode, 0);
+  assert.ok(existsSync(word));
+  t.repo.write('n.md', 'a real commit runs it');
+  rmSync(word);
+  t.repo.commit('n');
+  assert.ok(existsSync(word));
+  writeFileSync(hook, '#!/bin/sh\nexit 0\n');
+  assert.match(about((await findings(t, { fix: true })).found, 'hooks').map((f) => f.message).join('\n'), /reference-transaction hook of its own/);
+  assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\nexit 0\n');
+}));
+
+test('doctor says whether a daemon runs', withInstallation(async (t) => {
+  assert.deepEqual(about((await findings(t)).found, 'daemon').map((f) => f.level), ['warning']);
+  assert.ok((await takeDaemonRecord(t.context.state, t.context.alive, t.clock, { pid: 9, started: 's' })).ok);
+  const running = about((await findings(t)).found, 'daemon');
+  assert.deepEqual(running.map((f) => f.level), ['ok']);
+  assert.match(running[0]?.message ?? '', /process 9/);
+}, { running: { 9: 's' } }));
+
+test('doctor --fix runs start-up recovery when no daemon runs, and leaves it to a daemon that does', withInstallation(async (t) => {
+  const entry = startedSpawn(t);
+  assert.ok((await takeDaemonRecord(t.context.state, t.context.alive, t.clock, { pid: 9, started: 's' })).ok);
+  await findings(t, { fix: true });
+  assert.equal(listSpawns(t.context.state)[0]?.state, 'running', 'a running daemon owns it');
+  delete live[9];
+  const fixed = about((await findings(t, { fix: true })).found, 'recovery');
+  assert.deepEqual(listSpawns(t.context.state).map((s) => [s.id, s.state, s.reason]), [[entry.id, 'stopped', 'restart']]);
+  assert.match(fixed[0]?.message ?? '', /1 run/);
+}, { running: live }));
