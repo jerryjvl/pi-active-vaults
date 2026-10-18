@@ -38,9 +38,9 @@ test('a job runs as its own actor, else its nearest contract\'s; only one of the
   assert.deepEqual(jobs.value.map((j) => [j.path, j.actor, j.issues.map((i) => `${i.path}: ${i.message}`)]), [
     ['jobs/inherits.md', 'librarian', []],
     ['jobs/own.md', 'gardener', []],
-    ['loose/odd.md', undefined, ['actor: must be text']],
-    ['loose/owner.md', undefined, ['actor: "alice" is not one of the vault\'s actors']],
-    ['loose/stranger.md', undefined, ['actor: "mallory" is not one of the vault\'s actors']],
+    ['loose/odd.md', undefined, ['actor: must be a non-empty string']],
+    ['loose/owner.md', undefined, ['actor: is not one of the vault\'s actors']],
+    ['loose/stranger.md', undefined, ['actor: is not one of the vault\'s actors']],
     ['top.md', 'gardener', []],
   ]);
 }, { actors: ['gardener', 'librarian'], extra: 'actor: gardener' }));
