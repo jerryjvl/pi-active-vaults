@@ -5,7 +5,8 @@ How to deploy for the [security model](security.md).
 ## Local vaults
 
 A `local` vault has one clone; use a forge for a vault on several machines.
-Nothing to configure beyond the defaults. `vault doctor --fix` makes sure that:
+Nothing to configure beyond the defaults. `vault init` and `vault add` install
+each vault's Git hooks, and `vault doctor --fix` makes sure that:
 
 - the package's Git hooks are installed in each vault (change monitoring and the
   pre-push guard);

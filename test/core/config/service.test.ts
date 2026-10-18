@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { findPi, findServiceTools, serviceFor, staleServiceTools, type ServiceTool } from '../../../src/core/config/index.ts';
+import { makeExecutable } from '../../support/executables.ts';
 import { testHost } from '../../support/host.ts';
 import { withTempDir } from '../../support/temp-dir.ts';
 
@@ -123,21 +124,14 @@ test('a directory a unit file would misread is escaped, or refused when it canno
   assert.match(bare.value.text, /^Environment="PATH=\/usr\/local\/sbin:/m, 'with nothing found, the usual directories');
 });
 
-/** An executable file called `name` in `dir`. */
-function makeTool(dir: string, name: string): void {
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, name), '#!/bin/sh\n');
-  chmodSync(join(dir, name), 0o755);
-}
-
 test('the directories of node, pi and git are those on PATH, as found: the first that holds each, links not followed', posixOnly, withTempDir((dir) => {
   const versions = dir.file('versions', '22.1.0', 'bin');
-  makeTool(versions, 'node');
+  makeExecutable(versions, 'node');
   const latest = dir.file('versions', 'latest');
   symlinkSync(dir.file('versions', '22.1.0'), latest);
   const other = dir.file('other');
-  makeTool(other, 'node');
-  makeTool(other, 'pi');
+  makeExecutable(other, 'node');
+  makeExecutable(other, 'pi');
   const empty = dir.file('empty');
   mkdirSync(empty);
   const host = testHost({ env: { PATH: `/nonexistent:${empty}:${latest}/bin:${other}` } });
@@ -147,8 +141,8 @@ test('the directories of node, pi and git are those on PATH, as found: the first
 
 test('a recorded directory that no longer holds its tool is stale', posixOnly, withTempDir((dir) => {
   const bin = dir.file('bin');
-  makeTool(bin, 'node');
-  makeTool(bin, 'pi');
+  makeExecutable(bin, 'node');
+  makeExecutable(bin, 'pi');
   const recorded: ServiceTool[] = [{ tool: 'node', dir: bin }, { tool: 'pi', dir: bin }];
   const host = testHost();
   assert.deepEqual(staleServiceTools(recorded, host), []);

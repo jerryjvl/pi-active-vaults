@@ -7,9 +7,10 @@
 // on PATH, and which one runs: the first on PATH.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describeLauncher, launcherFor, vaultsOnPath, writeLauncher } from '../../../src/core/config/index.ts';
+import { makeExecutable } from '../../support/executables.ts';
 import { testHost } from '../../support/host.ts';
 import { withTempDir } from '../../support/temp-dir.ts';
 
@@ -62,20 +63,11 @@ test('a program path that a shell would read as more than a path is quoted safel
   assert.match(readFileSync(written.value.path, 'utf8'), /exec node '\/opt\/it'\\''s \$HOME\/`id`\/main\.js' "\$@"/);
 }));
 
-/** An executable called `vault` in a new directory. */
-function otherVault(dir: string): string {
-  mkdirSync(dir, { recursive: true });
-  const file = join(dir, 'vault');
-  writeFileSync(file, '#!/bin/sh\n');
-  chmodSync(file, 0o755);
-  return file;
-}
-
 test('every other vault on PATH is named, and the first on PATH is the one that runs', posixOnly, withTempDir((dir) => {
   const home = dir.file('home');
   const own = join(home, '.local', 'bin', 'vault');
-  const early = otherVault(dir.file('early'));
-  const late = otherVault(dir.file('late'));
+  const early = makeExecutable(dir.file('early'), 'vault');
+  const late = makeExecutable(dir.file('late'), 'vault');
 
   const shadowed = writeLauncher(testHost({ home, env: { PATH: [dir.file('early'), join(home, '.local', 'bin'), dir.file('late')].join(':') } }), PROGRAM);
   assert.ok(shadowed.ok);

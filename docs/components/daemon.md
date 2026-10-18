@@ -7,7 +7,7 @@ Git changes, and queued spawns. One per machine, as a user service.
 
 | Area | Behaviour |
 |---|---|
-| **Git events** | A `reference-transaction` hook installed in each registered vault (`vault doctor --fix`) notifies the daemon of ref updates, by leaving a file named after the vault in `<state>/refs`; it also polls refs every minute as a fallback |
+| **Git events** | A `reference-transaction` hook installed in each registered vault (`vault init`, `vault add`, `vault doctor --fix`) notifies the daemon of ref updates, by leaving a file named after the vault in `<state>/refs`; it also polls refs every minute as a fallback |
 | **Single instance** | Takes the daemon's record in the state database — its process ID and start time, void once that process ends — then binds its socket; if another daemon holds either, it does not run (and exits `0`, so a service manager does not restart it) |
 | **Timers** | Evaluates timer conditions each minute, in the machine's time zone; applies `missed` on start. A timer run is identified by its local date and scheduled time, so a clock change (daylight saving) neither repeats nor skips it |
 | **Matching** | Derives events from each job's cursor up to the accepted `main` and matches `applies-when` conditions (see Matching) |

@@ -9,7 +9,7 @@
 // ones.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { CLI_PROGRAM } from '../../src/cli/program.ts';
 import type { CliIo } from '../../src/cli/run.ts';
@@ -17,6 +17,7 @@ import { recordedServiceTools } from '../../src/core/queue/index.ts';
 import { requestOverSocket } from '../../src/core/socket/index.ts';
 import { cliFor } from '../support/cli.ts';
 import { fakePi } from '../support/daemon.ts';
+import { makeExecutable } from '../support/executables.ts';
 import { withInstallation, type TestInstallation } from '../support/installation.ts';
 import { ME, OTHER, RUNNING } from '../support/session.ts';
 
@@ -75,18 +76,11 @@ test('install writes the definition and registers it; start and stop run the ser
   ]);
 }));
 
-/** An executable file `name` in a new directory `dir`. */
-function makeTool(dir: string, name: string): void {
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, name), '#!/bin/sh\n');
-  chmodSync(join(dir, name), 0o755);
-}
-
 test('install records where node, pi and git are on PATH and gives the unit that PATH; doctor warns when one is gone, and installing again fixes it', linuxOnly, withInstallation(async (t) => {
   const tools = t.dir.file('tools');
-  makeTool(join(tools, 'node', 'latest', 'bin'), 'node');
-  makeTool(join(tools, 'pi', 'bin'), 'pi');
-  makeTool(join(tools, 'git', 'bin'), 'git');
+  makeExecutable(join(tools, 'node', 'latest', 'bin'), 'node');
+  makeExecutable(join(tools, 'pi', 'bin'), 'pi');
+  makeExecutable(join(tools, 'git', 'bin'), 'git');
   const path = ['node/latest/bin', 'pi/bin', 'git/bin'].map((d) => join(tools, d)).join(':');
   const host = { ...t.host, env: { ...t.host.env, XDG_CONFIG_HOME: t.dir.file('xdg'), PATH: path } };
   const { run } = cli(t, { host });
@@ -107,7 +101,7 @@ test('install records where node, pi and git are on PATH and gives the unit that
   assert.match(warned[0] ?? '', /^warning service: .*\bpi\b.* no longer /);
   assert.ok((warned[0] ?? '').includes(join(tools, 'pi', 'bin')) && (warned[0] ?? '').includes('"vault daemon install"'), warned[0] ?? '');
 
-  makeTool(join(tools, 'pi', 'v2', 'bin'), 'pi');
+  makeExecutable(join(tools, 'pi', 'v2', 'bin'), 'pi');
   const moved = { ...host, env: { ...host.env, PATH: path.replace(join(tools, 'pi', 'bin'), join(tools, 'pi', 'v2', 'bin')) } };
   assert.equal((await cli(t, { host: moved }).run('daemon', 'install')).code, 0);
   assert.deepEqual(recorded().find(([tool]) => tool === 'pi'), ['pi', join(tools, 'pi', 'v2', 'bin')]);
