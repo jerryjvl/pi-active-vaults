@@ -6,3 +6,4 @@
 export { createAutomation, type Automation, type AutomationOptions } from './automation.ts';
 export { METHODS, type Notice, type Reply } from './protocol.ts';
 export type { PiCommand } from './run.ts';
+export { linkDaemon, type DaemonLink } from './link.ts';

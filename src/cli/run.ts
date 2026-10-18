@@ -22,6 +22,7 @@ import {
   CATALOGUE, commandRequest, createContext, describeCommandLineError, describeError, loadInstallation, locate, outcomeData, paramsOn, parseLine, runOperation, unacceptedNotices, usage,
   type ContextOptions, type Operation, type OperationOutcome,
 } from '../core/operations/index.ts';
+import { linkDaemon } from '../core/automation/index.ts';
 import type { DaemonOptions } from '../daemon/daemon.ts';
 import { runDaemonCommand } from './daemon.ts';
 
@@ -106,8 +107,11 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     io.write('stderr', `vault: the installation cannot be loaded. ${describeError(installation.error)}\n`);
     return EXIT.failed;
   }
-  const made = createContext(installation.value, io.context);
+  // A daemon that runs takes the spawns a command requests at once; without one they are queued for it.
+  const link = await linkDaemon(installation.value.paths.socket);
+  const made = createContext(installation.value, { ...io.context, ...(link === undefined ? {} : { send: link.send }) });
   if (!made.ok) {
+    link?.close();
     io.write('stderr', `vault: the state database cannot be opened (${made.error.reason}).\n`);
     return EXIT.failed;
   }
@@ -155,6 +159,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     }
     return print(io, outcome, line.json, notices);
   } finally {
+    link?.close();
     context.close();
   }
 }

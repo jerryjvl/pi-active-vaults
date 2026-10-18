@@ -2,9 +2,10 @@
 // adapted from Pi's events to the core's `sessions` module, which decides
 // everything:
 //
-//  - session_start: load the installation, open the vault session (actor,
-//    hold, trace, budget — or, headless, refuse and shut down), fix the
-//    catalog, handle the start as a session event, publish `ready`;
+//  - session_start: load the installation, link to the daemon if one runs,
+//    open the vault session (actor, hold, trace, budget — or, headless,
+//    refuse and shut down), fix the catalog, subscribe to the notices of the
+//    session's spawns, handle the start as a session event, publish `ready`;
 //  - before_agent_start: the catalog as a prompt section, and whatever is
 //    waiting for the model (start notices, a run's brief, start documents);
 //  - tool_call: the write guard (blocking deliberately, with the reason), then
@@ -29,6 +30,7 @@ import {
   type GuardedCall, type SessionEvent, type VaultSession,
 } from '../core/sessions/index.ts';
 import type { OperationContext } from '../core/operations/index.ts';
+import { linkDaemon, type Notice } from '../core/automation/index.ts';
 import { BUS_METHODS, subscribeRequests } from './bus.ts';
 import type { Holder, Live } from './live.ts';
 import { publishSpawns, CHANNEL_PREFIX } from './operate.ts';
@@ -56,9 +58,18 @@ async function start(pi: ExtensionAPI, holder: Holder, options: HookOptions, ctx
   const headless = typeof runFile === 'string' && runFile !== '';
   const installation = loadInstallation(options.host());
   if (!installation.ok) return fail(holder, ctx, headless, `Vaults: the installation cannot be loaded. ${describeError(installation.error)}`);
-  const made = createContext(installation.value, options.context);
-  if (!made.ok) return fail(holder, ctx, headless, `Vaults: the state database cannot be opened (${made.error.reason}).`);
+  // A daemon that runs takes the session's spawn requests; without one they are queued here.
+  const link = await linkDaemon(installation.value.paths.socket);
+  const made = createContext(installation.value, { ...options.context, ...(link === undefined ? {} : { send: link.send }) });
+  if (!made.ok) {
+    link?.close();
+    return fail(holder, ctx, headless, `Vaults: the state database cannot be opened (${made.error.reason}).`);
+  }
   const context = made.value;
+  const release = (): void => {
+    link?.close();
+    context.close();
+  };
 
   let run;
   if (headless) {
@@ -66,12 +77,12 @@ async function start(pi: ExtensionAPI, holder: Holder, options: HookOptions, ctx
     try {
       text = readFileSync(runFile, 'utf8');
     } catch {
-      context.close();
+      release();
       return fail(holder, ctx, true, `Vaults: the run file ${runFile} cannot be read; the run does not start.`);
     }
     const parsed = parseRunContext(text);
     if (!parsed.ok) {
-      context.close();
+      release();
       return fail(holder, ctx, true, `Vaults: the run file is not valid (${parsed.error.map((i) => `${i.path || 'file'}: ${i.message}`).join('; ')}); the run does not start.`);
     }
     run = parsed.value;
@@ -81,7 +92,7 @@ async function start(pi: ExtensionAPI, holder: Holder, options: HookOptions, ctx
     ...(typeof actor === 'string' && actor !== '' ? { actor } : {}), ...(run === undefined ? {} : { run }),
   });
   if (!opened.ok) {
-    context.close();
+    release();
     return fail(holder, ctx, true, `Vaults: the run does not start (${opened.error.reason}).`);
   }
   const { session, notices } = opened.value;
@@ -91,9 +102,25 @@ async function start(pi: ExtensionAPI, holder: Holder, options: HookOptions, ctx
   for (const notice of notices) ctx.ui.notify(notice, 'warning');
   live.pending.push(...notices);
   if (session.brief !== undefined) live.pending.push(session.brief);
+  if (link !== undefined) {
+    // Before the start's own spawns are requested, so their notices arrive too.
+    const file = ctx.sessionManager.getSessionFile();
+    await link.subscribe(session.trace, { id: session.id, ...(file === undefined ? {} : { file }) }, (notice) => tellSpawn(pi, ctx, notice));
+    live.subscriptions.push(() => link.close());
+  }
   live.pending.push(...(await handle(pi, live, { kind: 'session.start', ...modelOf(ctx) })));
   live.subscriptions.push(subscribeRequests(pi, holder));
   pi.events.emit(`${CHANNEL_PREFIX}:ready`, { version: packageVersion(), capabilities: [...BUS_METHODS], trace: session.trace });
+}
+
+/** A spawn of the session's starting or finishing: published, and a short notice to the person. */
+function tellSpawn(pi: ExtensionAPI, ctx: ExtensionContext, notice: Notice): void {
+  pi.events.emit(`${CHANNEL_PREFIX}:spawn`, {
+    state: notice.state, trace: notice.trace, vault: notice.vault, document: notice.document,
+    ...(notice.parent === undefined ? {} : { parent: notice.parent }), ...(notice.reason === undefined ? {} : { reason: notice.reason }),
+  });
+  const how = notice.outcome === undefined ? '' : ` (${notice.outcome}${notice.reason === undefined ? '' : `: ${notice.reason}`})`;
+  ctx.ui.notify(`Vaults: spawned work ${notice.vault}:${notice.document} ${notice.state}${how}.`, 'info');
 }
 
 const modelOf = (ctx: ExtensionContext): { model?: string } => (ctx.model === undefined ? {} : { model: ctx.model.id });
