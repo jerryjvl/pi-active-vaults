@@ -7,6 +7,7 @@
 
 import type { Holder } from '../actors/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
+import type { RunRecord } from '../traces/index.ts';
 import type { OperationContext } from './context.ts';
 
 export type ParamKind = 'string' | 'strings' | 'integer' | 'boolean';
@@ -65,6 +66,8 @@ export interface Caller {
   readonly trace?: string;
   readonly holder?: Holder;
   readonly tainted?: boolean;
+  /** A session's compact record for a vault as it stands, which its commits carry (concepts.md "Trace"). */
+  readonly traceOf?: (vault: string) => RunRecord;
   /** The MCP profile the call came through. */
   readonly via?: string;
   /** Where the caller is (the CLI's current directory), for paths and scripts. */

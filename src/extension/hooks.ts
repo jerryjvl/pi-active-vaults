@@ -9,10 +9,12 @@
 //    waiting for the model (start notices, a run's brief, start documents);
 //  - tool_call: the write guard (blocking deliberately, with the reason), then
 //    the tool and the paths it touches as session events;
-//  - tool_result: taint, and the context the call's paths brought in;
+//  - tool_result: the result in the trace's full log, taint, and the context
+//    the call's paths brought in;
 //  - turn_end and session_compact: the turn's work against the budget; a
 //    headless run past its limits is stopped;
-//  - session_shutdown: release everything, as often as it is called.
+//  - session_shutdown: flush the trace and release everything, as often as
+//    it is called.
 
 import { readFileSync } from 'node:fs';
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from '@earendil-works/pi-coding-agent';
@@ -23,7 +25,7 @@ import {
   createContext, describeError, loadInstallation, locate, operationNamed, paramsOn, splitVaultPath, type ContextOptions,
 } from '../core/operations/index.ts';
 import {
-  catalogText, closeSession, guardToolCall, openSession, parseRunContext, recordTurn, renderInjections, sessionEvent, taints,
+  catalogText, closeSession, guardToolCall, logToolResult, openSession, parseRunContext, recordTurn, renderInjections, sessionEvent, taints,
   type GuardedCall, type SessionEvent, type VaultSession,
 } from '../core/sessions/index.ts';
 import type { OperationContext } from '../core/operations/index.ts';
@@ -185,6 +187,11 @@ export function registerHooks(pi: ExtensionAPI, holder: Holder, options: HookOpt
     const live = holder.live;
     if (live === undefined) return undefined;
     const { config, vaults } = live.context.installation;
+    logToolResult(live.context, live.session, {
+      tool: event.toolName, input: event.input, isError: event.isError,
+      text: event.content.map((c) => (c.type === 'text' ? c.text : `[${c.type}]`)).join(''),
+      ...(event.structuredContent === undefined ? {} : { data: event.structuredContent }),
+    });
     if (!live.session.tainted && taints(config.taint, vaults, { tool: event.toolName, reads: readsOf(event.toolName, event.input, ctx.cwd) })) live.session.tainted = true;
     const brought = live.forResult.get(event.toolCallId);
     if (brought === undefined) return undefined;

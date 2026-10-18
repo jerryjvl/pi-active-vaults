@@ -12,3 +12,4 @@ export { injectionsFor, renderInjections, type Injection, type SessionEvent } fr
 export { sessionEvent, type SessionEventOutcome } from './events.ts';
 export { recordTurn, workLeft, type TurnRecord, type TurnStop } from './turns.ts';
 export { catalogText } from './catalog.ts';
+export { logSession, logToolResult, traceRecord, type ToolResult } from './trace.ts';

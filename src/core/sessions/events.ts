@@ -42,6 +42,7 @@ export async function sessionEvent(context: OperationContext, session: VaultSess
   const key = spawnEventKey({ ...event, id });
   if (session.seen.has(key)) return { fresh: false, ...NOTHING };
   session.seen.add(key);
+  if (event.kind === 'session.path') session.touched.add(event.vault);
 
   const injections = await injectionsFor(context, session, event);
   const requested = await requestSpawns(context, { event, id }, { parent: session.trace }, send);

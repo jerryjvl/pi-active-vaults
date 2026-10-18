@@ -30,6 +30,7 @@ import { isActor, isVaultActor, readVaultIdentity, type RegisteredVault } from '
 import { err, ok, type Result } from '../result/index.ts';
 import { newTraceId } from '../traces/index.ts';
 import type { RunContext } from './run.ts';
+import { logSession, traceRecord } from './trace.ts';
 
 export interface SessionStart {
   /** Pi's ID for the session. */
@@ -60,6 +61,11 @@ export interface VaultSession {
   held: boolean;
   /** Whether it has used an untrusted tool or read outside the vaults (extension.md "Taint"). */
   tainted: boolean;
+  /** When it started (ISO 8601), for its trace. */
+  readonly started: string;
+  /** Vault scripts it ran, and every vault whose paths it touched: what its compact records say. */
+  readonly scripts: { readonly vault: string; readonly name: string; readonly exitCode: number | null }[];
+  readonly touched: Set<string>;
   closed: boolean;
   /** Session events already seen, and documents already injected, by key. */
   readonly seen: Set<string>;
@@ -82,8 +88,11 @@ export type SessionRefusal =
 /** An interactive session's own budget: bounded by the daily ceiling alone (allotment caps it), with no run time. */
 const INTERACTIVE_BUDGET: Budget = { tokens: Number.MAX_SAFE_INTEGER, ttlMs: 0 };
 
-function newSession(start: SessionStart, fields: Pick<VaultSession, 'mode' | 'trace'> & Partial<VaultSession>): VaultSession {
-  return { id: start.session, held: false, tainted: false, closed: false, seen: new Set(), injected: new Set(), documents: new Map(), ...fields };
+function newSession(context: OperationContext, start: SessionStart, fields: Pick<VaultSession, 'mode' | 'trace'> & Partial<VaultSession>): VaultSession {
+  return {
+    id: start.session, held: false, tainted: false, closed: false, started: context.clock.now().toISOString(), scripts: [], touched: new Set(),
+    seen: new Set(), injected: new Set(), documents: new Map(), ...fields,
+  };
 }
 
 /** The record this process holds an actor by, if its start time can be told. */
@@ -152,7 +161,7 @@ async function openHeadless(context: OperationContext, start: SessionStart, run:
   if (holder === undefined) return err({ reason: 'cannot-hold' });
   const hold = await takeActorHold(context.state, context.alive, context.clock, { vault: vault.id, actor: run.actor, holder });
   if (!hold.ok) return hold;
-  return ok(newSession(start, { mode: 'headless', trace: run.trace, vault, actor: run.actor, worktree: writer.value.worktree, holder, run, brief, held: true }));
+  return ok(newSession(context, start, { mode: 'headless', trace: run.trace, vault, actor: run.actor, worktree: writer.value.worktree, holder, run, brief, held: true }));
 }
 
 async function openInteractive(context: OperationContext, start: SessionStart, notices: string[]): Promise<VaultSession> {
@@ -163,15 +172,15 @@ async function openInteractive(context: OperationContext, start: SessionStart, n
 
   const here = locate(installation.vaults, start.cwd);
   const actor = here === undefined ? undefined : here.actor ?? start.actor ?? installation.config.person;
-  if (here === undefined || actor === undefined) return newSession(start, { mode: 'interactive', trace });
+  if (here === undefined || actor === undefined) return newSession(context, start, { mode: 'interactive', trace });
   const { vault } = here;
   const writer = await prepareWriter(context, vault, actor);
   if (!writer.ok) {
     notices.push(refusalText(writer.error, actor));
-    return newSession(start, { mode: 'interactive', trace, vault, actor });
+    return newSession(context, start, { mode: 'interactive', trace, vault, actor });
   }
   const holder = await holderOf(context, start);
-  const session = newSession(start, { mode: 'interactive', trace, vault, actor, worktree: writer.value.worktree, ...(holder === undefined ? {} : { holder }) });
+  const session = newSession(context, start, { mode: 'interactive', trace, vault, actor, worktree: writer.value.worktree, ...(holder === undefined ? {} : { holder }) });
   const held = await holdActor(context, session);
   if (!held.ok) notices.push(refusalText(held.error, actor));
   return session;
@@ -180,11 +189,11 @@ async function openInteractive(context: OperationContext, start: SessionStart, n
 /** Opens the session: interactive, or headless when a run is given (refused unless it can run). Notices say what the session should know. */
 export async function openSession(context: OperationContext, start: SessionStart): Promise<Result<{ session: VaultSession; notices: string[] }, SessionRefusal>> {
   const notices = (await unacceptedNotices(context, context.installation.vaults)).map((n) => n.notice);
-  if (start.run !== undefined) {
-    const opened = await openHeadless(context, start, start.run);
-    return opened.ok ? ok({ session: opened.value, notices }) : opened;
-  }
-  return ok({ session: await openInteractive(context, start, notices), notices });
+  const opened = start.run !== undefined ? await openHeadless(context, start, start.run) : ok(await openInteractive(context, start, notices));
+  if (!opened.ok) return opened;
+  const session = opened.value;
+  logSession(context, session, { kind: 'start', mode: session.mode, ...(session.vault === undefined ? {} : { vault: session.vault.id }), ...(session.actor === undefined ? {} : { actor: session.actor }) });
+  return ok({ session, notices });
 }
 
 /** Takes the session's actor if it does not hold it yet: when it was busy at the start, it may be free now. */
@@ -205,10 +214,12 @@ export function holdRefusalText(session: VaultSession, refusal: SessionRefusal):
   return refusalText(refusal, session.actor ?? 'the actor');
 }
 
-/** Releases the hold and ends an interactive session's budget; closing again does nothing. */
+/** Releases the hold, ends an interactive session's budget and flushes its trace; closing again does nothing. */
 export function closeSession(context: OperationContext, session: VaultSession): void {
   if (session.closed) return;
   session.closed = true;
+  const used = budgetState(context.state, context.installation.config.budgets, context.clock, session.trace)?.used;
+  logSession(context, session, { kind: 'end', ...(used === undefined ? {} : { tokens: used }), tainted: session.tainted });
   if (session.held && session.vault !== undefined && session.actor !== undefined && session.holder !== undefined) {
     releaseActorHold(context.state, { vault: session.vault.id, actor: session.actor, holder: session.holder });
   }
@@ -228,6 +239,7 @@ export function callerOf(context: OperationContext, session: VaultSession, cwd: 
     ...(person === undefined ? {} : { person }),
     ...(session.actor === undefined ? {} : { actor: session.actor }),
     ...(session.held && session.holder !== undefined ? { holder: session.holder } : {}),
+    traceOf: (vault) => traceRecord(context, session, vault),
   };
 }
 

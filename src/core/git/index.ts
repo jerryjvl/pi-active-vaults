@@ -44,6 +44,7 @@ export {
   mergeSha,
   prepareCommit,
   stageExecutable,
+  uncommittedPaths,
   type Attribution,
   type CommitOptions,
   type Identity,

@@ -84,6 +84,15 @@ export async function hasTrackedChanges(git: Git, repo: string): Promise<Result<
   return text.ok ? ok(text.value !== '') : text;
 }
 
+/** Paths that differ from HEAD — staged, unstaged or untracked, ignored ones aside — sorted; renames as a deletion and a creation. */
+export async function uncommittedPaths(git: Git, repo: string): Promise<Result<string[], GitError>> {
+  const ran = await runChecked(git, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules', '--no-renames'], { cwd: repo });
+  if (!ran.ok) return ran;
+  // Each entry is two status letters, a space and the path; the letters may be spaces, so nothing is trimmed.
+  const entries = ran.value.stdout.toString('utf8').split('\0').filter((entry) => entry !== '');
+  return ok([...new Set(entries.map((entry) => entry.slice(3)))].sort());
+}
+
 /** A commit made but not yet on any branch: what a blocking check assesses before it lands. */
 export interface PreparedCommit {
   readonly sha: Sha;

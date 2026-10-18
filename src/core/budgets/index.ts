@@ -9,6 +9,7 @@ export {
   budgetsSchema,
   finishSession,
   startSession,
+  treePath,
   type AllotRefusal,
   type AllotRequest,
   type Allotment,

@@ -70,8 +70,11 @@ The session receives a short notice when spawned work starts and finishes.
 
 ### Commits
 
-The commit tool runs blocking checks, then commits with `Vault-Trace` (the
-session's trace), `Vault-Actor` and `Vault-Session` trailers.
+The commit tool writes the session's compact trace record into the worktree,
+runs blocking checks, then commits it with the work, with `Vault-Trace` (the
+session's trace), `Vault-Actor` and `Vault-Session` trailers. The record alone
+is never a commit. Each tool result, each turn's work and the session's start
+and end go to the trace's full log, `session`.
 
 ### Taint
 

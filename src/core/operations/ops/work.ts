@@ -147,7 +147,8 @@ export const scriptOperation: Operation = {
   async run(context, request) {
     const vault = theVault(request);
     const options = await context.scriptOptions();
-    const trace = newTraceId(context.ids);
+    // A session's script runs are part of its run: what they send is recorded in its trace.
+    const trace = request.caller.trace ?? newTraceId(context.ids);
     const deps = notifyDeps(context, options.env);
     const input = text(request.params, 'input');
     const ran = await runScript({ git: context.git, store: context.state, vault }, text(request.params, 'name') ?? '', texts(request.params, 'args'), {
@@ -155,7 +156,7 @@ export const scriptOperation: Operation = {
       cwd: scriptDirectory(request, vault), ...(input === undefined ? {} : { input }),
     });
     if (!ran.ok) return fromError(ran.error);
-    const outcome = { ...ran.value, trace };
+    const outcome = { ...ran.value, vault: vault.id, name: text(request.params, 'name') ?? '', trace };
     const note = ran.value.timedOut ? '\n[timed out]' : ran.value.truncated ? '\n[output cut off]' : '';
     return { status: ran.value.exitCode === 0 && !ran.value.timedOut ? 'ok' : 'failed', text: `${ran.value.stdout}${ran.value.stderr === '' ? '' : `\n${ran.value.stderr}`}${note}`.trim(), data: outcome };
   },
@@ -184,7 +185,7 @@ export const notifyOperation: Operation = {
     const subject = text(request.params, 'subject');
     if (subject === undefined) return invalid('A subject is needed (--subject).');
     const key = text(request.params, 'key');
-    const sent = await sendNotification(deps, { to, subject, body: text(request.params, 'body') ?? '', trace: newTraceId(context.ids), ...(key === undefined ? {} : { key }) });
+    const sent = await sendNotification(deps, { to, subject, body: text(request.params, 'body') ?? '', trace: request.caller.trace ?? newTraceId(context.ids), ...(key === undefined ? {} : { key }) });
     return sent.ok ? succeeded(`${sent.value.outcome} ${sent.value.messageId}`, sent.value) : fromError(sent.error);
   },
 };

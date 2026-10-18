@@ -221,3 +221,15 @@ export function budgetState(store: Queryable, limits: BudgetLimits, clock: Clock
   const row = session(store, trace);
   return row === undefined ? undefined : stateOf(row, limits, clock, usedToday(store, clock));
 }
+
+/** The traces of the sessions that led to `trace`, root first — its causal path; empty for a root or an unknown session. */
+export function treePath(store: Queryable, trace: string): string[] {
+  const path: string[] = [];
+  let parent = store.get<{ parent: string | null }>('SELECT parent FROM budgets_sessions WHERE trace = ?', [trace])?.parent ?? null;
+  // Parents are recorded before their children, so there is no cycle; a damaged ledger still cannot loop.
+  while (parent !== null && !path.includes(parent)) {
+    path.unshift(parent);
+    parent = store.get<{ parent: string | null }>('SELECT parent FROM budgets_sessions WHERE trace = ?', [parent])?.parent ?? null;
+  }
+  return path;
+}

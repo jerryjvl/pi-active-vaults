@@ -10,6 +10,7 @@
 import { accountUsage, budgetState, type BudgetState, type RequestUsage } from '../budgets/index.ts';
 import type { OperationContext } from '../operations/index.ts';
 import type { VaultSession } from './session.ts';
+import { logSession } from './trace.ts';
 
 /** Why a headless run must stop; the daemon records it as the spawn's stop reason. */
 export type TurnStop = 'budget' | 'ttl';
@@ -29,6 +30,7 @@ export function recordTurn(context: OperationContext, session: VaultSession, usa
   const recorded = context.state.transaction((tx) => accountUsage(tx, context.installation.config.budgets, context.clock, session.trace, turn));
   if (!recorded.ok) return {};
   const state = recorded.value;
+  logSession(context, session, { kind: 'turn', usage: turn, used: state.used });
   if (session.mode === 'interactive') return { state };
   if (state.exhausted || state.dailyExhausted) return { state, stop: 'budget' };
   return state.overTime ? { state, stop: 'ttl' } : { state };

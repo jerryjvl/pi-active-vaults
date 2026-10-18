@@ -361,7 +361,10 @@ back from the ID. The ID propagates to everything the run causes.
   (UTC) — JSON with `trace`, `vault`, `path` (the causal path: the trace IDs
   of the runs that led to this one, root first), `trigger`, `sessions`,
   `judgements`, `scripts`, `documents` produced and `elsewhere` — committed
-  with the run's other changes on its actor branch.
+  with the run's other changes on its actor branch: each of the run's commits
+  carries the record as it stands, naming every document the run has produced
+  so far. A run that commits nothing leaves no record in the vault; its full
+  log and its spawn's state say how it ended.
 - **In produced documents**: a `provenance` key, `{ trace, path }`.
 - **On the machine**: full logs in the log directory as JSON lines, per UTC day
   and trace, kept for a configurable number of days including today
