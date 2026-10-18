@@ -46,6 +46,7 @@ export {
   landCommit,
   mergeSha,
   prepareCommit,
+  resetHard,
   stageExecutable,
   uncommittedDiff,
   uncommittedPaths,

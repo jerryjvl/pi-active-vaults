@@ -271,3 +271,10 @@ export async function fastForward(git: Git, worktree: string, sha: Sha): Promise
   if (dirty.value) return err({ reason: 'dirty-worktree' });
   return runForSuccess(git, ['merge', '--ff-only', '--quiet', '--no-verify', '--no-verify-signatures', sha], { cwd: worktree });
 }
+
+/** Moves the checked-out branch in `worktree`, and its files, to `sha` whatever its relation to the branch — what a fast-forward refuses; tracked changes are lost, so callers check the tree is clean first. */
+export async function resetHard(git: Git, worktree: string, sha: Sha): Promise<Result<void, GitError>> {
+  const checked = checkSha(sha);
+  if (!checked.ok) return checked;
+  return runForSuccess(git, ['reset', '--hard', '--quiet', sha], { cwd: worktree });
+}
