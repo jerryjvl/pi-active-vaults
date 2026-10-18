@@ -1,6 +1,6 @@
 // Documented behaviour: concepts.md "Actor" (forge mode), architecture.md
 // "Review and accept", daemon.md "Forge sync", security.md — in forge mode
-// the package pushes actor branches and attestation notes, opens or updates a
+// the package pushes actor branches and its notes (attestations and traces), opens or updates a
 // pull request, and publishes each check's result and one `vault/policy`
 // status saying whether the proposal satisfies the vault's merge policy, with
 // owners' forge approvals of the exact commit. It never pushes `main`. It
@@ -117,6 +117,28 @@ test('attestation notes from the forge merge line by line with the local ones', 
   });
 }, forgeVault));
 
+test('trace notes travel like attestations: merged from the forge line by line, and pushed with a proposal', withTestVault(async (v) => {
+  await withForge(v, async (forge) => {
+    assert.ok((await syncWithForge(forge.deps, v.vault)).ok);
+    const head = v.propose({ 'topics/a.md': 'x\n' });
+    v.repo.git('notes', '--ref=refs/notes/vault/traces', 'add', '-m', '{"local":1}', head);
+    v.repo.git('notes', '--ref=refs/notes/vault/traces', 'add', '-m', '{"here":1}', v.initial);
+    const other = createTempRepo();
+    try {
+      other.git('fetch', '--quiet', forge.bare, 'main:refs/remotes/origin/main');
+      other.git('notes', '--ref=refs/notes/vault/traces', 'add', '-m', '{"there":1}', v.initial);
+      other.git('push', '--quiet', forge.bare, 'refs/notes/vault/traces:refs/notes/vault/traces');
+    } finally {
+      other.cleanup();
+    }
+    const proposed = await proposeToForge(forge.deps, v.vault, 'gardener');
+    assert.ok(proposed.ok, JSON.stringify(proposed));
+    assert.equal(forge.remote('notes', '--ref=refs/notes/vault/traces', 'show', head), '{"local":1}');
+    assert.deepEqual(v.repo.git('notes', '--ref=refs/notes/vault/traces', 'show', v.initial).split('\n').filter((l) => l !== '').sort(), ['{"here":1}', '{"there":1}']);
+    assert.equal(forge.remote('notes', '--ref=refs/notes/vault/traces', 'show', v.initial).includes('{"here":1}'), true, 'merged before pushing, so the push is a fast-forward');
+  });
+}, forgeVault));
+
 test('proposing pushes the actor branch and notes, opens a pull request, then updates it; main is never pushed', withTestVault(async (v) => {
   await withForge(v, async (forge) => {
     assert.ok((await syncWithForge(forge.deps, v.vault)).ok);
@@ -138,9 +160,9 @@ test('proposing pushes the actor branch and notes, opens a pull request, then up
   });
 }, forgeVault));
 
-test('nothing but actor branches and attestation notes is ever pushed', withTestVault(async (v) => {
+test('nothing but actor branches and the package\'s notes is ever pushed', withTestVault(async (v) => {
   await withForge(v, async (forge) => {
-    for (const refspec of ['refs/heads/main:refs/heads/main', 'refs/heads/actor/gardener:refs/heads/main', '+refs/heads/main:refs/heads/actor/x', 'refs/heads/actor/a:refs/tags/v1']) {
+    for (const refspec of ['refs/heads/main:refs/heads/main', 'refs/notes/vault/other:refs/notes/vault/other', 'refs/notes/vault/traces:refs/notes/vault/attestations', 'refs/heads/actor/gardener:refs/heads/main', '+refs/heads/main:refs/heads/actor/x', 'refs/heads/actor/a:refs/tags/v1']) {
       const pushed = await pushToForge(v.git, v.repo.path, [refspec]);
       assert.deepEqual(!pushed.ok && pushed.error, { reason: 'not-pushable', refspec }, refspec);
     }

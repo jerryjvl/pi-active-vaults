@@ -1,6 +1,6 @@
 // A local stand-in for a forge's REST API — Gitea, GitHub or GitLab — over one
-// shared model: pull requests, commit statuses, reviews and branch
-// protection. It answers in each forge's own shapes, checks the forge's own
+// shared model: pull requests, commit statuses, reviews, branch protection
+// and whether squash merges are allowed. It answers in each forge's own shapes, checks the forge's own
 // token header, and records every request. A pull request's head commit is
 // read through `headSha`, so it can follow a real (local) remote repository.
 
@@ -31,6 +31,8 @@ export interface ForgeModel {
   reviews: StubReview[];
   /** The forge-native protection body for `main`, or undefined when unprotected. */
   protection?: object;
+  /** Whether the repository allows squash merges; undefined: the forge does not say. */
+  squash?: boolean;
   /** GitHub: the active ruleset rules that apply to `main`. */
   rules?: object[];
   /** GitLab: project settings. `resetApprovalsOnPush` undefined: the setting cannot be read (Free tier). */
@@ -137,7 +139,9 @@ export async function startForgeStub(type: ForgeType, headSha: (branch: string) 
       if (type === 'github' && rest === '/branches/main/protection') return state.protection === undefined ? { status: 404, body: { message: 'Branch not protected' } } : { body: state.protection };
       if (type === 'github' && rest === '/rules/branches/main') return { body: page(state.rules ?? [], url.searchParams, 'per_page') };
       if (type === 'gitlab' && rest === '/protected_branches/main') return state.protection === undefined ? { status: 404, body: {} } : { body: state.protection };
-      if (type === 'gitlab' && rest === '') return { body: { path_with_namespace: PROJECT, only_allow_merge_if_pipeline_succeeds: state.gitlab.pipelinesMustSucceed } };
+      const squash = state.squash === undefined ? {} : type === 'gitlab' ? { squash_option: state.squash ? 'default_off' : 'never' } : { allow_squash_merge: state.squash };
+      if (type === 'gitlab' && rest === '') return { body: { path_with_namespace: PROJECT, only_allow_merge_if_pipeline_succeeds: state.gitlab.pipelinesMustSucceed, ...squash } };
+      if (type !== 'gitlab' && rest === '') return { body: { full_name: PROJECT, ...squash } };
       if (type === 'gitlab' && rest === '/approvals') {
         return state.gitlab.resetApprovalsOnPush === undefined ? { status: 403, body: {} } : { body: { reset_approvals_on_push: state.gitlab.resetApprovalsOnPush } };
       }

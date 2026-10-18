@@ -7,6 +7,7 @@ import { existsSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   addWorktree,
+  appendNoteLine,
   createCommit,
   listWorktrees,
   notesAdd,
@@ -125,4 +126,13 @@ test('a note whose content starts like an option is stored as text', withRepo(as
   const sha = repo.commit('first');
   await notesAdd(git, repo.path, NOTES, sha, '--help\n-m evil', { identity: BOB });
   assert.deepEqual(await notesShow(git, repo.path, NOTES, sha), { ok: true, value: '--help\n-m evil' });
+}));
+
+test('a line appended to a note is confirmed by reading the note back', withRepo(async (repo) => {
+  const git = gitFor(repo);
+  const sha = repo.commit('base');
+  assert.deepEqual(await appendNoteLine(git, repo.path, NOTES, sha, '{"a":1}', { identity: BOB }), { ok: true, value: true });
+  assert.deepEqual(await appendNoteLine(git, repo.path, NOTES, sha, '{"b":2}', { identity: BOB }), { ok: true, value: true });
+  assert.deepEqual(await notesShow(git, repo.path, NOTES, sha), { ok: true, value: '{"a":1}\n\n{"b":2}' });
+  assert.equal((await appendNoteLine(git, repo.path, NOTES, sha, 'two\nlines', { identity: BOB })).ok, false, 'one line only');
 }));

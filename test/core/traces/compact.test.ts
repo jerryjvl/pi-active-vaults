@@ -1,24 +1,20 @@
 // Documented behaviour: concepts.md "Trace" — every run gets a unique,
-// time-sortable trace ID; a compact record is kept in the vault at
-// `.vault/traces/<yyyy>/<mm>/<trace-id>.json` (triggers, sessions, judgements,
-// scripts run, documents produced), committed with the run's other changes;
-// when a run spans vaults, each records only its own part and other vaults
-// appear as opaque references.
+// time-sortable trace ID; a compact record (triggers, sessions, judgements,
+// scripts run, documents produced) is kept in the vault as a Git note on each
+// of the run's commits, one line of JSON so notes merge line by line; when a
+// run spans vaults, each records only its own part and other vaults appear as
+// opaque references.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { createIdSource, isTraceId } from '../../../src/core/ids/index.ts';
 import {
-  compactTracePath,
   newTraceId,
   opaqueReference,
   parseCompactTrace,
   renderCompactTrace,
-  writeCompactTrace,
   type CompactTrace,
 } from '../../../src/core/traces/index.ts';
 import { fakeClock } from '../../support/clock.ts';
-import { withTempDir } from '../../support/temp-dir.ts';
 
 const ids = () => createIdSource({ clock: fakeClock(), randomBytes: (n) => new Uint8Array(n) });
 
@@ -44,23 +40,17 @@ test('trace IDs are issued from the ID source: well formed and increasing', () =
   assert.ok(second > first);
 });
 
-test('a compact record lives under the year and month its trace was issued, in UTC', () => {
-  const id = newTraceId(ids()); // the fake clock starts at 2026-01-01T00:00:00Z
-  assert.equal(compactTracePath(id), `.vault/traces/2026/01/${id}.json`);
-  assert.throws(() => compactTracePath('../../etc/passwd'), /trace ID/);
-});
-
 test('a session ends committed, stopped, or with no changes', () => {
   const trace = sample(newTraceId(ids()));
   const nothing: CompactTrace = { ...trace, sessions: [{ actor: 'gardener', started: '2026-01-01T00:00:00.000Z', tokens: 80, outcome: 'no-change' }] };
   assert.deepEqual(parseCompactTrace(renderCompactTrace(nothing)), { ok: true, value: nothing });
 });
 
-test('a compact record is rendered deterministically and read back unchanged', () => {
+test('a compact record is rendered deterministically as one line and read back unchanged', () => {
   const trace = sample(newTraceId(ids()));
   const text = renderCompactTrace(trace);
   assert.equal(text, renderCompactTrace({ ...trace }));
-  assert.ok(text.endsWith('}\n'));
+  assert.ok(text.startsWith('{') && text.endsWith('}') && !text.includes('\n'), 'one line, so notes merge line by line');
   assert.deepEqual(Object.keys(JSON.parse(text)), ['trace', 'vault', 'path', 'trigger', 'sessions', 'judgements', 'scripts', 'documents', 'elsewhere']);
   assert.deepEqual(parseCompactTrace(text), { ok: true, value: trace });
 });
@@ -73,15 +63,6 @@ test('a malformed compact record is refused with every problem, never read in pa
   assert.deepEqual(parsed.error.map((i) => i.path).sort(), ['extra', 'path[0]', 'sessions[0].actor', 'sessions[0].tokens'].sort());
   assert.equal(parseCompactTrace('{ not json').ok, false);
 });
-
-test('writing puts the record at its path in the worktree, ready to commit with the run\'s changes', withTempDir((dir) => {
-  const trace = sample(newTraceId(ids()));
-  const written = writeCompactTrace(dir.path, trace);
-  assert.deepEqual(written, { ok: true, value: compactTracePath(trace.trace) });
-  assert.equal(readFileSync(dir.file(...compactTracePath(trace.trace).split('/')), 'utf8'), renderCompactTrace(trace));
-  const refused = writeCompactTrace(dir.path, { ...trace, vault: '' });
-  assert.equal(refused.ok, false);
-}));
 
 test('another vault\'s part of a run is an opaque reference: stable, but naming neither the vault nor anything in it', () => {
   const id = newTraceId(ids());

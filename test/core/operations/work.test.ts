@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { listSpawns } from '../../../src/core/queue/index.ts';
-import { compactTracePath, renderCompactTrace } from '../../../src/core/traces/index.ts';
+import { TRACES_REF, renderCompactTrace } from '../../../src/core/traces/index.ts';
 import { scriptSource } from '../../support/vault.ts';
 import { withInstallation, type TestInstallation } from '../../support/installation.ts';
 
@@ -83,18 +83,24 @@ test('notify refuses an address or an unknown alias', withInstallation(async (t)
   assert.equal((await t.run('notify', { to: 'nobody', subject: 'x', body: 'y' })).status, 'refused');
 }, { config: 'notify:\n  from: "Vault <vault@example.net>"\n  recipients: { me: me@example.net }\n  transport: { type: sendmail, command: /nonexistent/sendmail }' }));
 
-test('trace shows a compact record from the vault; an unknown trace is not found', withInstallation(async (t) => {
+test('trace shows the compact record from the note on the run\'s latest commit; an unknown trace is not found', withInstallation(async (t) => {
   const trace = '01JABCDEFGHJKMNPQRSTVWXYZ0';
-  t.repo.write(compactTracePath(trace), renderCompactTrace({
+  const noted = (documents: string[]) => renderCompactTrace({
     trace, vault: 'home', path: [], trigger: { event: 'manual', document: 'jobs/daily.md' },
     sessions: [{ actor: 'gardener', started: '2026-01-01T00:00:00.000Z', tokens: 120, outcome: 'committed' }],
-    judgements: [], scripts: [], documents: ['digests/today.md'], elsewhere: [],
-  }));
-  t.repo.commit('a trace');
+    judgements: [], scripts: [], documents, elsewhere: [],
+  });
+  t.repo.write('digests/yesterday.md', 'x');
+  const first = t.repo.commit(`Yesterday\n\nVault-Trace: ${trace}`);
+  t.repo.git('notes', `--ref=${TRACES_REF}`, 'add', '-m', noted(['digests/yesterday.md']), first);
+  t.repo.write('digests/today.md', 'x');
+  const last = t.repo.commit(`Today\n\nVault-Trace: ${trace}`);
+  t.repo.git('notes', `--ref=${TRACES_REF}`, 'add', '-m', noted(['digests/today.md', 'digests/yesterday.md']), last);
   t.accept();
   const shown = await t.run('trace', { id: trace });
   assert.equal(shown.status, 'ok', shown.text);
-  assert.match(shown.text, /home: manual jobs\/daily\.md[^]*session gardener: committed, 120 tokens[^]*produced digests\/today\.md/);
+  assert.match(shown.text, /home: manual jobs\/daily\.md[^]*session gardener: committed, 120 tokens\n  produced digests\/today\.md\n  produced digests\/yesterday\.md\n  commits: [0-9a-f]{12}, [0-9a-f]{12}/);
+  assert.equal((shown.data as { records: unknown[] }).records.length, 1, 'one record per vault: the latest');
   assert.equal((await t.run('trace', { id: '01JABCDEFGHJKMNPQRSTVWXYZ1' })).status, 'failed');
   assert.equal((await t.run('trace', { id: 'not-a-trace' })).status, 'invalid');
 }));

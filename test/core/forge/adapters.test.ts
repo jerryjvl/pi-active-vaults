@@ -1,7 +1,8 @@
 // Documented behaviour: core.md `forge` — one adapter interface over Gitea,
 // GitHub and GitLab: the executor's account, opening or updating a pull
 // request, publishing commit statuses, reading owners' approvals of an exact
-// commit, and reading branch protection. Each forge's own API shapes and
+// commit, and reading branch protection and whether squash merges are
+// allowed (security-setup.md: they must be disabled). Each forge's own API shapes and
 // token header; requests never follow redirects and errors never carry the
 // token. Local stub servers only.
 import { test } from 'node:test';
@@ -148,6 +149,16 @@ test('branch protection is read in each forge\'s terms', async () => {
   }, { protection: { push_access_levels: [{ access_level: 40 }], allow_force_push: false }, gitlab: { pipelinesMustSucceed: true } });
 });
 
+test('whether squash merges are allowed is read in each forge\'s terms, and unknown where the forge does not say', async () => {
+  for (const type of TYPES) {
+    for (const squash of [true, false, undefined]) {
+      await withForge(type, async (adapter) => {
+        assert.deepEqual(await adapter.squashMerges(), { ok: true, value: squash ?? 'unknown' }, `${type}: ${String(squash)}`);
+      }, squash === undefined ? {} : { squash });
+    }
+  }
+});
+
 test('a forge is found by the host of the vault\'s remote, and the project by its path', () => {
   const forges = [entry('gitea', 'http://127.0.0.1:1/api/v1'), { ...entry('github', ''), host: 'github.com' }];
   for (const url of ['https://git.example.net/home/vault.git', 'ssh://git@git.example.net:2222/home/vault.git', 'git@git.example.net:home/vault.git', 'https://git.example.net/home/vault']) {
@@ -179,13 +190,16 @@ test('a failing, redirecting or unauthorised forge is an error naming the forge,
   });
 });
 
-test('the recommended setup is checked: protected main, pull requests only, vault/policy required, owner approval, an executor that is not an owner', () => {
+test('the recommended setup is checked: protected main, pull requests only, vault/policy required, owner approval, no squash merges, an executor that is not an owner', () => {
   const recommended = { protected: true, directPushes: false, forcePushes: false, deletion: false, requiresPolicyStatus: true, requiredApprovals: 1 } as const;
-  assert.deepEqual(protectionProblems(recommended, { account: 'vault-bot', owners: ['alice'] }), []);
-  assert.deepEqual(protectionProblems(UNPROTECTED, { account: 'vault-bot', owners: ['alice'] }), ['not-protected']);
-  assert.deepEqual(protectionProblems({ ...recommended, directPushes: true, forcePushes: true, deletion: true }, { account: 'vault-bot', owners: ['alice'] }),
+  const bot = { account: 'vault-bot', owners: ['alice'], squashMerges: false } as const;
+  assert.deepEqual(protectionProblems(recommended, bot), []);
+  assert.deepEqual(protectionProblems(UNPROTECTED, bot), ['not-protected']);
+  assert.deepEqual(protectionProblems({ ...recommended, directPushes: true, forcePushes: true, deletion: true }, bot),
     ['direct-pushes', 'force-pushes', 'deletion']);
-  assert.deepEqual(protectionProblems({ ...recommended, requiresPolicyStatus: false, requiredApprovals: 0 }, { account: 'alice', owners: ['alice'] }),
+  assert.deepEqual(protectionProblems({ ...recommended, requiresPolicyStatus: false, requiredApprovals: 0 }, { ...bot, account: 'alice' }),
     ['policy-status-not-required', 'approval-not-required', 'executor-is-owner']);
-  assert.deepEqual(protectionProblems({ ...recommended, requiredApprovals: 'unknown' }, { account: 'vault-bot', owners: ['alice'] }), ['approval-unknown']);
+  assert.deepEqual(protectionProblems({ ...recommended, requiredApprovals: 'unknown' }, bot), ['approval-unknown']);
+  assert.deepEqual(protectionProblems(recommended, { ...bot, squashMerges: true }), ['squash-merges'], 'they discard the commits trailers, attestations and traces are on');
+  assert.deepEqual(protectionProblems(UNPROTECTED, { ...bot, squashMerges: 'unknown' }), ['not-protected', 'squash-unknown']);
 });

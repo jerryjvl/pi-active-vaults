@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import {
   changedPaths,
   commitsBetween,
+  commitsWithTrailer,
   diffText,
   listFiles,
   listTree,
@@ -231,4 +232,24 @@ test('a path at a revision is a file, a directory, or absent', withTempRepo(asyn
   assert.deepEqual(await pathTypeAt(git, repo.path, sha, 'topics/cars'), { ok: true, value: 'directory' });
   assert.deepEqual(await pathTypeAt(git, repo.path, sha, 'topics/cars/a.md'), { ok: true, value: 'file' });
   assert.deepEqual(await pathTypeAt(git, repo.path, sha, 'topics/boats'), { ok: true, value: undefined });
+}));
+
+test('commits carrying a trailer value are found across revisions, newest first and each once', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('a.md', 'a');
+  const base = repo.commit('base');
+  repo.write('a.md', 'b');
+  const first = repo.commit('First\n\nVault-Trace: 01TRACE');
+  repo.write('a.md', 'c');
+  repo.commit('Mentions Vault-Trace: 01TRACE in its body only\n\nVault-Trace: 01OTHER');
+  repo.git('checkout', '--quiet', '-b', 'side', base);
+  repo.write('b.md', 'b');
+  const side = repo.commit('Side\n\nvault-trace: 01TRACE');
+  repo.write('b.md', 'longer');
+  repo.commit('Prefix only\n\nVault-Trace: 01TRACE2');
+  const found = await commitsWithTrailer(git, repo.path, ['main', 'side', 'main'], 'Vault-Trace', '01TRACE');
+  assert.ok(found.ok, JSON.stringify(found));
+  assert.deepEqual(found.value.map((c) => c.sha).sort(), [side, first].sort(), 'the trailer compared as Git does, never a mention or a prefix');
+  assert.deepEqual(await commitsWithTrailer(git, repo.path, [], 'Vault-Trace', '01TRACE'), { ok: true, value: [] });
+  assert.equal((await commitsWithTrailer(git, repo.path, ['--all'], 'Vault-Trace', '01TRACE')).ok, false, 'a revision like an option is refused');
 }));
