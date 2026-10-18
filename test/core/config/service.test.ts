@@ -76,12 +76,12 @@ test('the user\'s pi is found on PATH; a JavaScript entry point runs with node',
   assert.deepEqual(findPi(testHost({ env: { PATH: '/nonexistent' } }), '/usr/bin/node'), { ok: false, error: { reason: 'pi-not-found' } });
 }));
 
-test('on Windows, pi is the package npm installed beside pi.cmd, run with node', withTempDir((dir) => {
-  const npm = dir.file('npm');
-  const cli = join(npm, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js');
-  mkdirSync(join(cli, '..'), { recursive: true });
-  writeFileSync(cli, '');
-  writeFileSync(join(npm, 'pi.cmd'), '@echo off\r\n');
+test('on Windows, pi is the package npm installed beside pi.cmd, run with node', () => {
+  const npm = 'C:\\Users\\alice\\AppData\\Roaming\\npm';
+  const cli = `${npm}\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\cli.js`;
+  const files = new Set([`${npm}\\pi.cmd`, cli]);
   const host = testHost({ os: 'win32', env: { Path: `C:\\nowhere;${npm}` } });
-  assert.deepEqual(findPi(host, 'C:\\node\\node.exe'), { ok: true, value: { file: 'C:\\node\\node.exe', args: [cli] } });
-}));
+  const fs = { exists: (path: string) => files.has(path), real: (path: string) => path };
+  assert.deepEqual(findPi(host, 'C:\\node\\node.exe', fs), { ok: true, value: { file: 'C:\\node\\node.exe', args: [cli] } });
+  assert.deepEqual(findPi(testHost({ os: 'win32', env: { Path: 'C:\\nowhere' } }), 'C:\\node\\node.exe', fs), { ok: false, error: { reason: 'pi-not-found' } });
+});
