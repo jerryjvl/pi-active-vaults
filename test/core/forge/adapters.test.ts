@@ -1,7 +1,7 @@
 // Documented behaviour: core.md `forge` — one adapter interface over Gitea,
 // GitHub and GitLab: the executor's account, opening or updating a pull
 // request, publishing commit statuses, reading owners' approvals of an exact
-// commit, and reading branch protection and the repository's merge methods
+// commit, reading the pull requests merged most recently, and reading branch protection and the repository's merge methods
 // (security-setup.md: squash and rebase merges must be disabled). Each forge's own API shapes and
 // token header; requests never follow redirects and errors never carry the
 // token. Local stub servers only.
@@ -52,6 +52,21 @@ for (const type of TYPES) {
     assert.deepEqual([policy?.context, policy?.state, policy?.description.length], ['vault/policy', type === 'gitlab' ? 'failed' : 'failure', 140]);
     assert.deepEqual([check?.sha, check?.state], [SHA_1, 'success']);
   }));
+
+  test(`${type}: the pull requests merged most recently into a branch are read newest first, each with the head it was merged at`, () => withForge(type, async (adapter) => {
+    const merged = await adapter.mergedPullRequests('main');
+    assert.ok(merged.ok, JSON.stringify(merged));
+    assert.deepEqual(merged.value.map((p) => [p.number, p.head, p.headSha, p.state]), [
+      [5, 'actor/gardener', SHA_2, 'merged'],
+      [1, 'actor/gardener', SHA_1, 'merged'],
+    ], 'not open, not closed unmerged, not into another branch');
+  }, { pulls: [
+    { number: 1, head: 'actor/gardener', base: 'main', title: '', body: '', state: 'merged', sha: SHA_1 },
+    { number: 2, head: 'actor/librarian', base: 'main', title: '', body: '', state: 'open' },
+    { number: 3, head: 'actor/librarian', base: 'main', title: '', body: '', state: 'closed' },
+    { number: 4, head: 'actor/librarian', base: 'other', title: '', body: '', state: 'merged', sha: SHA_1 },
+    { number: 5, head: 'actor/gardener', base: 'main', title: '', body: '', state: 'merged', sha: SHA_2 },
+  ] }));
 
   test(`${type}: a missing branch protection is reported as unprotected`, () => withForge(type, async (adapter) => {
     const read = await adapter.protection('main');

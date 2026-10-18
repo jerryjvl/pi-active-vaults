@@ -1,7 +1,9 @@
 // Documented behaviour: daemon.md — "Forge sync": for `forge`-mode vaults the
 // daemon fetches to detect merges (the forge's main becomes the accepted
 // main), and for the vaults it runs pushes actor branches and keeps pull
-// requests, commit statuses and `vault/policy` current; "Outbox": it retries
+// requests, commit statuses and `vault/policy` current; when it learns that a
+// proposal was merged, it checks that the proposal's head is in the new main
+// and reports one that is not (security-setup.md); "Outbox": it retries
 // undelivered notifications with backoff (notifications.md "Nothing is lost
 // on failure"). Against a local bare repository behind the forge's URL, a
 // stub forge API and a sendmail command that can be made to fail.
@@ -15,7 +17,7 @@ import { acceptedMain } from '../../../src/core/integrity/index.ts';
 import { sendNotification, undeliveredNotifications } from '../../../src/core/notify/index.ts';
 import { notifyDeps, scriptEnvironment } from '../../../src/core/operations/index.ts';
 import { automationFor, fakePi } from '../../support/daemon.ts';
-import { mergeInForge, withForgeInstallation } from '../../support/forge-vault.ts';
+import { mergeInForge, mergePullInForge, withForgeInstallation } from '../../support/forge-vault.ts';
 import { withInstallation, type TestInstallation } from '../../support/installation.ts';
 
 const posixOnly = { skip: process.platform === 'win32' ? 'a POSIX shell as sendmail' : false };
@@ -82,6 +84,68 @@ test('a sync that fails is in the daemon\'s status, and tried again on the next 
   await automation.tick();
   assert.deepEqual((await forgeStatus(automation)).map((f) => [f.vault, f.error]), [['home', 'no-forge']]);
 }, { host: true, forges: false }));
+
+const NOTIFY = 'notify:\n  from: "Vault <vault@example.net>"\n  recipients: { alice: alice@example.net }\n  transport: { type: sendmail, command: /nonexistent/sendmail }';
+
+for (const how of ['squash', 'rebase'] as const) {
+  test(`a proposal merged by ${how} is reported in status and doctor and told to the owners once; one merged with its commits is not`, withForgeInstallation(async (t, forge) => {
+    const automation = automationFor(t, fakePi(t));
+    await automation.start();
+    const outbox = () => t.context.state.all<{ alias: string; subject: string; body: string }>('SELECT alias, subject, body FROM notify_outbox');
+    const lostIn = async (operation: 'status' | 'doctor') => {
+      const outcome = await t.run(operation, {});
+      return operation === 'status'
+        ? outcome.text.split('\n').filter((l) => /no longer attach/.test(l))
+        : (outcome.data as { findings: { check: string; level: string; message: string }[] }).findings.filter((f) => f.check === 'merges').map((f) => `${f.level}: ${f.message}`);
+    };
+
+    await commitAsGardener(t, 'notes/a.md', '# A\n');
+    await automation.tick();
+    mergePullInForge(forge, 1, 'merge');
+    await automation.tick();
+    assert.deepEqual(outbox(), [], 'a merge commit keeps the proposal\'s commits');
+    assert.deepEqual(await lostIn('status'), []);
+    assert.deepEqual(await lostIn('doctor'), []);
+
+    const head = await commitAsGardener(t, 'notes/b.md', '# B\n');
+    await automation.tick();
+    assert.deepEqual(forge.stub.model.pulls.map((p) => [p.number, p.state]), [[1, 'merged'], [2, 'open']]);
+    const main = mergePullInForge(forge, 2, how);
+    await automation.tick();
+    assert.equal(acceptedMain(t.context.state, 'home')?.sha, main, 'the merge is still learnt of');
+
+    const status = await lostIn('status');
+    assert.equal(status.length, 1);
+    assert.match(status[0] ?? '', new RegExp(`#2 from gardener .*head ${head} is not in main`));
+    const doctor = await lostIn('doctor');
+    assert.equal(doctor.length, 1);
+    assert.match(doctor[0] ?? '', /^warning: .*#2 from gardener/);
+    const told = outbox();
+    assert.deepEqual(told.map((m) => m.alias), ['alice'], 'the owner, once');
+    assert.match(told[0]?.subject ?? '', /home/);
+    assert.match(told[0]?.body ?? '', /#2 .*actor\/gardener[\s\S]*attestations and trace notes no longer attach/);
+
+    await automation.tick();
+    t.clock.advance(10 * MINUTE);
+    await automation.tick();
+    assert.equal(outbox().length, 1, 'told once, not every tick');
+  }, { host: true, config: NOTIFY }));
+}
+
+test('what merged is asked before fetching, so a merge made in between is judged against a main that holds it', withForgeInstallation(async (t, forge) => {
+  const automation = automationFor(t, fakePi(t));
+  await automation.start();
+  await commitAsGardener(t, 'notes/a.md', '# A\n');
+  await automation.tick();
+  let merged: string | undefined;
+  forge.stub.model.onList = (query) => {
+    if (query.get('state') === 'closed' && merged === undefined) merged = mergePullInForge(forge, 1, 'merge');
+  };
+  await automation.tick();
+  assert.equal(acceptedMain(t.context.state, 'home')?.sha, merged);
+  assert.deepEqual(t.context.state.all('SELECT * FROM notify_outbox'), []);
+  assert.ok(!(await t.run('status', {})).text.includes('no longer attach'), 'fetching first would have judged it against a main without the merge');
+}, { host: true, config: NOTIFY }));
 
 test('each tick retries the outbox\'s messages that are due, with backoff, until they are delivered', posixOnly, async () => {
   const box = mkdtempSync(join(tmpdir(), 'pav-sendmail-'));

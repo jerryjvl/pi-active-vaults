@@ -56,16 +56,48 @@ export function mergeInForge(forge: Forge, files: Record<string, string>): strin
   }
 }
 
-/** A test installation whose vault is in forge mode with the forge configured; `forges: false` leaves the forge out of the config. */
+/**
+ * Merges pull request `number` in the forge as `how` says: a merge commit, a
+ * squash into one new commit, or a rebase that copies the commits (as forges
+ * do, even onto an unchanged base) and fast-forwards. Returns the new main.
+ */
+export function mergePullInForge(forge: Forge, number: number, how: 'merge' | 'squash' | 'rebase'): string {
+  const pull = forge.stub.model.pulls.find((p) => p.number === number);
+  if (pull === undefined) throw new Error(`no pull request #${number}`);
+  const clone = createTempRepo();
+  try {
+    clone.git('fetch', '--quiet', forge.bare, 'main:refs/heads/forge-main', `${pull.head}:refs/heads/proposal`);
+    pull.sha = clone.git('rev-parse', 'proposal');
+    clone.git('checkout', '--quiet', 'forge-main');
+    if (how === 'merge') clone.git('merge', '--quiet', '--no-ff', '-m', `Merge pull request #${number}`, 'proposal');
+    if (how === 'squash') {
+      clone.git('merge', '--quiet', '--squash', 'proposal');
+      clone.git('commit', '--quiet', '-m', `${pull.title} (#${number})`);
+    }
+    if (how === 'rebase') {
+      clone.git('checkout', '--quiet', 'proposal');
+      clone.git('rebase', '--quiet', '--force-rebase', 'forge-main');
+      clone.git('checkout', '--quiet', 'forge-main');
+      clone.git('merge', '--quiet', '--ff-only', 'proposal');
+    }
+    clone.git('push', '--quiet', forge.bare, 'HEAD:refs/heads/main');
+    pull.state = 'merged';
+    return clone.git('rev-parse', 'HEAD');
+  } finally {
+    clone.cleanup();
+  }
+}
+
+/** A test installation whose vault is in forge mode with the forge configured; `forges: false` leaves the forge out of the config, and any `config` is added to it. */
 export function withForgeInstallation(run: (t: TestInstallation, forge: Forge) => Promise<void>, options: InstallationOptions & { readonly forges?: boolean } = {}): () => Promise<void> {
-  const { forges, ...rest } = options;
+  const { forges, config, ...rest } = options;
   return () => withForge(async (forge) => {
     await withInstallation(async (t) => {
       connectToForge(t.repo, forge);
       await run(t, forge);
     }, {
       contract: { review: 'forge', extra: 'merge:\n  - { paths: ["**"], require: [checks, owner] }' },
-      ...(forges === false ? {} : { config: `forges:\n  - { host: git.example.net, type: gitea, token: "\${FORGE_TOKEN}", api: "${forge.stub.api}" }` }),
+      config: [forges === false ? '' : `forges:\n  - { host: git.example.net, type: gitea, token: "\${FORGE_TOKEN}", api: "${forge.stub.api}" }`, config ?? ''].filter((c) => c !== '').join('\n'),
       env: { FORGE_TOKEN },
       ...rest,
     })();

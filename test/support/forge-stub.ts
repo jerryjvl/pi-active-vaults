@@ -14,6 +14,8 @@ export interface StubPull {
   title: string;
   body: string;
   state: 'open' | 'closed' | 'merged';
+  /** The head commit, fixed when it was merged; otherwise read through `headSha`. */
+  sha?: string;
 }
 
 export interface StubReview {
@@ -33,6 +35,8 @@ export interface ForgeModel {
   protection?: object;
   /** The repository's settings in the forge's own fields (merge methods); 'forbidden': the account may not read them. */
   repository?: Record<string, unknown> | 'forbidden';
+  /** Called before a list of pull requests is answered: something that happens in the forge meanwhile. */
+  onList?: (query: URLSearchParams) => void;
   /** GitHub: the active ruleset rules that apply to `main`. */
   rules?: object[];
   /** GitLab: project settings. `resetApprovalsOnPush` undefined: the setting cannot be read (Free tier). */
@@ -67,8 +71,13 @@ export async function startForgeStub(type: ForgeType, headSha: (branch: string) 
 
   const pullJson = (pull: StubPull): object =>
     type === 'gitlab'
-      ? { iid: pull.number, web_url: `https://forge/${PROJECT}/-/merge_requests/${pull.number}`, source_branch: pull.head, target_branch: pull.base, sha: headSha(pull.head), state: pull.state === 'open' ? 'opened' : pull.state, title: pull.title, description: pull.body }
-      : { number: pull.number, html_url: `https://forge/${PROJECT}/pulls/${pull.number}`, state: pull.state === 'open' ? 'open' : 'closed', merged: pull.state === 'merged', head: { ref: pull.head, sha: headSha(pull.head) }, base: { ref: pull.base }, title: pull.title, body: pull.body };
+      ? { iid: pull.number, web_url: `https://forge/${PROJECT}/-/merge_requests/${pull.number}`, source_branch: pull.head, target_branch: pull.base, sha: pull.sha ?? headSha(pull.head), state: pull.state === 'open' ? 'opened' : pull.state, title: pull.title, description: pull.body }
+      : {
+        number: pull.number, html_url: `https://forge/${PROJECT}/pulls/${pull.number}`, state: pull.state === 'open' ? 'open' : 'closed',
+        // GitHub's lists say a pull request was merged only by `merged_at`.
+        ...(type === 'github' ? { merged_at: pull.state === 'merged' ? '2026-10-01T00:00:00Z' : null } : { merged: pull.state === 'merged' }),
+        head: { ref: pull.head, sha: pull.sha ?? headSha(pull.head) }, base: { ref: pull.base }, title: pull.title, body: pull.body,
+      };
 
   const handle = (request: RecordedRequest): StubResponse => {
     if (!authorised(type, request)) return { status: 401, body: { message: 'bad token' } };
@@ -86,11 +95,21 @@ export async function startForgeStub(type: ForgeType, headSha: (branch: string) 
     const pullsPath = type === 'gitlab' ? '/merge_requests' : '/pulls';
 
     if (method === 'GET' && rest === pullsPath) {
-      const wantedState = type === 'gitlab' ? 'opened' : 'open';
-      let found = state.pulls.filter((p) => (url.searchParams.get('state') === wantedState ? p.state === 'open' : true));
-      if (type === 'github' && url.searchParams.has('head')) found = found.filter((p) => `home:${p.head}` === url.searchParams.get('head'));
-      if (type === 'gitlab' && url.searchParams.has('source_branch')) found = found.filter((p) => p.head === url.searchParams.get('source_branch'));
-      return { body: page(found, url.searchParams, type === 'gitea' ? 'limit' : 'per_page').map(pullJson) };
+      const query = url.searchParams;
+      state.onList?.(query);
+      const wanted = query.get('state');
+      const states: readonly string[] = wanted === 'open' || wanted === 'opened' ? ['open'] : wanted === 'closed' ? ['closed', 'merged'] : wanted === 'merged' ? ['merged'] : ['open', 'closed', 'merged'];
+      let found = state.pulls.filter((p) => states.includes(p.state));
+      if (type === 'github' && query.has('head')) found = found.filter((p) => `home:${p.head}` === query.get('head'));
+      if (type === 'gitlab' && query.has('source_branch')) found = found.filter((p) => p.head === query.get('source_branch'));
+      const base = query.get(type === 'gitea' ? 'base_branch' : type === 'github' ? 'base' : 'target_branch');
+      if (base !== null) found = found.filter((p) => p.base === base);
+      // Newest first, when asked in the forge's own terms; pull requests are numbered in the order they change here.
+      const newest = type === 'gitea' ? query.get('sort') === 'recentclose'
+        : type === 'github' ? query.get('sort') === 'updated' && query.get('direction') === 'desc'
+          : query.get('order_by') === 'updated_at' && query.get('sort') === 'desc';
+      if (newest) found = [...found].reverse();
+      return { body: page(found, query, type === 'gitea' ? 'limit' : 'per_page').map(pullJson) };
     }
     if (method === 'POST' && rest === pullsPath) {
       const pull: StubPull = {
