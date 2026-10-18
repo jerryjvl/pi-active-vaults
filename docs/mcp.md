@@ -65,8 +65,11 @@ With no `mcp` section, or a profile with no permissions, MCP can touch nothing.
   `owner`, and the approval attestation records both the owner and the profile.
   Reviews through a profile are its owner's too.
 - **Writes name their actor.** `write` and `commit` take the actor to write as —
-  one of the vault's actors or owners — and are refused while another session
-  holds it.
+  one of the vault's `actors`, never an owner — and are refused while another
+  session holds it.
+- **MCP commits are tainted.** Every commit made through MCP carries
+  `Vault-Tainted`: the package cannot know what the client read, so it fails
+  closed, as unknown tools do in a Pi session.
 - **Only listed tools exist.** A client sees exactly the operations its profile
   permits for at least one vault, in a stable order; calls for a vault where
   the operation is not permitted are refused.

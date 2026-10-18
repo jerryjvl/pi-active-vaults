@@ -344,9 +344,9 @@ change to `main` is reported until an owner accepts it. See
 
 Commits made by the package carry trailers: `Vault-Trace`, `Vault-Actor` and, for
 commits made from a Pi session, `Vault-Session` — plus `Vault-Tainted` once that
-session is tainted. Their Git identity is the actor's (or, for an owner act,
-the person's) name at the installation, `<name>@<host>`, whatever the
-machine's Git configuration says.
+session is tainted, and always on a commit made through MCP. Their Git identity
+is the actor's (or, for an owner act, the person's) name at the installation,
+`<name>@<host>`, whatever the machine's Git configuration says.
 
 ## Trace
 
