@@ -11,6 +11,7 @@
 
 import { DataReader, issuePath, type Issue, type Result } from '../result/index.ts';
 import { globIssue } from './globs.ts';
+import { parseSchedule } from './timers.ts';
 
 export const EVENT_KINDS = ['timer', 'committed', 'merged', 'session.start', 'session.tool', 'session.path', 'external'] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
@@ -61,10 +62,6 @@ const FILTERS: Readonly<Record<EventKind, readonly Filter[]>> = {
 
 const REQUIRED: Readonly<Partial<Record<EventKind, Filter>>> = { timer: 'schedule', external: 'name' };
 
-// Five whitespace-separated fields; the schedule's meaning is checked where
-// timers are evaluated.
-const CRON_SHAPE = /^\S+(?:\s+\S+){4}$/;
-
 // A script in `.vault/scripts/` by name: no directory, not hidden, not a built-in.
 const VAULT_SCRIPT_NAME = /^[A-Za-z0-9_-][^/\\:\s]*$/;
 
@@ -78,7 +75,8 @@ function readFilter(r: DataReader, field: Filter, value: unknown, path: string):
   switch (field) {
     case 'schedule': {
       const schedule = r.string(value, path);
-      if (schedule !== '' && !CRON_SHAPE.test(schedule.trim())) r.add(path, 'must be a cron expression of five fields');
+      const parsed = schedule === '' ? undefined : parseSchedule(schedule, path);
+      if (parsed?.ok === false) for (const issue of parsed.error) r.add(issue.path, issue.message);
       return { schedule };
     }
     case 'missed': {

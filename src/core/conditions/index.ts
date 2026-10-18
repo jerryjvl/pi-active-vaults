@@ -24,3 +24,4 @@ export {
 } from './match.ts';
 export { documentConditions, type DocumentConditions } from './documents.ts';
 export { narrowByScripts, type Narrowed, type ScriptFilterContext, type ScriptFilterOptions } from './script.ts';
+export { localSlot, parseSchedule, timerFirings, type Schedule, type Slot, type TimerTick } from './timers.ts';
