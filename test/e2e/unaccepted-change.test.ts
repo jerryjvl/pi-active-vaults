@@ -1,4 +1,4 @@
-// End to end (implementation plan, Stage 7): an unaccepted change pausing
+// End to end: an unaccepted change pausing
 // automation, then accept --adopt and the alternative, resetting main
 // (security.md "Unexpected changes"; daemon.md "Integrity"; cli.md — every
 // command reports it, and adopting shows the delta's concerns, which must be

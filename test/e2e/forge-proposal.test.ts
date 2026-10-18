@@ -1,4 +1,4 @@
-// End to end (implementation plan, Stage 7): a forge-mode proposal against a
+// End to end: a forge-mode proposal against a
 // stub forge (concepts.md "Actor" — forge mode; daemon.md "Forge sync";
 // security-setup.md). A job arrives through the forge, a run triggered from
 // the CLI commits on its actor branch, the daemon pushes it and opens its

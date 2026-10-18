@@ -53,7 +53,7 @@ const DEFAULT_SENDMAIL_ARGS = ['-t', '-i'];
 const ADDRESS_PROBLEM = 'must be a plain address: one @, ASCII, no spaces or separators';
 
 /** Whether `value` is an address the package will use: the only form envelopes and headers ever get. */
-export function isPlainAddress(value: string): boolean {
+function isPlainAddress(value: string): boolean {
   return ADDRESS.test(value);
 }
 

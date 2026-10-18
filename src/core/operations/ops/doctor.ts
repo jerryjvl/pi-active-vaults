@@ -285,7 +285,7 @@ export const doctorOperation: Operation = {
 };
 
 /** Every finding, installation first, then each vault, then the machine's state. */
-export async function doctorFindings(context: OperationContext, fix: boolean): Promise<Finding[]> {
+async function doctorFindings(context: OperationContext, fix: boolean): Promise<Finding[]> {
   const { paths } = context.installation;
   const findings = await installationFindings(context);
   for (const [path, mode] of [[dirname(paths.stateDb), 0o700], [dirname(paths.configFile), 0o700], [paths.configFile, 0o600], [paths.stateDb, 0o600]] as const) {
@@ -298,7 +298,7 @@ export async function doctorFindings(context: OperationContext, fix: boolean): P
   return findings;
 }
 
-export function doctorText(findings: readonly Finding[]): string {
+function doctorText(findings: readonly Finding[]): string {
   return findings.map((f) => `${f.level === 'ok' ? 'ok     ' : f.level === 'warning' ? 'warning' : 'PROBLEM'} ${f.check}${f.vault === undefined ? '' : ` [${f.vault}]`}: ${f.message}`).join('\n');
 }
 

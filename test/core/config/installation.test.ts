@@ -217,7 +217,7 @@ test('a forge may name its API base, for a forge whose API is not at the usual p
   assert.deepEqual(bad.error.issues, [{ path: 'forges[0].api', message: 'must be an http or https URL' }]);
 });
 
-// Proposed in Stage 6a (daemon.md "Scheduling"): how long a spawn may wait in
+// daemon.md "Scheduling": how long a spawn may wait in
 // the queue, and how many headless sessions the daemon runs at once — the
 // capacity of the model Pi runs them with.
 test('the daemon section sets the queue-time limit and how many runs go at once, with defaults', () => {

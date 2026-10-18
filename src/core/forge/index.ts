@@ -6,7 +6,6 @@
 export {
   POLICY_CONTEXT,
   UNPROTECTED,
-  apiBase,
   protectionProblems,
   type BranchProtection,
   type CommitStatus,

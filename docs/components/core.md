@@ -14,6 +14,8 @@ it; no vault logic lives anywhere else.
   commands and scripts all run through it.
 - **HTTP requests are made only through the `http` module.** Model clients and
   forge adapters use it.
+- **Sockets are opened only through the `socket` module.** The daemon's socket
+  and every HTTP endpoint the package serves.
 - **SQLite is accessed only through the `store` module.** No other module opens
   a database.
 - **Errors are values.** Operations return typed results with a reason; they
@@ -23,6 +25,9 @@ it; no vault logic lives anywhere else.
 
 | Module | Responsibility |
 |---|---|
+| `result` | Results and validation issues as values; canonical JSON; JSON-lines framing |
+| `clock` | The injected clock, and durations in the one form documents and config use |
+| `ids` | Time-sortable unique IDs (trace IDs) from an injected clock and randomness, strictly increasing per source |
 | `process` | Start a process: a program with an argument array, or an explicit shell command line; exactly the environment given; standard input closed unless input is given; bounded output; a time limit, past which the process is killed — with its process group on POSIX; a long-lived one read line by line (the daemon's headless sessions); end a recorded process only when its start time is the one recorded |
 | `http` | Make a JSON request to a configured endpoint (a model role or a forge): never follows redirects, so a body or credential goes only to the URL given; a time limit; errors carry a status, never the response body |
 | `socket` | The one place the package listens: the daemon's local socket — a Unix domain socket, or a named pipe on Windows — accessible only to the user: listen (refused where another listener answers, taking over a socket nothing answers at), connect, and JSON-lines requests answered by their ID; and HTTP endpoints for local clients, at a loopback address or a socket path under the same rules, with bounded request bodies |
@@ -50,7 +55,7 @@ it; no vault logic lives anywhere else.
 | `forge` | Forge adapters (Gitea, GitHub, GitLab): push actor branches and the package's notes, open or update pull requests, publish commit statuses and `vault/policy`, read approvals and merges, check branch protection and the merge methods that replace a proposal's commits; record whether merged proposals reached `main` with their commits |
 | `sessions` | What a Pi session — interactive, or a headless run from the daemon's run file — is to the vaults: its actor, hold, trace and budget; the write guard; taint; injecting contracts and `inject` documents; session events and the spawns they request; per-turn budget records; the vault catalog for its prompt |
 | `operations` | The catalogue of operations — name (also its permission), parameters, implementation, and which surfaces expose it (Pi tool, Pi command, CLI, MCP) — from which every surface is generated; checking parameters and choosing vaults alike for every surface; reading a command line or a call's named arguments into a request, alike for every surface; the messages and statuses every surface shows, what a model gets back, and the unaccepted-change notices; requesting spawns for an event, alike for every surface; permission sets and their evaluation; what an MCP client sees and may call; loading the installation with the sections other modules own; the complete list of module schemas each local store is opened with |
-| `automation` | The daemon's work, as one object the daemon adapter drives: which vaults it runs and which are paused (owners told once), forge sync, Git events from each job's cursor, timers, the outbox's retries, running spawns as `pi --mode rpc`, the socket protocol, and the link other surfaces use to reach a running daemon |
+| `automation` | The daemon's work, as one object the daemon adapter drives: which vaults it runs and which are paused, forge sync and the merges it learns of, telling owners once of an unaccepted change or a merge that lost its commits, Git events from each job's cursor, timers, the outbox's retries, running spawns as `pi --mode rpc`, the socket protocol, and the link other surfaces use to reach a running daemon |
 
 ## Key interfaces
 

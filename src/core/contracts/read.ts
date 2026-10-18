@@ -13,12 +13,12 @@ import { ROOT_CONTRACT, mergeContracts, type ContractFile, type EffectiveContrac
 
 export type ContractError = GitError | { readonly reason: 'invalid-contract'; readonly issues: readonly Issue[] };
 
-export function contractFileIn(directory: string): string {
+function contractFileIn(directory: string): string {
   return directory === '' ? ROOT_CONTRACT : `${directory}/${ROOT_CONTRACT}`;
 }
 
 /** The directories whose contracts govern `path`, root (`''`) first. */
-export function governingDirectories(path: string, isDirectory: boolean): string[] {
+function governingDirectories(path: string, isDirectory: boolean): string[] {
   const parts = path === '' ? [] : path.split('/');
   const directories = isDirectory ? parts : parts.slice(0, -1);
   return ['', ...directories.map((_, i) => directories.slice(0, i + 1).join('/'))];

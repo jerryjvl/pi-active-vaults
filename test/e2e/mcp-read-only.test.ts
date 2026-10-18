@@ -1,4 +1,4 @@
-// End to end (implementation plan, Stage 7): an MCP read-only profile
+// End to end: an MCP read-only profile
 // (mcp.md). The daemon serves it over HTTP with its bearer token, and
 // `vault mcp` serves it over standard input/output; both offer exactly the
 // `@read` operations, nothing for a vault the profile is given none for —

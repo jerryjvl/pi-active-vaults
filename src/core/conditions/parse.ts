@@ -105,7 +105,7 @@ function readFilter(r: DataReader, field: Filter, value: unknown, path: string):
 }
 
 /** Reads one condition into `r`; undefined when its event is unknown (nothing else can be checked). */
-export function readCondition(r: DataReader, value: unknown, path: string): Condition | undefined {
+function readCondition(r: DataReader, value: unknown, path: string): Condition | undefined {
   const c = r.record(value, path, ['on', 'effect', ...FILTER_ORDER, 'script', 'context']);
   const on = r.oneOf(c['on'], issuePath(path, 'on'), EVENT_KINDS);
   const effect = r.oneOf(c['effect'], issuePath(path, 'effect'), EFFECTS);

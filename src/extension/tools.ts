@@ -49,7 +49,7 @@ function schemaOf(spec: ParamSpec): TSchema {
 }
 
 /** The tool's parameters: the operation's, on the tool surface, and `vaults` for one over many. */
-export function parametersOf(operation: Operation): TSchema {
+function parametersOf(operation: Operation): TSchema {
   const properties: Record<string, TSchema> = {};
   for (const spec of paramsOn(operation, 'tool')) properties[spec.name] = isRequired(spec, 'tool') ? schemaOf(spec) : Type.Optional(schemaOf(spec));
   if (operation.vault === 'many') properties['vaults'] = Type.Optional(Type.Array(Type.String(), { description: 'The vault IDs to use (default: every vault)' }));

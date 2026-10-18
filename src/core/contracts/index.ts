@@ -5,7 +5,6 @@ export {
   ROOT_CONTRACT,
   applyListOps,
   mergeContracts,
-  strategyOf,
   type ContractFile,
   type EffectiveContract,
   type Strategy,

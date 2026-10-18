@@ -72,7 +72,7 @@ export function axesVersion(definition: unknown): string {
 }
 
 /** What one path needs. */
-export function requirementsFor(change: PolicyChange, tainted: boolean): Set<Requirement> {
+function requirementsFor(change: PolicyChange, tainted: boolean): Set<Requirement> {
   const needed = new Set<Requirement>();
   for (const rule of change.rules) {
     if (!rule.paths.some((glob) => matchesGlob(change.path, glob))) continue;

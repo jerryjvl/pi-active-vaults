@@ -27,7 +27,7 @@ import { flag, forgeDeps, identityOf, personOf, readingFrom, text, texts, theVau
 
 const ACTOR_PARAM = { name: 'actor', kind: 'string', positional: true, description: 'The actor whose proposal it is' } as const;
 
-export async function commitContext(context: OperationContext, caller: Caller): Promise<ActorCommitContext> {
+async function commitContext(context: OperationContext, caller: Caller): Promise<ActorCommitContext> {
   return {
     git: context.git,
     store: context.state,

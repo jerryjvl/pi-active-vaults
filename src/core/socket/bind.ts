@@ -22,7 +22,7 @@ export type ListenError =
 const MAX_UNIX_PATH_BYTES = 103;
 const PROBE_TIMEOUT_MS = 2000;
 
-export function isPipe(path: string): boolean {
+function isPipe(path: string): boolean {
   return path.startsWith('\\\\.\\pipe\\');
 }
 

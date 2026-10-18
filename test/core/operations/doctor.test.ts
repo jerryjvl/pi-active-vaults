@@ -2,13 +2,12 @@
 // checks config, Git, Pi, model endpoints, hooks (including a core.hooksPath
 // that bypasses them), paths and forge settings, and reports a local vault
 // with a remote, sessions holding an actor, and a leftover Git lock in main's
-// worktree; `--fix` installs hooks and corrects permissions. Assigned to this
-// stage: a hold whose holder cannot be told is reported with its process and
-// session, undelivered notifications, keyword-only search because no policy
-// entry names a vault, and no budgets.daily-tokens. The Stage 6b review:
-// squash and rebase merges must be disabled in the forge; where the forge's API
-// does not show the merge methods to the executor, doctor warns that it cannot
-// verify them.
+// worktree; `--fix` installs hooks and corrects permissions. It also reports
+// a hold whose holder cannot be told, with its process and session,
+// undelivered notifications, keyword-only search because no policy entry
+// names a vault, and no budgets.daily-tokens; and in forge mode, squash or
+// rebase merges allowed — or, where the forge's API does not show the merge
+// methods to the executor, that it cannot verify them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';

@@ -63,7 +63,7 @@ const KEYS: Readonly<Record<string, { readonly strategy: Strategy; readonly shap
   'applies-when': { strategy: 'list-ops', shape: isList },
 };
 
-export function strategyOf(key: string): Strategy {
+function strategyOf(key: string): Strategy {
   return KEYS[key]?.strategy ?? 'nearest';
 }
 

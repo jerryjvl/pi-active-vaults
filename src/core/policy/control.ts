@@ -23,7 +23,7 @@ export interface ControlChange {
 }
 
 /** Why a path is control by its name alone, if it is. */
-export function controlPathReason(path: string): 'contract' | 'vault-directory' | undefined {
+function controlPathReason(path: string): 'contract' | 'vault-directory' | undefined {
   if (inPackageDirectory(path)) return 'vault-directory';
   if (path.toLowerCase().split('/').at(-1) === ROOT_CONTRACT) return 'contract';
   return undefined;

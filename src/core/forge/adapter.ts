@@ -106,7 +106,7 @@ export interface ForgeDepsBase {
 }
 
 /** The forge's API base: configured, or where the forge type has it. */
-export function apiBase(entry: ForgeEntry): string {
+function apiBase(entry: ForgeEntry): string {
   if (entry.api !== undefined) return entry.api.replace(/\/+$/, '');
   switch (entry.type) {
     case 'gitea':

@@ -1,4 +1,4 @@
-// End to end (implementation plan, Stage 7): a scheduled job producing a
+// End to end: a scheduled job producing a
 // proposal, which an owner reviews and accepts. Across the daemon (timers,
 // claims, scheduling, `pi --mode rpc` in the actor's worktree — a fake pi
 // that commits with the package's trailers), the actor branch as the

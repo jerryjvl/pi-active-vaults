@@ -21,7 +21,7 @@ function windowsShellPath(path: string): string {
 }
 
 /** Where a path argument of Pi's tools points, from `cwd`. */
-export function piPath(input: string, cwd: string): string {
+function piPath(input: string, cwd: string): string {
   let path = input.replace(UNICODE_SPACES, ' ');
   if (path.startsWith('@')) path = path.slice(1);
   if (process.platform === 'win32') path = windowsShellPath(path);
