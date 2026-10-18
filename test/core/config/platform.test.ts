@@ -3,11 +3,13 @@
 // private to the user. Windows and macOS branches run through injected hosts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ensurePrivateDir, installationPaths, platformDirs } from '../../../src/core/config/index.ts';
+import { ensurePrivateDir, installationPaths, platformDirs, realLocation } from '../../../src/core/config/index.ts';
 import { testHost } from '../../support/host.ts';
+import { withTempDir } from '../../support/temp-dir.ts';
+
 
 function dirs(host = testHost()) {
   const result = platformDirs(host);
@@ -97,3 +99,12 @@ test('private directories are created accessible to the user only (POSIX modes)'
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('a path\'s real location follows links in every directory on the way that exists, and keeps the rest as written', { skip: process.platform === 'win32' ? 'symbolic links need privileges' : false }, withTempDir((dir) => {
+  mkdirSync(dir.file('real', 'sub'), { recursive: true });
+  symlinkSync(dir.file('real'), dir.file('link'));
+  const base = realpathSync.native(dir.path);
+  assert.equal(realLocation(dir.file('link', 'sub', 'new', 'file.md')), join(base, 'real', 'sub', 'new', 'file.md'));
+  assert.equal(realLocation(dir.file('link')), join(base, 'real'));
+  assert.equal(realLocation(dir.file('link', '..', 'real')), join(base, 'real'), 'resolved as written first, as the system would');
+}));
