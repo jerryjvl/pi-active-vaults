@@ -144,3 +144,20 @@ export async function runOperation(context: OperationContext, operation: Operati
   }
   return operation.run(context, { ...request, params: params.value });
 }
+
+/**
+ * The vaults and parameters of a call made with named arguments — a Pi tool
+ * call, an MCP call, a request on Pi's event bus: vault paths name their
+ * vaults, `vaults` names them for an operation over many, and otherwise it is
+ * the vault the caller is in (`here`), else `fallback` (a session's own).
+ */
+export function callRequest(
+  installation: Pick<Installation, 'vaults'>, operation: Operation, surface: ParamSurface, input: Readonly<Record<string, unknown>>,
+  where: { readonly here?: Location; readonly fallback?: RegisteredVault } = {},
+): Result<{ vaults: RegisteredVault[]; params: Record<string, unknown> }, VaultChoiceError> {
+  const { vaults: named, ...params } = input;
+  const names = Array.isArray(named) ? named.filter((n): n is string => typeof n === 'string') : [];
+  const placed = placeVaultPaths(installation, operation, surface, params, names, where.here);
+  const chosen = chooseVaults(installation, operation, placed.named, where.here?.vault ?? where.fallback);
+  return chosen.ok ? ok({ vaults: chosen.value, params: placed.params }) : chosen;
+}

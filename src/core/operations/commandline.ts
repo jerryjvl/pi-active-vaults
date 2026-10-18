@@ -186,7 +186,7 @@ export function commandRequest(
   return chosen.ok ? ok({ vaults: chosen.value, params: placed.params }) : chosen;
 }
 
-/** Why a command line does not fit, for the person who typed it. */
+/** Why a request does not fit, for whoever made it: the person who typed a command line, or a model. */
 export function describeCommandLineError(error: CommandLineError, operation: Operation, surface: ParamSurface): string {
   switch (error.reason) {
     case 'extra-arguments':
@@ -194,6 +194,8 @@ export function describeCommandLineError(error: CommandLineError, operation: Ope
     case 'unknown-vault':
       return `"${error.vault}" is not a registered vault.`;
     case 'which-vault':
-      return `Which vault? Name it (${surface === 'command' ? '/vault' : 'vault'} ${operation.command ?? operation.name} <vault> …, or --vault), or run this inside one.`;
+      return surface === 'tool' || surface === 'mcp'
+        ? 'Which vault? Name it in a path, as <vault-id>:<path>.'
+        : `Which vault? Name it (${surface === 'command' ? '/vault' : 'vault'} ${operation.command ?? operation.name} <vault> …, or --vault), or run this inside one.`;
   }
 }

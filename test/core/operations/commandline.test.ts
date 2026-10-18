@@ -69,6 +69,7 @@ test('a command line that does not fit says why, as its surface names the comman
   const which = commandRequest(installation, review, 'command', parseLine(review, ['gardener'], 'command'));
   assert.ok(!which.ok);
   assert.match(describeCommandLineError(which.error, review, 'command'), /Which vault\? Name it \(\/vault review <vault> …/);
+  assert.equal(describeCommandLineError(which.error, review, 'tool'), 'Which vault? Name it in a path, as <vault-id>:<path>.', 'a model names vaults in paths');
   const unknown = commandRequest(installation, review, 'cli', parseLine(review, ['--vault', 'nowhere', 'gardener'], 'cli'));
   assert.ok(!unknown.ok);
   assert.equal(describeCommandLineError(unknown.error, review, 'cli'), '"nowhere" is not a registered vault.');

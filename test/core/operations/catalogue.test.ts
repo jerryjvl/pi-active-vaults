@@ -6,7 +6,7 @@
 // runs; vaults are chosen the same way for every surface.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CATALOGUE, PERMISSIONS, checkParams, chooseVaults, operationNamed, paramsOn, placeVaultPaths } from '../../../src/core/operations/index.ts';
+import { CATALOGUE, PERMISSIONS, callRequest, checkParams, chooseVaults, operationNamed, paramsOn, placeVaultPaths } from '../../../src/core/operations/index.ts';
 import type { RegisteredVault } from '../../../src/core/registry/index.ts';
 
 test('every operation is named once; those offered over MCP are exactly the permissions', () => {
@@ -89,4 +89,17 @@ test('a list of vault paths names its vault the same way, each path placed alike
   assert.ok(commit !== undefined);
   assert.deepEqual(placeVaultPaths(installation, commit, 'tool', { paths: ['home:notes/a.md', 'home:b.md'] }, []), { params: { paths: ['notes/a.md', 'b.md'] }, named: ['home'] });
   assert.deepEqual(placeVaultPaths(installation, commit, 'cli', { paths: ['a.md'] }, [], { vault: home, path: 'notes' }), { params: { paths: ['notes/a.md'] }, named: [] });
+});
+
+test('a call with named arguments names its vaults in paths or in vaults, else it is where the caller is, else the fallback', () => {
+  const read = operationNamed('read');
+  const search = operationNamed('search');
+  assert.ok(read !== undefined && search !== undefined);
+  const pathed = callRequest(installation, read, 'tool', { path: 'work:a.md' });
+  assert.deepEqual(pathed.ok && [pathed.value.vaults.map((v) => v.id), pathed.value.params], [['work'], { path: 'a.md' }]);
+  const listed = callRequest(installation, search, 'tool', { query: 'x', vaults: ['work'] });
+  assert.deepEqual(listed.ok && [listed.value.vaults.map((v) => v.id), listed.value.params], [['work'], { query: 'x' }]);
+  const fallback = callRequest(installation, read, 'tool', { path: 'a.md' }, { fallback: home });
+  assert.deepEqual(fallback.ok && fallback.value.vaults.map((v) => v.id), ['home']);
+  assert.deepEqual(!callRequest(installation, read, 'tool', { path: 'a.md' }).ok, true, 'no vault: which?');
 });
