@@ -51,7 +51,7 @@ test('a request the daemon claimed but whose reply was lost is still one spawn',
     enqueueSpawn(t.context.state, { ids: t.context.ids, clock: t.clock, limits: t.installation.config.budgets }, request);
     throw new Error('connection reset');
   };
-  const sent = await sessionEvent(t.context, s, { kind: 'session.start' }, lostReply);
+  const sent = await sessionEvent({ ...t.context, send: lostReply }, s, { kind: 'session.start' });
   assert.equal(sent.spawns.length, 1);
   assert.equal(listSpawns(t.context.state).length, 1);
 }, { running: RUNNING }));

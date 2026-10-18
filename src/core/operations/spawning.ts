@@ -6,7 +6,7 @@
 
 import type { VaultEvent } from '../conditions/index.ts';
 import type { GitError } from '../git/index.ts';
-import { matchSpawns, reachedVaults, submitSpawns, type MatchedSpawns, type QueueContext, type SpawnEntry, type SpawnSender } from '../queue/index.ts';
+import { matchSpawns, reachedVaults, submitSpawns, type MatchedSpawns, type QueueContext, type SpawnEntry } from '../queue/index.ts';
 import type { Result } from '../result/index.ts';
 import type { OperationContext } from './context.ts';
 
@@ -23,11 +23,12 @@ export interface RequestedSpawns {
 /**
  * The spawns `event` requests: matched in the vaults it reaches — from
  * `event.vault`'s, or every vault for a session-wide event — in the tree of
- * `parent` when given, then sent with `send` or queued.
+ * `parent` when given, then sent to the daemon when one runs (`context.send`)
+ * or queued.
  */
 export async function requestSpawns(
   context: OperationContext, given: { readonly event: VaultEvent; readonly id?: string },
-  tree: { readonly parent?: string } = {}, send?: SpawnSender,
+  tree: { readonly parent?: string } = {},
 ): Promise<Result<RequestedSpawns, GitError>> {
   const { config, vaults } = context.installation;
   const from = 'vault' in given.event ? given.event.vault : undefined;
@@ -38,7 +39,7 @@ export async function requestSpawns(
   };
   const matched = await matchSpawns(matching, given, reachedVaults(vaults, config.subscriptions, from), tree);
   if (!matched.ok) return matched;
-  const entries = await submitSpawns(context.state, queueContext(context), matched.value.requests, send);
+  const entries = await submitSpawns(context.state, queueContext(context), matched.value.requests, context.send);
   return { ok: true, value: { entries, matched: matched.value } };
 }
 

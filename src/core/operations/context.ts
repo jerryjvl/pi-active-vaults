@@ -25,6 +25,7 @@ import { processStartTime, type ProcessLiveness } from '../process/index.ts';
 import type { Result } from '../result/index.ts';
 import { findWindowsShell, probeNetworkSandbox, type CheckRunOptions, type NetworkSandbox } from '../scripts/index.ts';
 import type { Store, StoreError } from '../store/index.ts';
+import type { SpawnSender } from '../queue/index.ts';
 import type { Installation } from './installation.ts';
 import { openIndexStore, openStateStore } from './stores.ts';
 
@@ -41,6 +42,8 @@ export interface OperationContext {
   readonly alive: ProcessLiveness;
   /** What has been read from the vaults' accepted mains, kept while they stay accepted (architecture.md). */
   readonly reads: AcceptedReads;
+  /** Sends a spawn request to the running daemon; absent when none runs, and requests are queued here instead. */
+  readonly send?: SpawnSender;
   /** How scripts and checks run here. */
   scriptOptions(): Promise<CheckRunOptions>;
   /** Where SMTP connects and what it trusts besides the system — a test seam only. */
@@ -57,6 +60,8 @@ export interface ContextOptions {
   readonly alive?: ProcessLiveness;
   readonly sandbox?: NetworkSandbox;
   readonly smtp?: OperationContext['smtp'];
+  /** The daemon link's sender, when a daemon runs. */
+  readonly send?: SpawnSender;
 }
 
 /** A script's time limit: scripts are exact, bounded work, not sessions. */
@@ -113,6 +118,7 @@ export function createContext(installation: Installation, options: ContextOption
         return { env, timeoutMs: SCRIPT_TIMEOUT_MS, os, sandbox, reads, ...(windowsShell === undefined ? {} : { windowsShell }) };
       })()),
       ...(options.smtp === undefined ? {} : { smtp: options.smtp }),
+      ...(options.send === undefined ? {} : { send: options.send }),
       close: () => {
         state.value.close();
         if (index?.ok) index.value.close();
