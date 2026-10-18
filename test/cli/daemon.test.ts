@@ -2,13 +2,18 @@
 // platform's user-service definition, `start` / `stop` / `status` control
 // it, `run` runs it in the foreground, `print-unit` prints the definition;
 // commands that need the daemon say so and exit 1. daemon.md "Single
-// instance" — a second daemon does not run.
+// instance" — a second daemon does not run. "Service installation" — install
+// records the directories in which node, pi and git were found on PATH, as
+// found, and gives the service that PATH; `vault doctor` warns when a recorded
+// directory no longer holds its tool, and installing again records the current
+// ones.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CLI_PROGRAM } from '../../src/cli/program.ts';
 import type { CliIo } from '../../src/cli/run.ts';
+import { recordedServiceTools } from '../../src/core/queue/index.ts';
 import { requestOverSocket } from '../../src/core/socket/index.ts';
 import { cliFor } from '../support/cli.ts';
 import { fakePi } from '../support/daemon.ts';
@@ -68,6 +73,45 @@ test('install writes the definition and registers it; start and stop run the ser
   assert.deepEqual(ran.map((r) => r.slice(1).join(' ')), [
     '--user daemon-reload', '--user enable pi-active-vaults.service', '--user start pi-active-vaults.service', '--user stop pi-active-vaults.service',
   ]);
+}));
+
+/** An executable file `name` in a new directory `dir`. */
+function makeTool(dir: string, name: string): void {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, name), '#!/bin/sh\n');
+  chmodSync(join(dir, name), 0o755);
+}
+
+test('install records where node, pi and git are on PATH and gives the unit that PATH; doctor warns when one is gone, and installing again fixes it', linuxOnly, withInstallation(async (t) => {
+  const tools = t.dir.file('tools');
+  makeTool(join(tools, 'node', 'latest', 'bin'), 'node');
+  makeTool(join(tools, 'pi', 'bin'), 'pi');
+  makeTool(join(tools, 'git', 'bin'), 'git');
+  const path = ['node/latest/bin', 'pi/bin', 'git/bin'].map((d) => join(tools, d)).join(':');
+  const host = { ...t.host, env: { ...t.host.env, XDG_CONFIG_HOME: t.dir.file('xdg'), PATH: path } };
+  const { run } = cli(t, { host });
+  const recorded = () => recordedServiceTools(t.context.state).map((r) => [r.tool, r.dir]);
+
+  assert.equal((await run('daemon', 'print-unit')).code, 0);
+  assert.deepEqual(recorded(), [], 'printing a definition records nothing');
+  assert.equal((await run('daemon', 'install')).code, 0);
+  assert.deepEqual(recorded(), [['git', join(tools, 'git', 'bin')], ['node', join(tools, 'node', 'latest', 'bin')], ['pi', join(tools, 'pi', 'bin')]]);
+  const unit = readFileSync(join(t.dir.file('xdg'), 'systemd', 'user', 'pi-active-vaults.service'), 'utf8');
+  assert.ok(unit.includes(`Environment="PATH=${path}:/usr/local/sbin:`), unit);
+
+  const serviceLines = async () => (await run('doctor')).stdout.split('\n').filter((l) => /service:/.test(l));
+  assert.deepEqual(await serviceLines(), []);
+  rmSync(join(tools, 'pi', 'bin', 'pi'));
+  const warned = await serviceLines();
+  assert.equal(warned.length, 1);
+  assert.match(warned[0] ?? '', /^warning service: .*\bpi\b.* no longer /);
+  assert.ok((warned[0] ?? '').includes(join(tools, 'pi', 'bin')) && (warned[0] ?? '').includes('"vault daemon install"'), warned[0]);
+
+  makeTool(join(tools, 'pi', 'v2', 'bin'), 'pi');
+  const moved = { ...host, env: { ...host.env, PATH: path.replace(join(tools, 'pi', 'bin'), join(tools, 'pi', 'v2', 'bin')) } };
+  assert.equal((await cli(t, { host: moved }).run('daemon', 'install')).code, 0);
+  assert.deepEqual(recorded().find(([tool]) => tool === 'pi'), ['pi', join(tools, 'pi', 'v2', 'bin')]);
+  assert.deepEqual(await serviceLines(), [], 'installing again records the current ones');
 }));
 
 test('run runs the daemon until it is stopped; meanwhile status reports it and a second run does not start', withInstallation(async (t) => {
