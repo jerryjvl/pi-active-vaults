@@ -4,12 +4,16 @@
 // standard input ends it) and does what the test asks for the run's job:
 //
 //   FAKE_PI_ACTIONS  JSON: job document (or "*") → nothing | commit | hang | crash | refuse | spend
+//                    | fail | commit-then-fail | recover
 //   FAKE_PI_LOG      a file each start is appended to as a JSON line: argv, cwd, run file, pid
 //
 // `commit` writes `notes/<trace>.md` in its directory and commits it with the
 // package's trailers, as a run's vault_commit would; `spend` uses the run's
 // whole allotment in the state database, as a run past its budget would
-// have; `refuse` exits at once, as a run the extension refuses does.
+// have; `refuse` exits at once, as a run the extension refuses does; `fail`
+// ends its model request with an error (an unreachable endpoint), and
+// `commit-then-fail` does so after committing; `recover` fails one request
+// and then answers normally.
 
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -30,6 +34,16 @@ if (process.env.FAKE_PI_LOG !== undefined) {
 }
 
 const send = (record) => process.stdout.write(`${JSON.stringify(record)}\n`);
+const answer = (stopReason) => send({
+  type: 'message_end',
+  message: { role: 'assistant', content: [], stopReason, ...(stopReason === 'error' ? { errorMessage: 'Connection error.' } : {}) },
+});
+const commitNote = () => {
+  mkdirSync('notes', { recursive: true });
+  writeFileSync(join('notes', `${run.trace}.md`), `# Done by ${run.trace}\n`);
+  execFileSync('git', ['add', '--all'], { stdio: 'ignore' });
+  execFileSync('git', ['commit', '--quiet', '-m', 'Run output', '-m', `Vault-Trace: ${run.trace}\nVault-Actor: ${run.actor}`], { stdio: 'ignore' });
+};
 const settle = () => {
   send({ type: 'agent_end', messages: [] });
   send({ type: 'agent_settled', aborted: false });
@@ -37,14 +51,25 @@ const settle = () => {
 
 function work() {
   switch (action) {
-    case 'commit': {
-      mkdirSync('notes', { recursive: true });
-      writeFileSync(join('notes', `${run.trace}.md`), `# Done by ${run.trace}\n`);
-      execFileSync('git', ['add', '--all'], { stdio: 'ignore' });
-      execFileSync('git', ['commit', '--quiet', '-m', 'Run output', '-m', `Vault-Trace: ${run.trace}\nVault-Actor: ${run.actor}`], { stdio: 'ignore' });
+    case 'commit':
+      commitNote();
+      answer('stop');
       settle();
       return;
-    }
+    case 'commit-then-fail':
+      commitNote();
+      answer('error');
+      settle();
+      return;
+    case 'fail':
+      answer('error');
+      settle();
+      return;
+    case 'recover':
+      answer('error');
+      answer('stop');
+      settle();
+      return;
     case 'spend': {
       const db = new DatabaseSync(join(process.env.PI_ACTIVE_VAULTS_STATE, 'state.sqlite'));
       db.prepare('UPDATE budgets_sessions SET used = allotted WHERE trace = ?').run(run.trace);

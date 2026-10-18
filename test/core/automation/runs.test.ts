@@ -2,7 +2,9 @@
 // `pi --mode rpc` with its run file (extension.md "Headless sessions":
 // `--vault-run`, holding vault, document, actor, trace and event), in the
 // actor's worktree; "Spawn lifecycle" — queued → running → committed,
-// no-change or stopped (budget, ttl, error) → recorded; "Scheduling" — within
+// no-change or stopped (budget, ttl, error) → recorded — a run that commits
+// nothing and whose last model request ended in an error is stopped
+// `error`, one that committed stays `committed` with the error in its trace; "Scheduling" — within
 // capacity, one job per actor; "Start-up recovery" — it records the exact
 // process of each session it starts; "Integrity" — a vault with an
 // unaccepted change runs nothing. A fake pi stands in for Pi.
@@ -62,6 +64,29 @@ test('a run that changes nothing is no-change; one that crashes is stopped with 
   const noChange = readFullLog(t.installation.paths.logs, listSpawns(t.context.state)[0]?.trace ?? '').find((l) => l.name === 'daemon');
   assert.match(noChange?.text ?? '', /"outcome":"no-change"/);
 }, { contract: { actors: ['gardener', 'librarian'] }, config: 'daemon: { parallel: 2 }' }));
+
+test('a run that commits nothing after a failed model request is stopped with error; one that committed stays committed, the error in its trace; one that recovered is no-change', withInstallation(async (t) => {
+  jobs(t, {
+    'jobs/a.md': jobDocument(MANUAL),
+    'jobs/b.md': jobDocument(MANUAL, { actor: 'librarian' }),
+    'jobs/c.md': jobDocument(MANUAL, { actor: 'curator' }),
+  });
+  await t.run('trigger', { name: 'go' });
+  const automation = automationFor(t, fakePi(t, { 'jobs/a.md': 'fail', 'jobs/b.md': 'commit-then-fail', 'jobs/c.md': 'recover' }));
+  await automation.schedule();
+  await automation.idle();
+  const spawns = Object.fromEntries(listSpawns(t.context.state).map((s) => [s.document, s]));
+  const ended = (document: string) => readFullLog(t.installation.paths.logs, spawns[document]?.trace ?? '')
+    .filter((l) => l.name === 'daemon').flatMap((l) => l.text.trim().split('\n')).map((line) => JSON.parse(line) as Record<string, unknown>)
+    .find((record) => record['event'] === 'ended');
+  assert.deepEqual([spawns['jobs/a.md']?.reason, ended('jobs/a.md')?.['outcome']], ['error', 'stopped'], 'not no-change: the run could not do its work');
+  assert.match(String(ended('jobs/a.md')?.['modelError']), /Connection error/);
+  assert.match(spawns['jobs/b.md']?.commit ?? '', /^[0-9a-f]{40}$/);
+  assert.equal(spawns['jobs/b.md']?.reason, undefined, 'what it committed stands');
+  assert.equal(ended('jobs/b.md')?.['outcome'], 'committed');
+  assert.match(String(ended('jobs/b.md')?.['modelError']), /Connection error/, 'the error is in its trace');
+  assert.deepEqual([spawns['jobs/c.md']?.reason, ended('jobs/c.md')?.['outcome'], ended('jobs/c.md')?.['modelError']], [undefined, 'no-change', undefined], 'its last request ended normally');
+}, { contract: { actors: ['gardener', 'librarian', 'curator'] }, config: 'daemon: { parallel: 3 }' }));
 
 test('a run past its run time is killed and stopped with ttl; one past its budget is stopped with budget', withInstallation(async (t) => {
   jobs(t, { 'jobs/slow.md': jobDocument(MANUAL, { ttl: '1s' }), 'jobs/costly.md': jobDocument(MANUAL, { actor: 'librarian' }) });
