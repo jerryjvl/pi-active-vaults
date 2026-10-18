@@ -21,6 +21,22 @@ it; no vault logic lives anywhere else.
 - **Errors are values.** Operations return typed results with a reason; they
   throw only for programming errors.
 
+## Layers
+
+```mermaid
+flowchart BT
+  L0[L0 Foundations<br/>result, clock, ids, process, http, socket, config, store, git, documents]
+  L1[L1 Vault model<br/>registry, contracts, conditions, events, attestations, policy, integrity, actors, scripts]
+  L2[L2 Work machinery<br/>traces, budgets, queue, models, search, judgements, notify, templates, forge]
+  L3[L3 Operations<br/>operations, sessions, automation]
+  L4[L4 Adapters<br/>CLI, Pi extension, daemon, MCP]
+  L0 --> L1 --> L2 --> L3 --> L4
+```
+
+A module imports only from its own layer or a lower one, without cycles, and
+the core (L0–L3) never imports an adapter. A test reads the import graph and
+enforces this; a new module must be given a layer.
+
 ## Modules
 
 | Module | Responsibility |

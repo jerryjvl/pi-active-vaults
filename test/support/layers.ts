@@ -1,4 +1,4 @@
-// The layer rules from docs/agents/implementation-plan.md, as data and a checker.
+// The layer rules from docs/components/core.md "Layers", as data and a checker.
 // A core module may import only from its own layer or a lower one; the core
 // (L0–L3) never imports an adapter or Pi. A module missing from LAYERS is a
 // violation, so adding a module forces a decision about where it belongs.

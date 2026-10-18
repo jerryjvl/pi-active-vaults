@@ -1,6 +1,5 @@
 // Documented behaviour: dependencies point down, without cycles, and the core
-// never imports an adapter or Pi (implementation-plan.md "Layers" and
-// "Refactoring passes"; core.md "Rules").
+// never imports an adapter or Pi (core.md "Layers" and "Rules").
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
