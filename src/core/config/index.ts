@@ -9,6 +9,8 @@ export {
   installationPaths,
   pathFor,
   platformDirs,
+  landsWithin,
+  realLocation,
   type Host,
   type InstallationPaths,
   type PlatformDirs,

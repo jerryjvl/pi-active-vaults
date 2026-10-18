@@ -14,9 +14,9 @@
 // pass; then their verdicts are recorded as attestations about it. A commit
 // whose checks cannot run — `main` has an unaccepted change — is not made.
 
-import { existsSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
-import { dirname, join, relative, resolve, sep } from 'node:path';
-import { ensurePrivateDir } from '../config/index.ts';
+import { existsSync, lstatSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { ensurePrivateDir, landsWithin, realLocation } from '../config/index.ts';
 import type { AttestationError } from '../attestations/index.ts';
 import type { Clock } from '../clock/index.ts';
 import {
@@ -42,14 +42,7 @@ export function actorWorktreePath(vault: RegisteredVault, actor: string): string
 
 /** The same directory, seen through any symbolic links (git reports resolved paths). */
 function samePath(a: string, b: string): boolean {
-  const real = (path: string): string => {
-    try {
-      return realpathSync.native(path);
-    } catch {
-      return resolve(path);
-    }
-  };
-  return real(a) === real(b);
+  return realLocation(a) === realLocation(b);
 }
 
 export type WorktreeError =
@@ -93,10 +86,8 @@ export function worktreeFile(root: string, path: string): string | undefined {
   const parts = path.split(/[\\/]/).filter((p) => p !== '' && p !== '.');
   if (/^([\\/]|[A-Za-z]:)/.test(path) || parts.includes('..') || parts.length === 0 || parts[0]?.toLowerCase() === '.git') return undefined;
   const target = join(root, ...parts);
-  let existing = dirname(target);
-  while (!existsSync(existing)) existing = dirname(existing);
-  const landed = relative(realpathSync.native(root), realpathSync.native(existing));
-  if (landed.startsWith('..') || landed.split(sep)[0]?.toLowerCase() === '.git') return undefined;
+  const landed = landsWithin(root, dirname(target));
+  if (landed === undefined || landed.split('/')[0]?.toLowerCase() === '.git') return undefined;
   if (existsSync(target) && lstatSync(target).isSymbolicLink()) return undefined;
   mkdirSync(dirname(target), { recursive: true });
   return target;

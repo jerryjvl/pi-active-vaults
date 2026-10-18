@@ -4,9 +4,9 @@
 //
 // Path flavour follows the host's platform, not the platform running the code.
 
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { homedir, hostname, platform, userInfo } from 'node:os';
-import { posix, win32 } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
 import { err, ok, type Result } from '../result/index.ts';
 
 export type PlatformKind = 'linux' | 'darwin' | 'win32';
@@ -133,4 +133,29 @@ export function installationPaths(dirs: PlatformDirs, os: PlatformKind): Install
  */
 export function ensurePrivateDir(path: string): void {
   mkdirSync(path, { recursive: true, mode: 0o700 });
+}
+
+/**
+ * Where `path` really is: resolved as written, then through the links of the
+ * deepest directory on the way that exists, with the rest kept as written —
+ * so a file not made yet is placed where writing it would put it. What a
+ * guard compares, since a link on the way can lead anywhere.
+ */
+export function realLocation(path: string): string {
+  const full = resolve(path);
+  let existing = full;
+  while (!existsSync(existing) && dirname(existing) !== existing) existing = dirname(existing);
+  try {
+    return join(realpathSync.native(existing), relative(existing, full));
+  } catch {
+    return full;
+  }
+}
+
+/** Where `inner` really lands inside `outer`, as a relative path with `/` (`''` for `outer` itself), or undefined when it lands outside. */
+export function landsWithin(outer: string, inner: string): string | undefined {
+  const rel = relative(realLocation(outer), realLocation(inner));
+  if (rel === '') return '';
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return undefined;
+  return rel.split(sep).join('/');
 }

@@ -6,10 +6,9 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ensurePrivateDir, installationPaths, platformDirs, realLocation } from '../../../src/core/config/index.ts';
+import { ensurePrivateDir, installationPaths, landsWithin, platformDirs, realLocation } from '../../../src/core/config/index.ts';
 import { testHost } from '../../support/host.ts';
 import { withTempDir } from '../../support/temp-dir.ts';
-
 
 function dirs(host = testHost()) {
   const result = platformDirs(host);
@@ -107,4 +106,15 @@ test('a path\'s real location follows links in every directory on the way that e
   assert.equal(realLocation(dir.file('link', 'sub', 'new', 'file.md')), join(base, 'real', 'sub', 'new', 'file.md'));
   assert.equal(realLocation(dir.file('link')), join(base, 'real'));
   assert.equal(realLocation(dir.file('link', '..', 'real')), join(base, 'real'), 'resolved as written first, as the system would');
+}));
+
+test('a path lands within a directory when its real location is inside it', { skip: process.platform === 'win32' ? 'symbolic links need privileges' : false }, withTempDir((dir) => {
+  mkdirSync(dir.file('root', 'docs'), { recursive: true });
+  mkdirSync(dir.file('elsewhere'));
+  symlinkSync(dir.file('elsewhere'), dir.file('root', 'out'));
+  assert.equal(landsWithin(dir.file('root'), dir.file('root', 'docs', 'a.md')), 'docs/a.md');
+  assert.equal(landsWithin(dir.file('root'), dir.file('root')), '');
+  assert.equal(landsWithin(dir.file('root'), dir.file('root', 'out', 'a.md')), undefined, 'through a link out');
+  assert.equal(landsWithin(dir.file('root'), dir.file('root', '..', 'elsewhere')), undefined);
+  assert.equal(landsWithin(dir.file('root'), dir.file('root', '..foo')), '..foo', 'a name starting with two dots is inside');
 }));
