@@ -1,7 +1,8 @@
 // Documented behaviour: notifications.md "Use" — `builtin:notify --to <alias>
 // --subject <text> [--body-file <file>] [--key <id>]`, with the body from
 // `--body-file` or standard input; raw addresses are rejected. It runs as a
-// built-in script: available to every vault, never shadowed.
+// built-in script: available to every vault, never shadowed. Its exit
+// statuses follow the CLI's: 2 for a usage error, 3 for a refusal.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
@@ -63,7 +64,7 @@ test('builtin:notify refuses raw addresses, unknown options and missing argument
     const run = (args: string[]) => runScript({ git: v.git, store: v.store, vault: v.vault }, 'builtin:notify', args, { ...options, input: 'x' });
     const raw = await run(['--to', 'me@example.net', '--subject', 'S']);
     assert.ok(raw.ok);
-    assert.deepEqual([raw.value.exitCode, raw.value.stderr], [1, 'refused: raw-address\n']);
+    assert.deepEqual([raw.value.exitCode, raw.value.stderr], [3, 'refused: raw-address\n']);
     const unknown = await run(['--to', 'me', '--subject', 'S', '--cc', 'x']);
     assert.ok(unknown.ok && unknown.value.exitCode === 2);
     const missing = await run(['--to', 'me']);
