@@ -190,8 +190,7 @@ proposed to the owner first.
 - `main` holds the agreed design and reviewed work. **Never commit to `main`
   and never merge into it**; the owner does that after review.
 - Work on a branch from `main`, named for the change.
-- This repository is local-only. Never push or add a remote unless the owner
-  asks.
+- Never push unless the owner asks.
 - Commit in small, coherent steps. Commit messages: a short imperative subject;
   a body explaining why when the reason is not obvious.
 - Do not rewrite history on a branch the owner has already reviewed.

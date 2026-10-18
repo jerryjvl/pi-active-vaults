@@ -27,9 +27,13 @@ on their own branches; owners decide what reaches `main`.
 
 ## Getting started
 
-**1. Install** from a checkout of this repository:
+**1. Install** from a checkout of this repository. The package is not on npm,
+and `pi install git:…` does not work: the built files are not in Git, and
+nothing builds at install time.
 
 ```sh
+git clone https://github.com/jerryjvl/pi-active-vaults.git
+cd pi-active-vaults
 npm install && npm run build
 pi install "$PWD"
 ```
@@ -132,3 +136,7 @@ Optional: `PAV_SMOKE_API` (Pi's API type, default `openai-completions`),
 `PAV_SMOKE_API_KEY`, `PAV_SMOKE_TIMEOUT` (seconds, default 600) and
 `PAV_SMOKE_KEEP=1` to keep the temporary directories, which are otherwise
 removed however the run ends.
+
+## License
+
+[MIT](LICENSE)
