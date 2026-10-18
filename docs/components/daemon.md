@@ -180,9 +180,19 @@ which pull requests from the vault's writers' branches were merged into `main`
 most recently (one page). After fetching, it checks each one not checked before:
 is its head an ancestor of the new accepted `main`? Asking first means each
 merge named is in the `main` it is judged against. Each result is recorded
-once. A head that is not in `main` — a squash or rebase merge — is reported by
-`vault status` and `vault doctor` and told once to the owners, naming the pull
-request and that its attestations and trace notes no longer attach.
+once. A head that is not in `main` — a squash or rebase merge — is told once to
+the owners, naming the pull request and that its attestations and trace notes
+no longer attach.
+
+The actor's branch still holds the commits `main` lacks, so it would stay a
+proposal. When the merge is first reported, the daemon resets the branch to the
+accepted `main` only if all hold: its tip is exactly the approved head, no
+session holds the actor, and its worktree has no change (untracked files
+included). Otherwise it leaves the branch, and the report says which condition
+stopped it and how to reset it. While a branch holds the approved head,
+`vault status` and `vault doctor` list the merge and no pull request is opened
+for the branch, also after a restart; the listing ends by itself once the branch
+no longer holds the head, so nothing needs dismissing.
 
 ## Socket protocol
 
