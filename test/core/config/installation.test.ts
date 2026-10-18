@@ -216,3 +216,13 @@ test('a forge may name its API base, for a forge whose API is not at the usual p
   assert.ok(!bad.ok && bad.error.reason === 'invalid');
   assert.deepEqual(bad.error.issues, [{ path: 'forges[0].api', message: 'must be an http or https URL' }]);
 });
+
+// Proposed in Stage 6a (daemon.md "Scheduling"): how long a spawn may wait in
+// the queue, and how many headless sessions the daemon runs at once — the
+// capacity of the model Pi runs them with.
+test('the daemon section sets the queue-time limit and how many runs go at once, with defaults', () => {
+  assert.deepEqual(valid('').daemon, { queueTimeMs: 24 * 60 * 60 * 1000, parallel: 1 });
+  assert.deepEqual(valid('daemon: { queue-time: 90m, parallel: 3 }').daemon, { queueTimeMs: 90 * 60 * 1000, parallel: 3 });
+  const found = issues('daemon: { queue-time: soon, parallel: 0, polling: 5 }').join('\n');
+  for (const expected of ['daemon.queue-time', 'daemon.parallel', 'daemon.polling']) assert.ok(found.includes(expected), found);
+});
