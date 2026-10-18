@@ -22,13 +22,13 @@ import { readAttestations, latestAttestation, recordAttestation, type Attestatio
 import { readProposal, type ProposalError } from '../actors/index.ts';
 import type { Clock } from '../clock/index.ts';
 import type { InstallationConfig } from '../config/index.ts';
-import { contractReader, type ContractError } from '../contracts/index.ts';
+import type { ContractError } from '../contracts/index.ts';
 import { documentTitle, labelsOf, parseDocument, utf8Text } from '../documents/index.ts';
 import { TREE_MODES, listTree, readFileAt, type Attribution, type Git, type GitError, type Sha } from '../git/index.ts';
-import { requireNoUnacceptedChange, type UnacceptedChangeError, type VaultLocation } from '../integrity/index.ts';
+import { UNCACHED_READS, acceptedContracts, acceptedIdentity, requireNoUnacceptedChange, type AcceptedReads, type UnacceptedChangeError, type VaultLocation } from '../integrity/index.ts';
 import { askSystemOne, modelFor, type ModelClient, type ModelError, type RoleUnavailable, type SystemOneQuestion } from '../models/index.ts';
 import { axesVersion, evaluateMerge, type PolicyError } from '../policy/index.ts';
-import { readVaultIdentity, type IdentityError } from '../registry/index.ts';
+import type { IdentityError } from '../registry/index.ts';
 import { err, ok, type Issue, type Result } from '../result/index.ts';
 import type { Queryable } from '../store/index.ts';
 import { axisVerdict, parseAxes, type Axis } from './axes.ts';
@@ -41,6 +41,8 @@ export interface JudgementDeps {
   readonly clock: Clock;
   /** Who the attestations' notes commit is made as. */
   readonly attribution: Attribution;
+  /** What has been read from accepted mains, kept while they stay accepted. */
+  readonly reads?: AcceptedReads;
 }
 
 export interface AxisJudgement {
@@ -97,7 +99,8 @@ export async function judgeDocument(
   const { vault, commit, path } = request;
   const accepted = await requireNoUnacceptedChange(git, store, vault);
   if (!accepted.ok) return accepted;
-  const effective = await contractReader(git, vault.path, accepted.value.sha).forFile(path);
+  const reads = deps.reads ?? UNCACHED_READS;
+  const effective = await (await acceptedContracts(reads, git, vault.path, accepted.value)).forFile(path);
   if (!effective.ok) return effective;
   const defined = effective.value.values['axes'];
   if (defined === undefined) return err({ reason: 'no-axes', path });
@@ -127,7 +130,7 @@ export async function judgeDocument(
 
   let usage: Judgement['usage'];
   if (toAsk.length > 0) {
-    const identity = await readVaultIdentity(git, vault.path, accepted.value.sha);
+    const identity = await acceptedIdentity(reads, git, vault.path, accepted.value);
     if (!identity.ok) return identity;
     const parsed = parseDocument(content.value.text);
     const state = {
@@ -172,6 +175,7 @@ export async function judgeProposal(
   if (!proposal.ok) return proposal;
   const evaluation = await evaluateMerge(git, request.vault.path, {
     accepted: accepted.value, base: proposal.value.base, head: proposal.value.head, tainted: proposal.value.tainted,
+    ...(deps.reads === undefined ? {} : { reads: deps.reads }),
   });
   if (!evaluation.ok) return evaluation;
   // A deleted path's judgement already became `owner`, so every path left here has content.

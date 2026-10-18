@@ -23,9 +23,9 @@ import {
   addWorktree, currentBranch, landCommit, listWorktrees, prepareCommit, resolveRevision,
   type Attribution, type Git, type GitError, type Identity, type Sha,
 } from '../git/index.ts';
-import type { AcceptedMain, VaultLocation } from '../integrity/index.ts';
+import { UNCACHED_READS, acceptedIdentity, type AcceptedMain, type AcceptedReads, type VaultLocation } from '../integrity/index.ts';
 import type { ProcessLiveness } from '../process/index.ts';
-import { isActor, readVaultIdentity, type IdentityError, type RegisteredVault } from '../registry/index.ts';
+import { isActor, type IdentityError, type RegisteredVault } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import { recordCheckResults, runChecks, type CheckResult, type CheckRunOptions, type ScriptRunError } from '../scripts/index.ts';
 import type { Queryable } from '../store/index.ts';
@@ -53,9 +53,9 @@ export type WorktreeError =
 
 /** The actor's worktree, made if missing: on its branch, which is created at the accepted main if it does not exist. */
 export async function ensureActorWorktree(
-  git: Git, vault: RegisteredVault, accepted: AcceptedMain, actor: string,
+  git: Git, vault: RegisteredVault, accepted: AcceptedMain, actor: string, reads: AcceptedReads = UNCACHED_READS,
 ): Promise<Result<{ path: string; branch: string; created: boolean }, WorktreeError>> {
-  const identity = await readVaultIdentity(git, vault.path, accepted.sha);
+  const identity = await acceptedIdentity(reads, git, vault.path, accepted);
   if (!identity.ok) return identity;
   if (!isActor(identity.value, actor)) return err({ reason: 'unknown-actor', actor });
 

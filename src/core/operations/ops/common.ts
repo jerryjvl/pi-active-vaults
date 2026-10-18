@@ -4,9 +4,9 @@
 // the lower modules take.
 
 import type { ForgeDeps } from '../../forge/index.ts';
-import { acceptedMain, type AcceptedMain } from '../../integrity/index.ts';
+import { MAIN_BRANCH, acceptedIdentity, acceptedMain, type AcceptedMain } from '../../integrity/index.ts';
 import type { NotifyDeps } from '../../notify/index.ts';
-import type { RegisteredVault } from '../../registry/index.ts';
+import { readVaultIdentity, type IdentityError, type RegisteredVault, type VaultIdentity } from '../../registry/index.ts';
 import { err, ok, type Result } from '../../result/index.ts';
 import type { SearchContext } from '../../search/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
@@ -30,6 +30,18 @@ export function theVault(request: OperationRequest): RegisteredVault {
 export function readingFrom(context: OperationContext, vault: RegisteredVault): Result<AcceptedMain, { reason: 'no-accepted-main'; vault: string }> {
   const accepted = acceptedMain(context.state, vault.id);
   return accepted === undefined ? err({ reason: 'no-accepted-main', vault: vault.id }) : ok(accepted);
+}
+
+/**
+ * The identity the vault declares at its accepted main (from the reads
+ * cache), or at `main` itself when nothing was accepted yet — what a reading
+ * operation says about a vault no owner has accepted.
+ */
+export function identityOf(context: OperationContext, vault: RegisteredVault): Promise<Result<VaultIdentity, IdentityError>> {
+  const accepted = acceptedMain(context.state, vault.id);
+  return accepted === undefined
+    ? readVaultIdentity(context.git, vault.path, `refs/heads/${MAIN_BRANCH}`)
+    : acceptedIdentity(context.reads, context.git, vault.path, accepted);
 }
 
 /** The person whose owner act this is. */
@@ -62,6 +74,7 @@ export function forgeDeps(context: OperationContext, person: string): ForgeDeps 
     clock: context.clock,
     attribution: { identity: packageIdentity(context.installation, person) },
     forges: context.installation.config.forges,
+    reads: context.reads,
   };
 }
 

@@ -35,7 +35,7 @@ it; no vault logic lives anywhere else.
 | `policy` | Evaluate merge rules against changed paths and attestations |
 | `attestations` | Read and write attestation records in Git notes |
 | `actors` | Actor branches and worktrees; the hold that keeps one writer per actor, void once its process has ended; committing as an actor, only when every check passes; syncing actor branches with the accepted `main`; proposals; review records; SHA-bound accept and adopt |
-| `integrity` | The accepted `main` per vault: record it on accept and adopt, detect unaccepted changes, provide the notice every surface shows |
+| `integrity` | The accepted `main` per vault: record it on accept and adopt, detect unaccepted changes, provide the notice every surface shows; the one cache of what is read from it (see [Architecture](../architecture.md#reads-from-the-accepted-main)) |
 | `scripts` | Resolve built-ins and the vault's scripts and checks from the accepted `main`, parse headers, run them with their declared limits; run the checks against an exact commit and record their verdicts |
 | `templates` | Validate a template's marker, create a vault from it with fresh history and recorded origin — or an empty vault |
 | `judgements` | Run judgement checks: build the state from a document, ask the contract's axes of the judgement model, apply `pass-when`, record the attestation (see Judgements) |

@@ -10,10 +10,10 @@
 // blocks.
 
 import { readAttestations, type Attestation, type AttestationError } from '../attestations/index.ts';
-import { contractReader, type ContractError } from '../contracts/index.ts';
+import type { ContractError } from '../contracts/index.ts';
 import { changedPaths, listTree, type FileChange, type Git, type GitError, type Sha } from '../git/index.ts';
-import type { AcceptedMain } from '../integrity/index.ts';
-import { readVaultIdentity, type IdentityError } from '../registry/index.ts';
+import { UNCACHED_READS, acceptedContracts, acceptedIdentity, type AcceptedMain, type AcceptedReads } from '../integrity/index.ts';
+import type { IdentityError } from '../registry/index.ts';
 import { err, ok, type Issue, type Result } from '../result/index.ts';
 import { listScripts } from '../scripts/index.ts';
 import { findControlChanges, type ControlChange } from './control.ts';
@@ -36,6 +36,8 @@ export interface MergeRequest {
   readonly tainted: boolean;
   /** Approvals given outside the repository — a forge's reviews; only approvals of `head` count. */
   readonly approvals?: readonly Attestation[];
+  /** What has been read from accepted mains, kept while they stay accepted. */
+  readonly reads?: AcceptedReads;
 }
 
 export interface MergeEvaluation {
@@ -56,13 +58,14 @@ function affectedPaths(changes: readonly FileChange[]): { path: string; deleted:
 
 export async function evaluateMerge(git: Git, repo: string, request: MergeRequest): Promise<Result<MergeEvaluation, PolicyError>> {
   const { accepted, base, head } = request;
+  const reads = request.reads ?? UNCACHED_READS;
   const changes = await changedPaths(git, repo, base, head);
   if (!changes.ok) return changes;
   const control = await findControlChanges(git, repo, base, head, changes.value);
   if (!control.ok) return control;
-  const identity = await readVaultIdentity(git, repo, accepted.sha);
+  const identity = await acceptedIdentity(reads, git, repo, accepted);
   if (!identity.ok) return identity;
-  const checks = await listScripts(git, repo, accepted, { kind: 'check', builtins: [] });
+  const checks = await listScripts(git, repo, accepted, { kind: 'check', builtins: [], reads });
   if (!checks.ok) return checks;
   const tree = await listTree(git, repo, head);
   if (!tree.ok) return tree;
@@ -73,7 +76,7 @@ export async function evaluateMerge(git: Git, repo: string, request: MergeReques
 
   const contentOf = new Map(tree.value.map((entry) => [entry.path, entry.sha]));
   const controlled = new Set(control.value.map((c) => c.path));
-  const contracts = contractReader(git, repo, accepted.sha);
+  const contracts = await acceptedContracts(reads, git, repo, accepted);
   const issues = new Map<string, Issue>();
   const policyChanges: PolicyChange[] = [];
   for (const { path, deleted, of } of affectedPaths(changes.value)) {

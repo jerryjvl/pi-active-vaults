@@ -71,7 +71,7 @@ export async function syncActorBranch(
     return forwarded.error.reason === 'dirty-worktree' ? ok({ outcome: 'uncommitted-changes', head: tip.value }) : forwarded;
   }
 
-  const worktree = await ensureActorWorktree(git, vault, accepted, actor);
+  const worktree = await ensureActorWorktree(git, vault, accepted, actor, context.checks.reads);
   if (!worktree.ok) return worktree;
   const dirty = await hasTrackedChanges(git, worktree.value.path);
   if (!dirty.ok) return dirty;

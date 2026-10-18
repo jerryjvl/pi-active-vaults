@@ -16,22 +16,16 @@ import { requireNoUnacceptedChange } from '../../integrity/index.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
 import { evaluateMerge, type MergeEvaluation } from '../../policy/index.ts';
 import { listSpawns, type SpawnEntry } from '../../queue/index.ts';
-import { readVaultIdentity, writersOf, type RegisteredVault } from '../../registry/index.ts';
+import { writersOf, type RegisteredVault } from '../../registry/index.ts';
 import { newTraceId, writeRunRecord } from '../../traces/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
 import { vaultRelative } from '../locate.ts';
 import { fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Caller, Operation } from '../types.ts';
 import { requestSpawns, spawnLines } from '../spawning.ts';
-import { actorOf, flag, forgeDeps, personOf, readingFrom, text, texts, theVault } from './common.ts';
+import { actorOf, flag, forgeDeps, identityOf, personOf, readingFrom, text, texts, theVault } from './common.ts';
 
 const ACTOR_PARAM = { name: 'actor', kind: 'string', positional: true, description: 'The actor whose proposal it is' } as const;
-
-/** The identity a vault declares at its accepted main, or at main when nothing was accepted. */
-async function identityOf(context: OperationContext, vault: RegisteredVault) {
-  const accepted = readingFrom(context, vault);
-  return readVaultIdentity(context.git, vault.path, accepted.ok ? accepted.value.sha : 'refs/heads/main');
-}
 
 export async function commitContext(context: OperationContext, caller: Caller): Promise<ActorCommitContext> {
   return {
@@ -73,7 +67,7 @@ export const statusOperation: Operation = {
           const proposal = await readProposal(context.git, vault.path, accepted.value, actor);
           if (!proposal.ok) continue;
           const { base, head, tainted, commits } = proposal.value;
-          const evaluation = await evaluateMerge(context.git, vault.path, { accepted: accepted.value, base, head, tainted });
+          const evaluation = await evaluateMerge(context.git, vault.path, { accepted: accepted.value, base, head, tainted, reads: context.reads });
           proposals.push({ actor, head, commits: commits.length, tainted, evaluation: evaluation.ok ? evaluation.value : undefined });
           lines.push(`  proposal from ${actor}: ${commits.length} commit(s), head ${head}${tainted ? ', tainted' : ''}`);
           if (evaluation.ok) lines.push(...evaluationLines(evaluation.value).map((l) => `  ${l}`));
@@ -117,7 +111,7 @@ export const reviewOperation: Operation = {
     const vault = theVault(request);
     const person = personOf(request.caller);
     if (!person.ok) return fromError(person.error);
-    const reviewed = await review({ git: context.git, store: context.state, clock: context.clock }, vault, text(request.params, 'actor') ?? '', person.value);
+    const reviewed = await review({ git: context.git, store: context.state, clock: context.clock, reads: context.reads }, vault, text(request.params, 'actor') ?? '', person.value);
     if (!reviewed.ok) return fromError(reviewed.error);
     const diff = await diffText(context.git, vault.path, reviewed.value.proposal.base, reviewed.value.proposal.head);
     return succeeded(reviewText(reviewed.value, diff.ok ? diff.value : ''), reviewed.value);
@@ -177,7 +171,7 @@ export const acceptOperation: Operation = {
     }
     const actor = text(request.params, 'actor');
     if (actor === undefined) return invalid('Name the actor whose proposal to accept, or --adopt <sha>.');
-    const accepted = await accept({ git: context.git, store: context.state, clock: context.clock }, vault, actor, {
+    const accepted = await accept({ git: context.git, store: context.state, clock: context.clock, reads: context.reads }, vault, actor, {
       approver: person.value,
       identity: packageIdentity(context.installation, person.value),
       ...(request.caller.via === undefined ? {} : { via: request.caller.via }),
@@ -254,7 +248,7 @@ export const commitOperation: Operation = {
     if (!actor.ok) return fromError(actor.error);
     const accepted = await requireNoUnacceptedChange(context.git, context.state, vault);
     if (!accepted.ok) return fromError(accepted.error);
-    const worktree = await ensureActorWorktree(context.git, vault, accepted.value, actor.value);
+    const worktree = await ensureActorWorktree(context.git, vault, accepted.value, actor.value, context.reads);
     if (!worktree.ok) return fromError(worktree.error);
     const paths = texts(params, 'paths');
     // A session's commit carries its compact record, naming what the run has produced so far (concepts.md "Trace").
@@ -319,7 +313,7 @@ export const writeOperation: Operation = {
     if (hold !== undefined) return fromError({ reason: 'actor-busy', hold });
     const accepted = readingFrom(context, vault);
     if (!accepted.ok) return fromError(accepted.error);
-    const worktree = await ensureActorWorktree(context.git, vault, accepted.value, actor.value);
+    const worktree = await ensureActorWorktree(context.git, vault, accepted.value, actor.value, context.reads);
     if (!worktree.ok) return fromError(worktree.error);
     const path = text(request.params, 'path') ?? '';
     const target = worktreeFile(worktree.value.path, path);

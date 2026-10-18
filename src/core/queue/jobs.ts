@@ -11,8 +11,8 @@
 import { parseBudget, type Budget } from '../budgets/index.ts';
 import { documentConditions, type DocumentConditions } from '../conditions/index.ts';
 import type { Git, GitError } from '../git/index.ts';
-import type { AcceptedMain } from '../integrity/index.ts';
-import { isVaultActor, readVaultIdentity, type VaultIdentity } from '../registry/index.ts';
+import { UNCACHED_READS, acceptedIdentity, type AcceptedMain, type AcceptedReads } from '../integrity/index.ts';
+import { isVaultActor, type VaultIdentity } from '../registry/index.ts';
 import { DataReader, ok, type Issue, type Result } from '../result/index.ts';
 
 export interface Job {
@@ -40,12 +40,16 @@ function jobActor(path: string, declared: DocumentConditions['actor'], identity:
   return r.result(actor);
 }
 
-/** The vault's jobs, and documents whose conditions cannot be read, by path. */
-export async function vaultJobs(git: Git, repo: string, accepted: AcceptedMain): Promise<Result<Job[], GitError>> {
-  const documents = await documentConditions(git, repo, accepted);
+/** The vault's jobs, and documents whose conditions cannot be read, by path; read once per accepted main with `reads`. */
+export function vaultJobs(git: Git, repo: string, accepted: AcceptedMain, reads: AcceptedReads = UNCACHED_READS): Promise<Result<Job[], GitError>> {
+  return reads.read(accepted, 'jobs', () => readJobs(git, repo, accepted, reads));
+}
+
+async function readJobs(git: Git, repo: string, accepted: AcceptedMain, reads: AcceptedReads): Promise<Result<Job[], GitError>> {
+  const documents = await documentConditions(git, repo, accepted, reads);
   if (!documents.ok) return documents;
   // Without the vault's identity no actor can be shown to be one of its own: every job then says so, and none spawns.
-  const identity = await readVaultIdentity(git, repo, accepted.sha);
+  const identity = await acceptedIdentity(reads, git, repo, accepted);
   const jobs: Job[] = [];
   for (const document of documents.value) {
     const spawns = document.conditions.some((c) => c.effect === 'spawn');

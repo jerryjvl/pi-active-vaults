@@ -8,7 +8,7 @@
 
 import type { Clock } from '../clock/index.ts';
 import type { Git } from '../git/index.ts';
-import { acceptedMain } from '../integrity/index.ts';
+import { acceptedMain, type AcceptedReads } from '../integrity/index.ts';
 import { evaluateMerge, type MergeEvaluation, type PolicyError } from '../policy/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
@@ -40,7 +40,7 @@ export interface Review {
 export type ReviewError = ProposalError | PolicyError | { readonly reason: 'no-accepted-main'; readonly vault: string };
 
 export async function review(
-  context: { readonly git: Git; readonly store: Store; readonly clock: Clock },
+  context: { readonly git: Git; readonly store: Store; readonly clock: Clock; readonly reads?: AcceptedReads },
   vault: RegisteredVault,
   actor: string,
   reviewer: string,
@@ -51,7 +51,7 @@ export async function review(
   const proposal = await readProposal(git, vault.path, accepted, actor);
   if (!proposal.ok) return proposal;
   const { base, head, tainted } = proposal.value;
-  const evaluation = await evaluateMerge(git, vault.path, { accepted, base, head, tainted });
+  const evaluation = await evaluateMerge(git, vault.path, { accepted, base, head, tainted, ...(context.reads === undefined ? {} : { reads: context.reads }) });
   if (!evaluation.ok) return evaluation;
   const record: ReviewRecord = { vault: vault.id, actor, sha: head, reviewer, at: clock.now().toISOString() };
   store.run(

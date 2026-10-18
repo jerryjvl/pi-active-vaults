@@ -9,9 +9,9 @@
 // prefix stays cacheable; fixed for the session by whoever calls it once at
 // its start.
 
-import { acceptedMain } from '../integrity/index.ts';
+import { acceptedIdentity, acceptedMain } from '../integrity/index.ts';
 import type { OperationContext } from '../operations/index.ts';
-import { catalog, readVaultIdentity, type VaultIdentity } from '../registry/index.ts';
+import { catalog, type VaultIdentity } from '../registry/index.ts';
 
 function line(entry: ReturnType<typeof catalog>[number]): string {
   const parts = [
@@ -29,7 +29,7 @@ export async function catalogText(context: OperationContext): Promise<string> {
   const unavailable: { id: string; why: string }[] = [];
   for (const vault of context.installation.vaults) {
     const accepted = acceptedMain(context.state, vault.id);
-    const identity = accepted === undefined ? undefined : await readVaultIdentity(context.git, vault.path, accepted.sha);
+    const identity = accepted === undefined ? undefined : await acceptedIdentity(context.reads, context.git, vault.path, accepted);
     if (identity?.ok === true) identities.push({ ...identity.value, id: vault.id });
     else unavailable.push({ id: vault.id, why: accepted === undefined ? 'nothing accepted yet' : 'cannot be read' });
   }

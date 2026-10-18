@@ -32,7 +32,7 @@ import {
 } from '../git/index.ts';
 import {
   MAIN_BRANCH, acceptedMain, mainTip, recordAccepted, requireNoUnacceptedChange,
-  type AcceptedMain, type UnacceptedChangeError, type VaultLocation,
+  type AcceptedMain, type AcceptedReads, type UnacceptedChangeError, type VaultLocation,
 } from '../integrity/index.ts';
 import { evaluateMerge, type CheckStatus, type PolicyError } from '../policy/index.ts';
 import { readVaultIdentity, type IdentityError } from '../registry/index.ts';
@@ -48,6 +48,8 @@ export interface ForgeDeps extends ForgeDepsBase {
   /** Who notes merges are made as. */
   readonly attribution: Attribution;
   readonly forges: readonly ForgeEntry[];
+  /** What has been read from accepted mains, kept while they stay accepted. */
+  readonly reads?: AcceptedReads;
 }
 
 export type ForgeSyncError =
@@ -123,6 +125,7 @@ async function publish(
     .map((a) => ({ kind: 'approval', name: a.user, subject: proposal.head, result: 'pass', by: `${a.user} via forge`, at: deps.clock.now().toISOString() }));
   const evaluation = await evaluateMerge(deps.git, vault.path, {
     accepted, base: proposal.base, head: proposal.head, tainted: proposal.tainted, approvals,
+    ...(deps.reads === undefined ? {} : { reads: deps.reads }),
   });
   if (!evaluation.ok) return evaluation;
   const { verdict } = evaluation.value;

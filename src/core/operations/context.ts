@@ -1,8 +1,8 @@
 // What every operation runs with: the loaded installation and the services
 // the core takes as inputs — Git, the stores, a clock, IDs, HTTP, secrets,
-// process liveness and how scripts run. Adapters build one per process (the
-// CLI per command, the extension per session, the daemon once); tests build
-// one with fakes. Nothing here decides anything about a vault.
+// process liveness, how scripts run, and the one cache of what is read from
+// accepted mains. Adapters build one per process (the CLI per command, the
+// extension per session, the daemon once); tests build one with fakes. Nothing here decides anything about a vault.
 //
 // Invariants:
 //  - scripts and checks get an environment made only of the variables an
@@ -20,6 +20,7 @@ import { systemSecretDeps, type SecretDeps } from '../config/index.ts';
 import { createGit, type Git, type Identity } from '../git/index.ts';
 import type { HttpClient } from '../http/index.ts';
 import { createIdSource, type IdSource } from '../ids/index.ts';
+import { createAcceptedReads, type AcceptedReads } from '../integrity/index.ts';
 import { processStartTime, type ProcessLiveness } from '../process/index.ts';
 import type { Result } from '../result/index.ts';
 import { findWindowsShell, probeNetworkSandbox, type CheckRunOptions, type NetworkSandbox } from '../scripts/index.ts';
@@ -38,6 +39,8 @@ export interface OperationContext {
   readonly http: HttpClient;
   readonly secrets: SecretDeps;
   readonly alive: ProcessLiveness;
+  /** What has been read from the vaults' accepted mains, kept while they stay accepted (architecture.md). */
+  readonly reads: AcceptedReads;
   /** How scripts and checks run here. */
   scriptOptions(): Promise<CheckRunOptions>;
   /** Where SMTP connects and what it trusts besides the system — a test seam only. */
@@ -89,6 +92,7 @@ export function createContext(installation: Installation, options: ContextOption
   let index: Result<Store, StoreError> | undefined;
   let scripts: Promise<CheckRunOptions> | undefined;
   const os = installation.host.os;
+  const reads = createAcceptedReads();
   return {
     ok: true,
     value: {
@@ -101,11 +105,12 @@ export function createContext(installation: Installation, options: ContextOption
       http: { fetch: options.fetch ?? fetch },
       secrets: options.secrets ?? systemSecretDeps(installation.host.env),
       alive: options.alive ?? ((pid) => processStartTime(pid)),
+      reads,
       scriptOptions: () => (scripts ??= (async () => {
         const env = scriptEnvironment(installation);
         const sandbox = options.sandbox ?? await probeNetworkSandbox(os, env);
         const windowsShell = os === 'win32' ? await findWindowsShell(git) : undefined;
-        return { env, timeoutMs: SCRIPT_TIMEOUT_MS, os, sandbox, ...(windowsShell === undefined ? {} : { windowsShell }) };
+        return { env, timeoutMs: SCRIPT_TIMEOUT_MS, os, sandbox, reads, ...(windowsShell === undefined ? {} : { windowsShell }) };
       })()),
       ...(options.smtp === undefined ? {} : { smtp: options.smtp }),
       close: () => {

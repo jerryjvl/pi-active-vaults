@@ -11,7 +11,7 @@ import { createEmptyVault, createFromTemplate, inspectTemplate, resolveTemplateS
 import { packageIdentity, type OperationContext } from '../context.ts';
 import { fromError, succeeded } from '../messages.ts';
 import type { Caller, Operation } from '../types.ts';
-import { personOf, readingFrom, text } from './common.ts';
+import { identityOf, personOf, readingFrom, text } from './common.ts';
 
 const CLI_ONLY = { cli: true, command: false, mcp: false } as const;
 
@@ -31,7 +31,7 @@ export const listOperation: Operation = {
     const lines: string[] = [];
     for (const vault of context.installation.vaults) {
       const accepted = readingFrom(context, vault);
-      const identity = await readVaultIdentity(context.git, vault.path, accepted.ok ? accepted.value.sha : 'refs/heads/main');
+      const identity = await identityOf(context, vault);
       const entry = identity.ok ? { summary: identity.value.purpose.summary, audience: identity.value.audience, review: identity.value.review, owners: identity.value.owners } : undefined;
       listed.push({ id: vault.id, path: vault.path, worktrees: vault.worktrees, host: vault.host, accepted: accepted.ok ? accepted.value.sha : null, ...entry });
       lines.push(`${vault.id}  ${vault.path}${entry === undefined ? '  (its root contract cannot be read)' : `\n  ${entry.summary} — for ${entry.audience}; ${entry.review} review; owners ${entry.owners.join(', ')}`}`);

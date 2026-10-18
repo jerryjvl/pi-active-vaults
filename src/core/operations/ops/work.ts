@@ -51,7 +51,7 @@ export const jobsOperation: Operation = {
         lines.push(`${vault.id}: nothing accepted yet`);
         continue;
       }
-      const jobs = await vaultJobs(context.git, vault.path, accepted.value);
+      const jobs = await vaultJobs(context.git, vault.path, accepted.value, context.reads);
       if (!jobs.ok) return fromError(jobs.error);
       const spawns = listSpawns(context.state, { vault: vault.id });
       for (const job of jobs.value) {
@@ -80,7 +80,7 @@ export const runOperation: Operation = {
     const document = text(request.params, 'document') ?? '';
     const accepted = await requireNoUnacceptedChange(context.git, context.state, vault);
     if (!accepted.ok) return fromError(accepted.error);
-    const jobs = await vaultJobs(context.git, vault.path, accepted.value);
+    const jobs = await vaultJobs(context.git, vault.path, accepted.value, context.reads);
     if (!jobs.ok) return fromError(jobs.error);
     const job = jobs.value.find((j) => j.path === document);
     if (job === undefined) return refused(`${vault.id}:${document} is not a job on the accepted main: it has no spawn condition.`);

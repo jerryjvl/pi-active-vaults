@@ -17,7 +17,7 @@
 import type { Budget } from '../budgets/index.ts';
 import { isGitEvent, matchConditions, narrowByScripts, type Candidate, type MatchContext, type ScriptFilterOptions, type VaultEvent } from '../conditions/index.ts';
 import type { Git, GitError } from '../git/index.ts';
-import { requireNoUnacceptedChange } from '../integrity/index.ts';
+import { requireNoUnacceptedChange, type AcceptedReads } from '../integrity/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
 import { ok, type Result } from '../result/index.ts';
 import type { Store } from '../store/index.ts';
@@ -31,6 +31,8 @@ export interface SpawnMatching {
   readonly vaults: readonly RegisteredVault[];
   readonly match: MatchContext;
   readonly scripts: ScriptFilterOptions;
+  /** What has been read from accepted mains, kept while they stay accepted. */
+  readonly reads?: AcceptedReads;
 }
 
 export interface MatchedSpawns {
@@ -74,7 +76,7 @@ export async function matchSpawns(
       paused.push(vault.id);
       continue;
     }
-    const jobs = await vaultJobs(m.git, vault.path, accepted.value);
+    const jobs = await vaultJobs(m.git, vault.path, accepted.value, m.reads);
     if (!jobs.ok) return jobs;
     for (const job of jobs.value) {
       if (job.budget === undefined || job.actor === undefined) continue; // cannot spawn; `vault jobs` says why

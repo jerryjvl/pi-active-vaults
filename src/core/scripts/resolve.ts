@@ -14,7 +14,7 @@
 
 import { PACKAGE_DIRECTORY } from '../documents/index.ts';
 import { TREE_MODES, listTree, readTextAt, type Git, type GitError, type Sha, type TreeEntry } from '../git/index.ts';
-import type { AcceptedMain } from '../integrity/index.ts';
+import { UNCACHED_READS, type AcceptedMain, type AcceptedReads } from '../integrity/index.ts';
 import { err, ok, type Issue, type Result } from '../result/index.ts';
 import { parseScriptHeader, scriptNameOf, type ScriptHeader } from './header.ts';
 
@@ -73,10 +73,16 @@ export type ScriptError =
 export interface ResolveOptions {
   readonly kind: ScriptKind;
   readonly builtins: readonly BuiltinScript[];
+  /** What has been read from accepted mains, kept while they stay accepted. */
+  readonly reads?: AcceptedReads;
 }
 
 /** The top-level, non-hidden files of the kind's directory, grouped by script name, names sorted. */
-async function candidates(git: Git, repo: string, accepted: AcceptedMain, kind: ScriptKind): Promise<Result<Map<string, TreeEntry[]>, GitError>> {
+function candidates(git: Git, repo: string, accepted: AcceptedMain, options: ResolveOptions): Promise<Result<Map<string, TreeEntry[]>, GitError>> {
+  return (options.reads ?? UNCACHED_READS).read(accepted, `${options.kind}-files`, () => listCandidates(git, repo, accepted, options.kind));
+}
+
+async function listCandidates(git: Git, repo: string, accepted: AcceptedMain, kind: ScriptKind): Promise<Result<Map<string, TreeEntry[]>, GitError>> {
   const directory = SCRIPT_DIRECTORIES[kind];
   const entries = await listTree(git, repo, accepted.sha, directory);
   if (!entries.ok) return entries;
@@ -90,8 +96,15 @@ async function candidates(git: Git, repo: string, accepted: AcceptedMain, kind: 
   return ok(new Map([...byName].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
 }
 
-/** One name's files, judged: a usable script, or why not. */
-async function classify(
+/** One name's files, judged — a usable script, or why not — once per accepted main and built-ins. */
+function classify(
+  git: Git, repo: string, accepted: AcceptedMain, name: string, files: readonly TreeEntry[], options: ResolveOptions,
+): Promise<Result<VaultScript, ScriptError>> {
+  const key = `${options.kind}:${name}:${options.builtins.map((b) => b.name).join(',')}`;
+  return (options.reads ?? UNCACHED_READS).read(accepted, key, () => judge(git, repo, accepted, name, files, options));
+}
+
+async function judge(
   git: Git, repo: string, accepted: AcceptedMain, name: string, files: readonly TreeEntry[], options: ResolveOptions,
 ): Promise<Result<VaultScript, ScriptError>> {
   const [entry, ...others] = files;
@@ -130,7 +143,7 @@ function problemIssues(problem: ScriptProblem): readonly Issue[] {
 export async function listScripts(
   git: Git, repo: string, accepted: AcceptedMain, options: ResolveOptions,
 ): Promise<Result<{ scripts: VaultScript[]; invalid: InvalidScript[] }, GitError>> {
-  const byName = await candidates(git, repo, accepted, options.kind);
+  const byName = await candidates(git, repo, accepted, options);
   if (!byName.ok) return byName;
   const scripts: VaultScript[] = [];
   const invalid: InvalidScript[] = [];
@@ -151,7 +164,7 @@ export async function resolveScript(
     const builtin = options.kind === 'script' ? options.builtins.find((b) => `${BUILTIN_PREFIX}${b.name}` === name) : undefined;
     return builtin === undefined ? err({ reason: 'no-such-script', name }) : ok({ source: 'builtin', name, builtin });
   }
-  const byName = await candidates(git, repo, accepted, options.kind);
+  const byName = await candidates(git, repo, accepted, options);
   if (!byName.ok) return byName;
   const classified = await classify(git, repo, accepted, name, byName.value.get(name) ?? [], options);
   return classified.ok ? ok({ source: 'vault', ...classified.value }) : classified;

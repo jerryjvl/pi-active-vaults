@@ -22,11 +22,10 @@
 
 import { ensureActorWorktree, releaseActorHold, takeActorHold, type Holder, type HoldError, type WorktreeError } from '../actors/index.ts';
 import { allot, budgetState, finishSession, type Budget } from '../budgets/index.ts';
-import { eventJson, type DocumentConditions } from '../conditions/index.ts';
-import { readDocumentAt } from '../documents/index.ts';
-import { acceptedMain } from '../integrity/index.ts';
+import { eventJson } from '../conditions/index.ts';
+import { acceptedDocument, acceptedIdentity, acceptedMain } from '../integrity/index.ts';
 import { locate, unacceptedNotices, type Caller, type OperationContext } from '../operations/index.ts';
-import { isActor, isVaultActor, readVaultIdentity, type RegisteredVault } from '../registry/index.ts';
+import { isActor, isVaultActor, type RegisteredVault } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import { newTraceId } from '../traces/index.ts';
 import type { RunContext } from './run.ts';
@@ -70,8 +69,6 @@ export interface VaultSession {
   /** Session events already seen, and documents already injected, by key. */
   readonly seen: Set<string>;
   readonly injected: Set<string>;
-  /** Documents with conditions, per vault and accepted main — what injection matches against. */
-  readonly documents: Map<string, readonly DocumentConditions[]>;
 }
 
 export type SessionRefusal =
@@ -91,7 +88,7 @@ const INTERACTIVE_BUDGET: Budget = { tokens: Number.MAX_SAFE_INTEGER, ttlMs: 0 }
 function newSession(context: OperationContext, start: SessionStart, fields: Pick<VaultSession, 'mode' | 'trace'> & Partial<VaultSession>): VaultSession {
   return {
     id: start.session, held: false, tainted: false, closed: false, started: context.clock.now().toISOString(), scripts: [], touched: new Set(),
-    seen: new Set(), injected: new Set(), documents: new Map(), ...fields,
+    seen: new Set(), injected: new Set(), ...fields,
   };
 }
 
@@ -107,12 +104,12 @@ type Writer = { readonly worktree: string };
 async function prepareWriter(context: OperationContext, vault: RegisteredVault, actor: string, headless = false): Promise<Result<Writer, SessionRefusal>> {
   const accepted = acceptedMain(context.state, vault.id);
   if (accepted === undefined) return err({ reason: 'no-accepted-main', vault: vault.id });
-  const identity = await readVaultIdentity(context.git, vault.path, accepted.sha);
+  const identity = await acceptedIdentity(context.reads, context.git, vault.path, accepted);
   if (!identity.ok) return identity;
   if (!isActor(identity.value, actor)) return err({ reason: 'not-a-writer', vault: vault.id, actor });
   // Unattended work writes only in an agent's review lane, never as an owner (concepts.md "Document": a job's actor).
   if (headless && !isVaultActor(identity.value, actor)) return err({ reason: 'not-a-vault-actor', vault: vault.id, actor });
-  const worktree = await ensureActorWorktree(context.git, vault, accepted, actor);
+  const worktree = await ensureActorWorktree(context.git, vault, accepted, actor, context.reads);
   return worktree.ok ? ok({ worktree: worktree.value.path }) : worktree;
 }
 
@@ -139,7 +136,7 @@ function refusalText(refusal: SessionRefusal, actor: string): string {
 async function briefOf(context: OperationContext, vault: RegisteredVault, run: RunContext): Promise<string | undefined> {
   const accepted = acceptedMain(context.state, vault.id);
   if (accepted === undefined) return undefined;
-  const job = await readDocumentAt(context.git, vault.path, accepted.sha, run.document);
+  const job = await acceptedDocument(context.reads, context.git, vault.path, accepted, run.document);
   if (!job.ok || job.value.state !== 'read') return undefined;
   return [
     `<vault-job source="${vault.id}:${run.document}">`, job.value.document.body.trim(), '</vault-job>', '',

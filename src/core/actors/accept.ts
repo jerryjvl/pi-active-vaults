@@ -15,13 +15,16 @@ import type { Clock } from '../clock/index.ts';
 import { listWorktrees, mergeSha, resolveRevision, type Git, type GitError, type Identity, type Sha } from '../git/index.ts';
 import {
   MAIN_BRANCH,
+  UNCACHED_READS,
+  acceptedIdentity,
   recordAccepted,
   requireNoUnacceptedChange,
   type AcceptedMain,
+  type AcceptedReads,
   type UnacceptedChangeError,
 } from '../integrity/index.ts';
 import { evaluateMerge, type MergeEvaluation, type PolicyVerdict } from '../policy/index.ts';
-import { isOwner, readVaultIdentity, type IdentityError, type RegisteredVault } from '../registry/index.ts';
+import { isOwner, type IdentityError, type RegisteredVault } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import type { Store } from '../store/index.ts';
 import { readProposal } from './proposal.ts';
@@ -53,7 +56,7 @@ export type AcceptError =
   | { readonly reason: 'accepted-moved'; readonly current: Sha | null };
 
 export async function accept(
-  context: { readonly git: Git; readonly store: Store; readonly clock: Clock },
+  context: { readonly git: Git; readonly store: Store; readonly clock: Clock; readonly reads?: AcceptedReads },
   vault: RegisteredVault,
   actor: string,
   request: AcceptRequest,
@@ -61,7 +64,7 @@ export async function accept(
   const { git, store, clock } = context;
   const accepted = await requireNoUnacceptedChange(git, store, vault);
   if (!accepted.ok) return accepted;
-  const identity = await readVaultIdentity(git, vault.path, accepted.value.sha);
+  const identity = await acceptedIdentity(context.reads ?? UNCACHED_READS, git, vault.path, accepted.value);
   if (!identity.ok) return identity;
   if (identity.value.review === 'forge') return err({ reason: 'forge-mode' });
   if (!isOwner(identity.value, request.approver)) return err({ reason: 'not-owner', approver: request.approver });
@@ -86,7 +89,7 @@ export async function accept(
   }, attribution);
   if (!approval.ok) return approval;
 
-  const evaluation = await evaluateMerge(git, vault.path, { accepted: accepted.value, base, head, tainted });
+  const evaluation = await evaluateMerge(git, vault.path, { accepted: accepted.value, base, head, tainted, ...(context.reads === undefined ? {} : { reads: context.reads }) });
   if (!evaluation.ok) return evaluation;
   if (!evaluation.value.verdict.satisfied) return err({ reason: 'policy-unmet', verdict: evaluation.value.verdict });
 

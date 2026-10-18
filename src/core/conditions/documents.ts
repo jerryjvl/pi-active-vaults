@@ -6,15 +6,16 @@
 // effective contract's — which applies to every document in the subtree — so
 // a document's own conditions keep their positions whatever its contracts
 // say. The actor a job writes as is likewise its own `actor`, else its
-// nearest contract's (strategy `nearest`). Everything is read from the accepted `main`, never a branch or a
-// working tree. A condition that cannot be read applies nowhere: the document
+// nearest contract's (strategy `nearest`). Everything is read from the
+// accepted `main` — once per accepted main, through the reads cache — never a
+// branch or a working tree. A condition that cannot be read applies nowhere: the document
 // is listed with no conditions and the issues that explain why, never with
 // the conditions that happened to parse.
 
-import { contractReader, ROOT_CONTRACT } from '../contracts/index.ts';
+import { ROOT_CONTRACT } from '../contracts/index.ts';
 import { describeDocumentError, inPackageDirectory, isDocumentPath, readDocumentAt } from '../documents/index.ts';
 import { listFiles, type Git, type GitError } from '../git/index.ts';
-import type { AcceptedMain } from '../integrity/index.ts';
+import { UNCACHED_READS, acceptedContracts, type AcceptedMain, type AcceptedReads } from '../integrity/index.ts';
 import { err, ok, type Issue, type Result } from '../result/index.ts';
 import { parseConditions, type Condition } from './parse.ts';
 
@@ -35,10 +36,14 @@ function isContract(path: string): boolean {
 }
 
 /** Every document on the accepted main with conditions, or with conditions that cannot be read, by path. */
-export async function documentConditions(git: Git, repo: string, accepted: AcceptedMain): Promise<Result<DocumentConditions[], GitError>> {
+export function documentConditions(git: Git, repo: string, accepted: AcceptedMain, reads: AcceptedReads = UNCACHED_READS): Promise<Result<DocumentConditions[], GitError>> {
+  return reads.read(accepted, 'conditions', () => readConditions(git, repo, accepted, reads));
+}
+
+async function readConditions(git: Git, repo: string, accepted: AcceptedMain, reads: AcceptedReads): Promise<Result<DocumentConditions[], GitError>> {
   const files = await listFiles(git, repo, accepted.sha);
   if (!files.ok) return files;
-  const contracts = contractReader(git, repo, accepted.sha);
+  const contracts = await acceptedContracts(reads, git, repo, accepted);
   const found: DocumentConditions[] = [];
   for (const path of [...files.value].sort()) {
     if (!isDocumentPath(path) || inPackageDirectory(path) || isContract(path)) continue;

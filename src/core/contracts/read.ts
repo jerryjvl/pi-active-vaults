@@ -79,6 +79,12 @@ export async function effectiveContract(
   if (!sha.ok) return sha;
   const type = await pathTypeAt(git, repo, sha.value, path);
   if (!type.ok) return type;
-  const reader = contractReader(git, repo, sha.value);
-  return type.value === 'directory' ? reader.forDirectory(path) : reader.forFile(path);
+  return effectiveContractWith(contractReader(git, repo, sha.value), type.value, path);
+}
+
+/** The effective contract for `path` from `reader`: a directory's own, or a file's (existing or not). */
+export function effectiveContractWith(
+  reader: ContractReader, type: 'file' | 'directory' | undefined, path: string,
+): Promise<Result<EffectiveContract, ContractError>> {
+  return type === 'directory' ? reader.forDirectory(path) : reader.forFile(path);
 }

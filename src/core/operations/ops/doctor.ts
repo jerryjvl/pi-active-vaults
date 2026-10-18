@@ -27,11 +27,11 @@ import { modelFor } from '../../models/index.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
 import { vaultJobs } from '../../queue/index.ts';
 import { runProcess } from '../../process/index.ts';
-import { checkRegisteredIdentity, hosting, readVaultIdentity, type RegisteredVault } from '../../registry/index.ts';
+import { checkRegisteredIdentity, hosting, type RegisteredVault } from '../../registry/index.ts';
 import { scriptEnvironment, type OperationContext } from '../context.ts';
 import { failed, succeeded } from '../messages.ts';
 import type { Operation } from '../types.ts';
-import { flag, readingFrom } from './common.ts';
+import { flag, identityOf, readingFrom } from './common.ts';
 
 export interface Finding {
   readonly level: 'ok' | 'warning' | 'problem';
@@ -105,7 +105,7 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
   const { git, installation } = context;
   const at = (level: Finding['level'], check: string, message: string): Finding => ({ level, check, vault: vault.id, message });
   const accepted = readingFrom(context, vault);
-  const identity = await readVaultIdentity(git, vault.path, accepted.ok ? accepted.value.sha : 'refs/heads/main');
+  const identity = await identityOf(context, vault);
   if (!identity.ok) return [at('problem', 'identity', `Its root contract cannot be read (${identity.error.reason}).`)];
   const findings: Finding[] = [];
   const registered = checkRegisteredIdentity(vault, identity.value);
@@ -156,7 +156,7 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
 
 /** Each job on the accepted main that cannot run — no readable budget, no actor that may write — with why. */
 async function jobFindings(context: OperationContext, vault: RegisteredVault, accepted: AcceptedMain): Promise<Finding[]> {
-  const jobs = await vaultJobs(context.git, vault.path, accepted);
+  const jobs = await vaultJobs(context.git, vault.path, accepted, context.reads);
   if (!jobs.ok) return [{ level: 'problem', check: 'jobs', vault: vault.id, message: `Its jobs cannot be read (${jobs.error.reason}).` }];
   return jobs.value
     .filter((job) => job.issues.length > 0)

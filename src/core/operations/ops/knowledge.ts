@@ -2,8 +2,7 @@
 // while `main` has an unaccepted change, from the recorded accepted `main`;
 // rebuilding the index is a propagating action and is refused then.
 
-import { effectiveContract } from '../../contracts/index.ts';
-import { mainTip } from '../../integrity/index.ts';
+import { acceptedContract, mainTip } from '../../integrity/index.ts';
 import { readTextAt } from '../../git/index.ts';
 import { search, updateIndex, type IndexReport, type SearchNote } from '../../search/index.ts';
 import { fromError, invalid, succeeded } from '../messages.ts';
@@ -94,7 +93,7 @@ export const contractOperation: Operation = {
     const path = text(request.params, 'path') ?? '';
     const accepted = readingFrom(context, vault);
     if (!accepted.ok) return fromError(accepted.error);
-    const contract = await effectiveContract(context.git, vault.path, accepted.value.sha, path);
+    const contract = await acceptedContract(context.reads, context.git, vault.path, accepted.value, path);
     if (!contract.ok) return fromError(contract.error);
     const { values, origins, prose } = contract.value;
     const keys = Object.keys(values).sort().map((key) => `${key}: ${JSON.stringify(values[key])}\n  from ${(origins[key] ?? []).join(', ')}`);

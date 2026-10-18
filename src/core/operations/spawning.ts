@@ -32,7 +32,7 @@ export async function requestSpawns(
   const { config, vaults } = context.installation;
   const from = 'vault' in given.event ? given.event.vault : undefined;
   const matching = {
-    git: context.git, store: context.state, vaults,
+    git: context.git, store: context.state, vaults, reads: context.reads,
     match: { subscriptions: config.subscriptions, equivalentLabels: config.labels.equivalent },
     scripts: { ...(await context.scriptOptions()), builtins: [] },
   };

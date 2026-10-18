@@ -118,6 +118,25 @@ Everything a vault shares lives in Git. Everything local to a machine lives in
 Full trace logs stay as plain files, because they are rotated and compressed by
 age.
 
+## Reads from the accepted main
+
+Everything read from a vault's accepted `main` — its identity, contracts,
+documents' conditions, jobs, script and check lists, job documents — follows
+one rule, in the core's `integrity` module, for the CLI, the extension and the
+daemon alike:
+
+- It is cached in memory for as long as the process runs (a CLI command, a Pi
+  session, the daemon), keyed by vault and accepted-main SHA.
+- The accepted SHA is looked up on each operation: one state-database read
+  (in `forge` mode, the last-fetched forge `main`, recorded there by sync).
+- A newer accepted SHA makes the next read load fresh content; what was read at
+  the older one is dropped. Nothing is re-read while it is unchanged.
+- Only an accepted SHA is ever read, so an unaccepted change never is; a read
+  that failed is not kept.
+
+The exception is the vault catalog in a session's system prompt: it is fixed
+for the session (see [Pi conventions](pi-conventions.md#prompt-cache-stability)).
+
 ## Runtime flows
 
 ### Interactive session

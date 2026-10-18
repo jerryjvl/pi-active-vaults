@@ -60,7 +60,7 @@ export async function runChecks(
   const { git, vault } = context;
   const accepted = await requireNoUnacceptedChange(git, context.store, vault);
   if (!accepted.ok) return accepted;
-  const checks = await listScripts(git, vault.path, accepted.value, { kind: 'check', builtins: [] });
+  const checks = await listScripts(git, vault.path, accepted.value, { kind: 'check', builtins: [], ...(options.reads === undefined ? {} : { reads: options.reads }) });
   if (!checks.ok) return checks;
   const results: CheckResult[] = checks.value.invalid.map((check) => ({ name: check.name, result: 'error', evidence: 'not a valid check' }));
   if (checks.value.scripts.length === 0) return ok({ results, passed: results.length === 0 });

@@ -6,7 +6,7 @@
 // accepted `main` (or `main` itself when nothing was accepted yet).
 
 import type { Git } from '../git/index.ts';
-import { integrityStatus, unacceptedNotice, type UnacceptedChange } from '../integrity/index.ts';
+import { UNCACHED_READS, acceptedIdentity, integrityStatus, unacceptedNotice, type AcceptedReads, type UnacceptedChange } from '../integrity/index.ts';
 import { readVaultIdentity, type RegisteredVault, type ReviewMode } from '../registry/index.ts';
 import type { Queryable } from '../store/index.ts';
 
@@ -16,15 +16,18 @@ export interface VaultNotice {
   readonly change: UnacceptedChange;
 }
 
-async function reviewMode(git: Git, change: UnacceptedChange, vault: RegisteredVault): Promise<ReviewMode> {
-  const revision = change.accepted?.sha ?? change.tip;
-  if (revision === null) return 'local';
-  const identity = await readVaultIdentity(git, vault.path, revision);
-  return identity.ok ? identity.value.review : 'local';
+type NoticeContext = { readonly git: Git; readonly state: Queryable; readonly reads?: AcceptedReads };
+
+async function reviewMode(context: NoticeContext, change: UnacceptedChange, vault: RegisteredVault): Promise<ReviewMode> {
+  const { accepted, tip } = change;
+  const identity = accepted !== undefined ? await acceptedIdentity(context.reads ?? UNCACHED_READS, context.git, vault.path, accepted)
+    : tip !== null ? await readVaultIdentity(context.git, vault.path, tip)
+    : undefined;
+  return identity?.ok === true ? identity.value.review : 'local';
 }
 
 /** The notice for each of `vaults` with an unaccepted change, in order; a vault that cannot be read gets one too. */
-export async function unacceptedNotices(context: { readonly git: Git; readonly state: Queryable }, vaults: readonly RegisteredVault[]): Promise<VaultNotice[]> {
+export async function unacceptedNotices(context: NoticeContext, vaults: readonly RegisteredVault[]): Promise<VaultNotice[]> {
   const notices: VaultNotice[] = [];
   for (const vault of vaults) {
     const status = await integrityStatus(context.git, context.state, vault);
@@ -34,7 +37,7 @@ export async function unacceptedNotices(context: { readonly git: Git; readonly s
       continue;
     }
     if (status.value.state === 'accepted') continue;
-    notices.push({ vault: vault.id, change: status.value, notice: unacceptedNotice(status.value, await reviewMode(context.git, status.value, vault)) });
+    notices.push({ vault: vault.id, change: status.value, notice: unacceptedNotice(status.value, await reviewMode(context, status.value, vault)) });
   }
   return notices;
 }

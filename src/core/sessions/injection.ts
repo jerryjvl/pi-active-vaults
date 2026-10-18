@@ -16,9 +16,7 @@
 //    never makes a session do more.
 
 import { documentConditions, matchConditions, type Candidate, type DocumentConditions, type VaultEvent } from '../conditions/index.ts';
-import { effectiveContract } from '../contracts/index.ts';
-import { readDocumentAt } from '../documents/index.ts';
-import { acceptedMain, type AcceptedMain } from '../integrity/index.ts';
+import { acceptedContract, acceptedDocument, acceptedMain, type AcceptedMain } from '../integrity/index.ts';
 import type { OperationContext } from '../operations/index.ts';
 import { reachedVaults } from '../queue/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
@@ -33,23 +31,18 @@ export interface Injection {
   readonly text: string;
 }
 
-/** The documents with conditions on a vault's accepted main, read once per session and accepted main. */
-async function documentsOf(context: OperationContext, session: VaultSession, vault: RegisteredVault, accepted: AcceptedMain): Promise<readonly DocumentConditions[]> {
-  const key = `${vault.id}@${accepted.sha}`;
-  const cached = session.documents.get(key);
-  if (cached !== undefined) return cached;
-  const read = await documentConditions(context.git, vault.path, accepted);
-  const documents = read.ok ? read.value : [];
-  session.documents.set(key, documents);
-  return documents;
+/** The documents with conditions on a vault's accepted main; one that cannot be read offers none. */
+async function documentsOf(context: OperationContext, vault: RegisteredVault, accepted: AcceptedMain): Promise<readonly DocumentConditions[]> {
+  const read = await documentConditions(context.git, vault.path, accepted, context.reads);
+  return read.ok ? read.value : [];
 }
 
 async function contractProse(context: OperationContext, vault: RegisteredVault, accepted: AcceptedMain, path: string): Promise<Injection[]> {
-  const contract = await effectiveContract(context.git, vault.path, accepted.sha, path);
+  const contract = await acceptedContract(context.reads, context.git, vault.path, accepted, path);
   return contract.ok ? contract.value.prose.map((p) => ({ vault: vault.id, path: p.path, text: p.body })) : [];
 }
 
-async function injectDocuments(context: OperationContext, session: VaultSession, event: SessionEvent): Promise<Injection[]> {
+async function injectDocuments(context: OperationContext, event: SessionEvent): Promise<Injection[]> {
   const { vaults, config } = context.installation;
   const targets = reachedVaults(vaults, config.subscriptions, event.kind === 'session.path' ? event.vault : undefined);
   const candidates: Candidate[] = [];
@@ -58,7 +51,7 @@ async function injectDocuments(context: OperationContext, session: VaultSession,
     const accepted = acceptedMain(context.state, vault.id);
     if (accepted === undefined) continue;
     readFrom.set(vault.id, { vault, accepted });
-    for (const document of await documentsOf(context, session, vault, accepted)) {
+    for (const document of await documentsOf(context, vault, accepted)) {
       if (document.conditions.some((c) => c.effect === 'inject')) candidates.push({ vault: vault.id, document: document.path, conditions: document.conditions });
     }
   }
@@ -68,7 +61,7 @@ async function injectDocuments(context: OperationContext, session: VaultSession,
   for (const match of matched) {
     const source = readFrom.get(match.vault);
     if (source === undefined || injections.some((i) => i.vault === match.vault && i.path === match.document)) continue;
-    const read = await readDocumentAt(context.git, source.vault.path, source.accepted.sha, match.document);
+    const read = await acceptedDocument(context.reads, context.git, source.vault.path, source.accepted, match.document);
     if (read.ok && read.value.state === 'read') injections.push({ vault: match.vault, path: match.document, text: read.value.document.body });
   }
   return injections;
@@ -82,7 +75,7 @@ export async function injectionsFor(context: OperationContext, session: VaultSes
     const accepted = vault === undefined ? undefined : acceptedMain(context.state, vault.id);
     if (vault !== undefined && accepted !== undefined) found.push(...(await contractProse(context, vault, accepted, event.path)));
   }
-  found.push(...(await injectDocuments(context, session, event)));
+  found.push(...(await injectDocuments(context, event)));
   const fresh = found.filter((i) => !session.injected.has(`${i.vault}:${i.path}`));
   for (const i of fresh) session.injected.add(`${i.vault}:${i.path}`);
   return fresh;
