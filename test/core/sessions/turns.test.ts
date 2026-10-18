@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { budgetState, usageOf } from '../../../src/core/budgets/index.ts';
-import { recordTurn } from '../../../src/core/sessions/index.ts';
+import { recordTurn, workLeft } from '../../../src/core/sessions/index.ts';
 import { withInstallation } from '../../support/installation.ts';
 import { RUNNING, openTestSession, runOf, startedSpawn } from '../../support/session.ts';
 
@@ -44,3 +44,14 @@ test('the daily ceiling stops a headless run but not an interactive session', wi
   assert.equal(recordTurn(t.context, person, [turn(1000, 0)]).stop, undefined, 'the person is not stopped');
   assert.equal(recordTurn(t.context, run, [turn(10, 0)]).stop, 'budget');
 }, { running: RUNNING, config: 'budgets: { daily-tokens: 1000 }' }));
+
+test('a headless run knows how much work it has left; an interactive session is not bounded by it', withInstallation(async (t) => {
+  const run = await openTestSession(t, { run: runOf(startedSpawn(t, 'jobs/daily.md', 500)) });
+  assert.equal(workLeft(t.context, run), 500);
+  recordTurn(t.context, run, [turn(100, 50)]);
+  assert.equal(workLeft(t.context, run), 350);
+  t.clock.advance(600_001);
+  assert.equal(workLeft(t.context, run), 0, 'past its run time, nothing is left');
+  const person = await openTestSession(t, { session: 'pi-session-2', actor: 'alice' });
+  assert.equal(workLeft(t.context, person), undefined);
+}, { running: RUNNING }));
