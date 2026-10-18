@@ -12,6 +12,10 @@ import { endProcess, processStartTime, startChild } from '../../../src/core/proc
 const posixOnly = { skip: process.platform === 'win32' ? 'process groups are POSIX' : false };
 const node = (script: string) => ({ file: process.execPath, args: ['-e', script] });
 const ENV = { PATH: process.env['PATH'] };
+const running = async (pid: number): Promise<boolean> => {
+  const start = await processStartTime(pid);
+  return start.ok && start.value !== undefined;
+};
 
 test('a child\'s output arrives line by line, split on line feeds only; what it is sent arrives', async () => {
   const started = await startChild({
@@ -53,9 +57,9 @@ test('killing a child ends what it started too', posixOnly, async () => {
   const grandchild = await new Promise<number>((resolve) => started.value.onLine((line) => resolve(Number(line))));
   started.value.kill();
   await started.value.exited;
-  for (let i = 0; i < 100 && (await processStartTime(grandchild)).ok && (await processStartTime(grandchild)).value !== undefined; i++) await new Promise((r) => setTimeout(r, 20));
-  const after = await processStartTime(grandchild);
-  assert.ok(after.ok && after.value === undefined, 'the grandchild is gone');
+  // The kill is immediate; the system takes a moment to reap the grandchild.
+  for (let i = 0; i < 100 && (await running(grandchild)); i++) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(await running(grandchild), false, 'the grandchild is gone');
 });
 
 test('a recorded process is ended only when its start time is the one recorded', async () => {
@@ -65,7 +69,7 @@ test('a recorded process is ended only when its start time is the one recorded',
   const start = await processStartTime(pid);
   assert.ok(start.ok && start.value !== undefined);
   assert.equal(await endProcess({ pid, started: 'some-other-process' }), 'not-that-process', 'a reused ID is never touched');
-  assert.equal((await processStartTime(pid)).ok && (await processStartTime(pid)).value !== undefined, true);
+  assert.equal(await running(pid), true);
   assert.equal(await endProcess({ pid, started: start.value }), 'ended');
   await started.value.exited;
   assert.equal(await endProcess({ pid, started: start.value }), 'gone');

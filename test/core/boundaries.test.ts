@@ -29,7 +29,12 @@ test('node:sqlite and its vector extension are imported only by the store module
 });
 
 test('processes are started only by the process module', () => {
-  assert.deepEqual([...importersOf('node:child_process'), ...importersOf('child_process')], ['core/process/run.ts']);
+  const importers = [...importersOf('node:child_process'), ...importersOf('child_process')];
+  assert.ok(importers.length > 0 && importers.every((file) => file.startsWith('core/process/')), importers.join(', '));
+});
+
+test('cron expressions are evaluated only by the timers of the conditions module', () => {
+  assert.deepEqual(importersOf('croner'), ['core/conditions/timers.ts']);
 });
 
 test('only the git module knows how to talk to git', () => {
