@@ -9,6 +9,7 @@ export { SCRIPT_TIMEOUT_MS, createContext, packageIdentity, scriptEnvironment, t
 export { locate, splitVaultPath, vaultRelative, type Location } from './locate.ts';
 export { assignPositionals, parseLine, splitArguments, usage, type ParsedLine } from './commandline.ts';
 export { describeError, fromError } from './messages.ts';
+export { MODEL_TEXT_LIMIT, modelResult, outcomeData, type ModelResult, type OutcomeData } from './results.ts';
 export { unacceptedNotices, type VaultNotice } from './notices.ts';
 export { doctorFindings, type Finding } from './ops/doctor.ts';
 export { queueContext, spawnLines, spawnMatching } from './ops/common.ts';

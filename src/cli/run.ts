@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { Host } from '../core/config/index.ts';
 import {
-  CATALOGUE, assignPositionals, chooseVaults, createContext, describeError, loadInstallation, locate, paramsOn, parseLine, placeVaultPaths, runOperation, unacceptedNotices, usage,
+  CATALOGUE, assignPositionals, chooseVaults, createContext, describeError, loadInstallation, locate, outcomeData, paramsOn, parseLine, placeVaultPaths, runOperation, unacceptedNotices, usage,
   type ContextOptions, type Operation, type OperationOutcome,
 } from '../core/operations/index.ts';
 
@@ -65,7 +65,7 @@ function requiredPositionals(operation: Operation): number {
 }
 
 function print(io: CliIo, outcome: OperationOutcome, json: boolean, notices: readonly string[]): number {
-  if (json) io.write('stdout', `${JSON.stringify({ status: outcome.status, data: outcome.data ?? null, text: outcome.text, notices })}\n`);
+  if (json) io.write('stdout', `${JSON.stringify(outcomeData(outcome, notices))}\n`);
   else if (outcome.text !== '') io.write(outcome.status === 'ok' ? 'stdout' : 'stderr', outcome.text.endsWith('\n') ? outcome.text : `${outcome.text}\n`);
   return EXIT[outcome.status];
 }
