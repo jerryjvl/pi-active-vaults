@@ -10,8 +10,8 @@ Maintained by the implementing agent; read by the reviewer. Newest stage last.
 Kept current with every commit, so an interrupted session can resume.
 
 - **Done:** Stage 4 review findings — exit statuses 0/1/2/3 (`0679c8e`–`32ade84`), MCP writes documented (`5751368`); command-line reading in `operations` (`efc4f83`); `config.landsWithin` (`065aaf5`); `queue.matchSpawns`/`submitSpawns` (`ff53847`); commits request their spawns (`442f4b6`); core `sessions` module (`42f9b6b`).
-- **In progress:** the extension adapter (`src/extension/`), tested through the Pi 1.3.0 SDK with a faux model (`test/support/pi.ts`).
-- **Next:** docs (extension.md, api.md, core.md for `sessions`); refactoring pass; Stage 5 entry.
+- **In progress:** documentation of Stage 5 (extension.md, api.md, core.md, cli.md); the extension adapter is done (`e0f96b3`).
+- **Next:** refactoring pass; Stage 5 entry.
 
 ## Stage entries
 
