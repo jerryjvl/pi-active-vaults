@@ -1,6 +1,7 @@
 // Documented behaviour: cli.md "Conventions" — `vault <command> [vault]
 // [args]`, the vault omitted inside one; `--json` on reading commands; exit
-// status 0 success, 1 failure, 2 refused; commands that need the daemon say so
+// status 0 success, 1 failure, 2 usage error, 3 refused (by policy or a
+// guard); commands that need the daemon say so
 // and exit 1; every command first reports any vault with an unaccepted change
 // on standard error. security.md — adopting shows the delta and asks for
 // confirmation first. The commands are generated from the catalogue.
@@ -89,11 +90,14 @@ test('the vault is the one named first, with --vault, in the path, or the one th
   assert.match(which.stderr, /Which vault\?/);
 }));
 
-test('exit statuses: 0 done, 1 failed, 2 refused; --json gives the data', withInstallation(async (t) => {
+test('exit statuses: 0 done, 1 failed, 3 refused by policy or a guard; --json gives the data', withInstallation(async (t) => {
   const vault = cli(t);
   assert.equal((await vault('read', 'nowhere.md')).code, 1);
   const refused = await vault('accept', 'gardener');
-  assert.equal(refused.code, 2);
+  assert.equal(refused.code, 3, 'nothing reviewed: refused, not a usage error');
+  t.repo.write('stray.md', 'x');
+  t.repo.commit('stray');
+  assert.equal((await vault('reindex')).code, 3, 'the unaccepted-change guard');
   const json = await vault('whoami', '--json');
   assert.deepEqual(JSON.parse(json.stdout), { status: 'ok', data: { name: 'alice@homeserver', person: 'alice' }, text: 'alice@homeserver', notices: [] });
 }));
@@ -128,10 +132,10 @@ test('adopting shows the delta and asks; it is recorded only when confirmed', wi
   t.repo.write('news.md', 'news');
   const tip = t.repo.commit('news on main');
   const unattended = await cli(t)('accept', '--adopt', tip);
-  assert.equal(unattended.code, 2);
+  assert.equal(unattended.code, 3, 'not confirmed: refused');
   assert.match(unattended.stderr, /To adopt it: vault accept home --adopt [0-9a-f]{40} --yes/);
   const declined = await cli(t, { confirm: false })('accept', '--adopt', tip);
-  assert.equal(declined.code, 2);
+  assert.equal(declined.code, 3);
   assert.match(declined.stderr, /Commits:\n {2}[0-9a-f]{12} news on main/);
   assert.match((await cli(t)('whoami')).stderr, /unaccepted/);
   const confirmed = await cli(t, { confirm: true })('accept', '--adopt', tip);
