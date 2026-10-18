@@ -12,7 +12,7 @@ Kept current with every commit, so an interrupted session can resume.
 - **Done:** Stage 5 review decisions: `builtin:notify` exits 3 on refusal; a job runs as its `actor` (frontmatter, else nearest contract; one of the vault's `actors`).
 - **Done (6a):** item 1, trace capture (each commit carries the run's compact record; tool results, turns, start and end in the `session` full log).
 - **Done (6a):** item 2, one cache for reads from the accepted main (`integrity/reads.ts`, `context.reads`).
-- **In progress:** item 3, the daemon. Done so far: job actor, timers (`conditions/timers.ts`, croner 10.0.1), long-lived children and `endProcess` (`process/child.ts`), the socket module, queue runs/scheduling/recovery/chain continuation. Next: config key `daemon`, the `automation` module (scan, timers tick, runs, protocol), service definitions, the daemon adapter with a fake pi, CLI daemon commands, the extension's daemon link, docs.
+- **In progress:** item 3, the daemon. Done so far: job actor, timers (`conditions/timers.ts`, croner 10.0.1), long-lived children and `endProcess` (`process/child.ts`), the socket module, queue runs/scheduling/recovery/chain continuation. Also done: config `daemon` (queue-time, parallel), the `automation` module, service definitions and `findPi`. Next: the daemon adapter, CLI daemon commands, hooks in doctor, the extension's daemon link, docs.
 - **Next:** refactoring pass and the Stage 6a entry. Stage 6b (MCP, forge sync scheduling, outbox retry) waits for the next session.
 
 ## Stage entries
