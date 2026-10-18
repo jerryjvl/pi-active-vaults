@@ -16,7 +16,7 @@ const PROGRAM = '/opt/pkg/dist/cli/main.js';
 const posixOnly = { skip: process.platform === 'win32' ? 'POSIX file system' : false };
 
 test('Linux: a systemd user unit that runs the daemon through a login shell, finding node at start', () => {
-  const service = serviceFor(testHost({ env: { XDG_CONFIG_HOME: '/home/alice/.config' } }), PROGRAM, { logs: '/s/logs' });
+  const service = serviceFor(testHost({ env: { XDG_CONFIG_HOME: '/home/alice/.config' } }), PROGRAM, { state: '/s' });
   assert.ok(service.ok);
   const { file, text, commands } = service.value;
   assert.equal(file, '/home/alice/.config/systemd/user/pi-active-vaults.service');
@@ -29,14 +29,14 @@ test('Linux: a systemd user unit that runs the daemon through a login shell, fin
 });
 
 test('a path with characters systemd or a shell would read is written so they read it as a path', () => {
-  const service = serviceFor(testHost(), '/opt/my "pkg"/100%/$HOME\\main.js', { logs: '/s/logs' });
+  const service = serviceFor(testHost(), '/opt/my "pkg"/100%/$HOME\\main.js', { state: '/s' });
   assert.ok(service.ok);
   assert.match(service.value.text, /^ExecStart=\/bin\/sh -lc 'exec node "\$\$0" daemon run' "\/opt\/my \\"pkg\\"\/100%%\/\$\$HOME\\\\main\.js"$/m);
-  assert.deepEqual(serviceFor(testHost(), '/opt/pkg\nExecStartPost=/bin/evil', { logs: '/s/logs' }), { ok: false, error: { reason: 'unsafe-path', program: '/opt/pkg\nExecStartPost=/bin/evil' } });
+  assert.deepEqual(serviceFor(testHost(), '/opt/pkg\nExecStartPost=/bin/evil', { state: '/s' }), { ok: false, error: { reason: 'unsafe-path', program: '/opt/pkg\nExecStartPost=/bin/evil' } });
 });
 
 test('macOS: a launchd agent, kept alive, its output in the state directory', () => {
-  const service = serviceFor(testHost({ os: 'darwin', home: '/Users/alice' }), '/opt/a&b/main.js', { logs: '/s/logs', uid: 501 });
+  const service = serviceFor(testHost({ os: 'darwin', home: '/Users/alice' }), '/opt/a&b/main.js', { state: '/s', uid: 501 });
   assert.ok(service.ok);
   const { file, text, commands } = service.value;
   assert.equal(file, '/Users/alice/Library/LaunchAgents/pi-active-vaults.daemon.plist');
@@ -49,14 +49,14 @@ test('macOS: a launchd agent, kept alive, its output in the state directory', ()
 
 test('Windows: a Task Scheduler task at logon, registered with schtasks by its absolute path', () => {
   const host = testHost({ os: 'win32', home: 'C:\\Users\\alice', user: 'alice', env: { SystemRoot: 'C:\\Windows', LOCALAPPDATA: 'C:\\Users\\alice\\AppData\\Local' } });
-  const service = serviceFor(host, 'C:\\pkg\\dist\\cli\\main.js', { logs: 'C:\\s\\logs' });
+  const service = serviceFor(host, 'C:\\pkg\\dist\\cli\\main.js', { state: 'C:\\s' });
   assert.ok(service.ok);
   const { file, text, commands } = service.value;
   assert.equal(file, 'C:\\s\\pi-active-vaults-task.xml');
   assert.match(text, /<LogonTrigger>/);
   assert.match(text, /<Command>cmd\.exe<\/Command>\s*<Arguments>\/d \/c node "C:\\pkg\\dist\\cli\\main\.js" daemon run<\/Arguments>/);
   assert.deepEqual(commands.install, [{ file: 'C:\\Windows\\System32\\schtasks.exe', args: ['/Create', '/TN', 'pi-active-vaults', '/XML', file, '/F'] }]);
-  assert.deepEqual(serviceFor(host, 'C:\\pkg "x"\\main.js', { logs: 'C:\\s\\logs' }).ok, false, 'a path cmd.exe cannot quote is refused');
+  assert.deepEqual(serviceFor(host, 'C:\\pkg "x"\\main.js', { state: 'C:\\s' }).ok, false, 'a path cmd.exe cannot quote is refused');
 });
 
 test('the user\'s pi is found on PATH; a JavaScript entry point runs with node', posixOnly, withTempDir((dir) => {
