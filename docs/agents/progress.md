@@ -10,8 +10,9 @@ Maintained by the implementing agent; read by the reviewer. Newest stage last.
 Kept current with every commit, so an interrupted session can resume.
 
 - **Done:** Stage 5 review decisions: `builtin:notify` exits 3 on refusal; a job runs as its `actor` (frontmatter, else nearest contract; one of the vault's `actors`).
-- **In progress:** Stage 6a item 1, trace capture in the extension.
-- **Next:** item 2 (one cache for reads from the accepted main), then item 3 (the daemon). Stage 6b (MCP, forge sync scheduling, outbox retry) waits for the next session.
+- **Done (6a):** item 1, trace capture (each commit carries the run's compact record; tool results, turns, start and end in the `session` full log).
+- **In progress:** item 2, one cache for reads from the accepted main.
+- **Next:** item 3, the daemon. Stage 6b (MCP, forge sync scheduling, outbox retry) waits for the next session.
 
 ## Stage entries
 
