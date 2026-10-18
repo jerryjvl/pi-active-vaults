@@ -12,6 +12,7 @@ export {
   type ForgeAdapter,
   type ForgeApproval,
   type ForgeError,
+  type ForgeSettings,
   type ProtectionProblem,
   type PullRequest,
   type StatusState,

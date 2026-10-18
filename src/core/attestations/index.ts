@@ -14,13 +14,12 @@
 //    ISO 8601 time, because "latest" is decided by it;
 //  - at equal times a record other than `pass` counts (fail closed);
 //  - Git notes have no compare-and-swap, so a concurrent writer can drop a
-//    record; every write is re-read and retried once, then reported.
+//    record; every write is read back and retried once, then reported.
 //
 // Who may write an attestation is decided by the operations layer: no model
 // is ever offered a way to record one about its own work.
 
-import { isDeepStrictEqual } from 'node:util';
-import { isSha, notesAppend, notesMergeLines, notesShow, type Attribution, type Git, type GitError, type Sha } from '../git/index.ts';
+import { appendNoteLine, isSha, notesMergeLines, notesShow, type Attribution, type Git, type GitError, type Sha } from '../git/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 
 export const ATTESTATIONS_REF = 'refs/notes/vault/attestations';
@@ -134,14 +133,7 @@ export async function recordAttestation(
 ): Promise<Result<void, AttestationError>> {
   const field = invalidField(attestation);
   if (field !== undefined) return err({ reason: 'invalid-attestation', field });
-  const line = serialise(attestation);
-  const expected: unknown = JSON.parse(line);
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const appended = await notesAppend(git, repo, ATTESTATIONS_REF, attestation.subject, line, attribution);
-    if (!appended.ok) return appended;
-    const reread = await readAttestations(git, repo, attestation.subject);
-    if (!reread.ok) return reread;
-    if (reread.value.some((a) => isDeepStrictEqual(a, expected))) return ok(undefined);
-  }
-  return err({ reason: 'not-recorded', subject: attestation.subject });
+  const appended = await appendNoteLine(git, repo, ATTESTATIONS_REF, attestation.subject, serialise(attestation), attribution);
+  if (!appended.ok) return appended;
+  return appended.value ? ok(undefined) : err({ reason: 'not-recorded', subject: attestation.subject });
 }

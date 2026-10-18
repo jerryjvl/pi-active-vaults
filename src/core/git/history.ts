@@ -6,7 +6,7 @@
 import { err, ok, type Result } from '../result/index.ts';
 import { failure, runChecked, runForText, runGit, type Git, type GitError } from './exec.ts';
 import { resolveRevision, type Sha } from './refs.ts';
-import { checkTreePath } from './validate.ts';
+import { checkRevision, checkTreePath } from './validate.ts';
 
 export interface Trailer {
   readonly key: string;
@@ -102,6 +102,30 @@ export async function commitsBetween(
   ];
   const ran = await runChecked(git, args, { cwd: repo });
   return ran.ok ? ok(parseCommits(ran.value.stdout.toString('utf8'))) : ran;
+}
+
+/**
+ * Commits reachable from any of `revisions` whose trailer `key` (compared
+ * case-insensitively, its last occurrence, as Git reads trailers) is exactly
+ * `value`, newest first, each once. Git's search narrows the log; the
+ * trailers decide, so a mention in a message or a longer value never counts.
+ */
+export async function commitsWithTrailer(
+  git: Git, repo: string, revisions: readonly string[], key: string, value: string,
+): Promise<Result<CommitInfo[], GitError>> {
+  for (const revision of revisions) {
+    const checked = checkRevision(revision);
+    if (!checked.ok) return checked;
+  }
+  if (revisions.length === 0) return ok([]);
+  const args = [
+    'log', '--topo-order', '-z', '--no-show-signature', '--encoding=UTF-8', '--regexp-ignore-case', '--fixed-strings',
+    `--grep=${key}: ${value}`, COMMIT_FORMAT, ...new Set(revisions), '--',
+  ];
+  const ran = await runChecked(git, args, { cwd: repo });
+  if (!ran.ok) return ran;
+  const wanted = key.toLowerCase();
+  return ok(parseCommits(ran.value.stdout.toString('utf8')).filter((c) => c.trailers.findLast((t) => t.key.toLowerCase() === wanted)?.value === value));
 }
 
 const STATUS: Readonly<Record<string, FileChange['change']>> = { A: 'created', M: 'modified', T: 'modified', D: 'deleted' };

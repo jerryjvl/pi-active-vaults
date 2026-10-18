@@ -4,8 +4,9 @@
 // input so nothing in it can be read as an option.
 //
 // A concurrent writer can replace the notes ref between Git's read and write,
-// losing the other's note; for attestations that fails closed (a missing
-// attestation is an unmet requirement), and callers re-read after writing.
+// losing the other's note: `appendNoteLine` reads the note back and tries
+// once more before saying the line is not there. For attestations a lost line
+// fails closed (a missing attestation is an unmet requirement).
 
 import { err, ok, type Result } from '../result/index.ts';
 import { failure, runChecked, runGit, type Git, type GitError } from './exec.ts';
@@ -55,6 +56,25 @@ export function notesAdd(git: Git, repo: string, ref: string, object: Sha, conte
 /** Adds to the existing note, separated by a blank line. */
 export function notesAppend(git: Git, repo: string, ref: string, object: Sha, content: string, options: NoteWriteOptions): Promise<Result<void, GitError>> {
   return changeNote(git, repo, ref, object, ['append'], options, content);
+}
+
+/**
+ * Appends one line to the note and reads the note back, once more if the line
+ * is missing (a concurrent writer replaced the ref); false when it is still
+ * missing. The line must be a single line, since notes merge line by line.
+ */
+export async function appendNoteLine(
+  git: Git, repo: string, ref: string, object: Sha, line: string, options: NoteWriteOptions,
+): Promise<Result<boolean, GitError>> {
+  if (/[\r\n]/.test(line) || line.trim() === '') return err({ reason: 'invalid-argument', argument: 'note line' });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const appended = await notesAppend(git, repo, ref, object, line, options);
+    if (!appended.ok) return appended;
+    const reread = await notesShow(git, repo, ref, object);
+    if (!reread.ok) return reread;
+    if ((reread.value ?? '').split('\n').includes(line)) return ok(true);
+  }
+  return ok(false);
 }
 
 export function notesRemove(git: Git, repo: string, ref: string, object: Sha, options: NoteWriteOptions): Promise<Result<void, GitError>> {

@@ -17,7 +17,7 @@
 import type { ForgeEntry } from '../config/index.ts';
 import { isRecord, ok, type Result } from '../result/index.ts';
 import {
-  POLICY_CONTEXT, UNPROTECTED, forgeCaller, headPull, isShaValue, onePull, readAccount, shortDescription, standingApprovals,
+  POLICY_CONTEXT, UNPROTECTED, allowSquashMerge, forgeCaller, headPull, isShaValue, onePull, readAccount, shortDescription, standingApprovals,
   type ForgeAdapter, type ForgeDepsBase, type ForgeError,
 } from './adapter.ts';
 
@@ -151,5 +151,6 @@ export function githubAdapter(entry: ForgeEntry, project: string, deps: ForgeDep
         requiredApprovals: Math.max(...sources.map((r) => r.approvals)),
       });
     },
+    squashMerges: () => allowSquashMerge(forge, repo),
   };
 }

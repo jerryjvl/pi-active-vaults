@@ -5,7 +5,7 @@
 import type { ForgeEntry } from '../config/index.ts';
 import { isRecord, ok } from '../result/index.ts';
 import {
-  POLICY_CONTEXT, UNPROTECTED, forgeCaller, headPull, isShaValue, onePull, readAccount, shortDescription, standingApprovals,
+  POLICY_CONTEXT, UNPROTECTED, allowSquashMerge, forgeCaller, headPull, isShaValue, onePull, readAccount, shortDescription, standingApprovals,
   type ForgeAdapter, type ForgeDepsBase,
 } from './adapter.ts';
 
@@ -69,5 +69,6 @@ export function giteaAdapter(entry: ForgeEntry, project: string, deps: ForgeDeps
         requiredApprovals: typeof p['required_approvals'] === 'number' ? p['required_approvals'] : 0,
       });
     },
+    squashMerges: () => allowSquashMerge(forge, repo),
   };
 }

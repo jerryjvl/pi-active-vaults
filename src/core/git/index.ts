@@ -23,6 +23,7 @@ export {
   TREE_MODES,
   changedPaths,
   commitsBetween,
+  commitsWithTrailer,
   diffText,
   lastAdded,
   listFiles,
@@ -55,6 +56,6 @@ export {
 } from './write.ts';
 export { isSha } from './validate.ts';
 export { addWorktree, exportTree, listWorktrees, removeWorktree, type AddWorktreeOptions, type Worktree } from './worktrees.ts';
-export { notesAdd, notesAppend, notesList, notesMergeLines, notesRemove, notesShow, type NoteWriteOptions } from './notes.ts';
+export { appendNoteLine, notesAdd, notesAppend, notesList, notesMergeLines, notesRemove, notesShow, type NoteWriteOptions } from './notes.ts';
 export { checkRemote, fetchCommit, fetchRefs, pushRefs, remoteUrl } from './remote.ts';
 export { configValue, gitDirectories, listRemotes } from './config.ts';

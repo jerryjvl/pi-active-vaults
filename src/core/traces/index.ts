@@ -1,18 +1,17 @@
 // Public surface of the traces module: trace IDs, the compact record kept in
-// the vault (and as a run's commits carry it), provenance in produced
-// documents, and full logs on the machine.
+// the vault as notes on a run's commits, provenance in produced documents,
+// and full logs on the machine.
 
 export {
-  compactTracePath,
+  checkCompactTrace,
   newTraceId,
   opaqueReference,
   parseCompactTrace,
   renderCompactTrace,
-  writeCompactTrace,
   type CompactTrace,
   type TraceSession,
   type TraceTrigger,
 } from './compact.ts';
 export { provenanceOf, withProvenance, type Provenance } from './provenance.ts';
 export { appendFullLog, readFullLog, rotateLogs, type LogEntry, type LogError } from './logs.ts';
-export { writeRunRecord, type RunRecord, type RunRecordError } from './run.ts';
+export { TRACES_REF, recordRun, runCommits, type RecordRunOptions, type RunCommit, type RunRecord, type RunRecordError } from './notes.ts';

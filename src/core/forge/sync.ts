@@ -3,9 +3,9 @@
 // package learns of merges by fetching.
 //
 // Invariants:
-//  - the package pushes only actor branches and attestation notes — each to
-//    the same name — never `main`: `pushToForge` refuses any other refspec
-//    before git runs;
+//  - the package pushes only actor branches and its notes (attestations and
+//    traces) — each to the same name — never `main`: `pushToForge` refuses
+//    any other refspec before git runs;
 //  - proposing is a propagating action: refused while `main` has an
 //    unaccepted change, and only for a forge-mode vault;
 //  - notes meet the forge's line by line before any are pushed, so no record
@@ -22,12 +22,12 @@
 //
 // The vault's forge remote is `origin`.
 
-import { ATTESTATIONS_REF, mergeAttestations, type Attestation, type AttestationError } from '../attestations/index.ts';
+import { ATTESTATIONS_REF, type Attestation, type AttestationError } from '../attestations/index.ts';
 import { actorBranch, readProposal, type Proposal, type ProposalError } from '../actors/index.ts';
 import type { Clock } from '../clock/index.ts';
 import type { ForgeEntry } from '../config/index.ts';
 import {
-  fastForward, fetchRefs, isAncestor, listWorktrees, pushRefs, remoteUrl, resolveRevision, updateRef,
+  fastForward, fetchRefs, isAncestor, listWorktrees, notesMergeLines, pushRefs, remoteUrl, resolveRevision, updateRef,
   type Attribution, type Git, type GitError, type Sha,
 } from '../git/index.ts';
 import {
@@ -38,6 +38,7 @@ import { evaluateMerge, type CheckStatus, type PolicyError } from '../policy/ind
 import { readVaultIdentity, type IdentityError } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import type { Store } from '../store/index.ts';
+import { TRACES_REF } from '../traces/index.ts';
 import { POLICY_CONTEXT, type CommitStatus, type ForgeAdapter, type ForgeDepsBase, type ForgeError, type PullRequest, type StatusState } from './adapter.ts';
 import { forgeAdapter, forgeProject } from './project.ts';
 
@@ -68,16 +69,19 @@ export type ForgeSyncError =
 const REMOTE = 'origin';
 const MAIN_REF = `refs/heads/${MAIN_BRANCH}`;
 const FORGE_MAIN = `refs/remotes/${REMOTE}/${MAIN_BRANCH}`;
+// The notes that travel with a vault: attestations and traces, merged line by line.
+const SHARED_NOTES = [ATTESTATIONS_REF, TRACES_REF] as const;
 // The forge's notes are fetched beside ours, then merged into ours.
-const FORGE_NOTES_PREFIX = 'refs/notes/vault-forge';
-const FORGE_ATTESTATIONS = `${FORGE_NOTES_PREFIX}/attestations`;
+const NOTES_PREFIX = 'refs/notes/vault/';
+const FORGE_NOTES_PREFIX = 'refs/notes/vault-forge/';
+const forgeCopy = (ref: string): string => `${FORGE_NOTES_PREFIX}${ref.slice(NOTES_PREFIX.length)}`;
 
-/** Only actor branches and the attestation notes, each pushed to its own name, never forced. */
+/** Only actor branches and the package's notes, each pushed to its own name, never forced. */
 export async function pushToForge(git: Git, repo: string, refspecs: readonly string[]): Promise<Result<void, ForgeSyncError>> {
   for (const refspec of refspecs) {
     const [source, destination, ...rest] = refspec.split(':');
     const own = source === destination && rest.length === 0;
-    if (!own || source === undefined || !(source.startsWith('refs/heads/actor/') || source === ATTESTATIONS_REF)) return err({ reason: 'not-pushable', refspec });
+    if (!own || source === undefined || !(source.startsWith('refs/heads/actor/') || (SHARED_NOTES as readonly string[]).includes(source))) return err({ reason: 'not-pushable', refspec });
   }
   return pushRefs(git, repo, REMOTE, refspecs);
 }
@@ -96,13 +100,29 @@ async function requireForgeMode(git: Git, repo: string, sha: Sha): Promise<Resul
   return identity.value.review === 'forge' ? ok(identity.value.owners) : err({ reason: 'not-forge-mode' });
 }
 
-/** Fetches the forge's attestation notes and merges them into ours, line by line. */
+/** Fetches the forge's notes and merges each into ours, line by line. */
 async function meetNotes(deps: ForgeDeps, vault: VaultLocation, also: readonly string[] = []): Promise<Result<void, ForgeSyncError>> {
-  const fetched = await fetchRefs(deps.git, vault.path, REMOTE, [...also, `+refs/notes/vault/*:${FORGE_NOTES_PREFIX}/*`]);
+  const fetched = await fetchRefs(deps.git, vault.path, REMOTE, [...also, `+${NOTES_PREFIX}*:${FORGE_NOTES_PREFIX}*`]);
   if (!fetched.ok) return fetched;
-  const theirs = await resolveRevision(deps.git, vault.path, FORGE_ATTESTATIONS);
-  if (!theirs.ok) return theirs.error.reason === 'unknown-revision' ? ok(undefined) : theirs;
-  return mergeAttestations(deps.git, vault.path, FORGE_ATTESTATIONS, deps.attribution);
+  for (const ref of SHARED_NOTES) {
+    const theirs = await resolveRevision(deps.git, vault.path, forgeCopy(ref));
+    if (!theirs.ok && theirs.error.reason === 'unknown-revision') continue;
+    if (!theirs.ok) return theirs;
+    const merged = await notesMergeLines(deps.git, vault.path, ref, forgeCopy(ref), deps.attribution);
+    if (!merged.ok) return merged;
+  }
+  return ok(undefined);
+}
+
+/** The package's notes refs that exist here, to push. */
+async function presentNotes(git: Git, repo: string): Promise<Result<string[], ForgeSyncError>> {
+  const present: string[] = [];
+  for (const ref of SHARED_NOTES) {
+    const resolved = await resolveRevision(git, repo, ref);
+    if (resolved.ok) present.push(ref);
+    else if (resolved.error.reason !== 'unknown-revision') return resolved;
+  }
+  return ok(present);
 }
 
 export interface PolicyStatus {
@@ -166,7 +186,7 @@ function describe(proposal: Proposal): { title: string; body: string } {
   };
 }
 
-/** Pushes an actor's proposal and the notes, opens or updates its pull request, and publishes its statuses. */
+/** Pushes an actor's proposal and the package's notes, opens or updates its pull request, and publishes its statuses. */
 export async function proposeToForge(
   deps: ForgeDeps, vault: VaultLocation, actor: string,
 ): Promise<Result<{ pull: PullRequest; opened: boolean; policy: PolicyStatus }, ForgeSyncError>> {
@@ -176,9 +196,9 @@ export async function proposeToForge(
   const met = await meetNotes(deps, vault);
   if (!met.ok) return met;
   const branchRef = `refs/heads/${proposal.branch}`;
-  const notes = await resolveRevision(deps.git, vault.path, ATTESTATIONS_REF);
-  if (!notes.ok && notes.error.reason !== 'unknown-revision') return notes;
-  const pushed = await pushToForge(deps.git, vault.path, [`${branchRef}:${branchRef}`, ...(notes.ok ? [`${ATTESTATIONS_REF}:${ATTESTATIONS_REF}`] : [])]);
+  const notes = await presentNotes(deps.git, vault.path);
+  if (!notes.ok) return notes;
+  const pushed = await pushToForge(deps.git, vault.path, [branchRef, ...notes.value].map((ref) => `${ref}:${ref}`));
   if (!pushed.ok) return pushed;
 
   const found = await adapter.findPullRequest(actorBranch(actor), MAIN_BRANCH);

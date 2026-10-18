@@ -1,10 +1,11 @@
 // Trace IDs and compact trace records (concepts.md "Trace").
 //
-// The compact record is the part of a trace kept in the vault: it is committed
-// with the run's other changes on its actor branch, so it travels with the
-// work it explains. It holds only what explains a run — its trigger, sessions,
-// judgements, scripts and the documents it produced — and is written as
-// deterministic JSON so the same run always yields the same bytes.
+// The compact record is the part of a trace kept in the vault: a Git note on
+// each of the run's commits (see notes.ts), so it travels with the work it
+// explains without being part of the tree. It holds only what explains a run
+// — its trigger, sessions, judgements, scripts and the documents it produced
+// — and is written as one line of deterministic JSON, so the same run always
+// yields the same bytes and notes can merge line by line.
 //
 // Invariants: a record is checked in full before it is written and when it is
 // read, and a malformed one is refused with every problem, never read in part;
@@ -13,15 +14,9 @@
 // run to run, so references cannot be used to link runs.
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { EVENT_KINDS, type EventKind } from '../conditions/index.ts';
-import { PACKAGE_DIRECTORY } from '../documents/index.ts';
-import { isTraceId, traceIdTime, type IdSource } from '../ids/index.ts';
-import { DataReader, err, issuePath, ok, type Issue, type Result } from '../result/index.ts';
-
-/** Where the compact records live in a vault. */
-const TRACES_DIRECTORY = `${PACKAGE_DIRECTORY}/traces`;
+import { isTraceId, type IdSource } from '../ids/index.ts';
+import { DataReader, err, issuePath, type Issue, type Result } from '../result/index.ts';
 
 export interface TraceTrigger {
   /** The event that started the run, or `manual` for `vault run`. */
@@ -70,19 +65,6 @@ const OUTCOMES = ['committed', 'no-change', 'stopped'] as const;
 /** A new trace ID: the one place runs get their identity. */
 export function newTraceId(ids: IdSource): string {
   return ids.next();
-}
-
-function assertTraceId(id: string): void {
-  if (!isTraceId(id)) throw new Error('not a trace ID');
-}
-
-/** `.vault/traces/<yyyy>/<mm>/<trace-id>.json`, by the trace's issue time in UTC. */
-export function compactTracePath(trace: string): string {
-  assertTraceId(trace);
-  const issued = traceIdTime(trace);
-  if (issued === undefined) throw new Error('not a trace ID');
-  const month = String(issued.getUTCMonth() + 1).padStart(2, '0');
-  return `${TRACES_DIRECTORY}/${issued.getUTCFullYear()}/${month}/${trace}.json`;
 }
 
 /** The reference a run's record in one vault makes to its part in `vault`. */
@@ -169,21 +151,16 @@ export function parseCompactTrace(text: string): Result<CompactTrace, Issue[]> {
   return readCompactTrace(value);
 }
 
-/** The record as written: keys in a fixed order, two-space indentation, a final newline. */
+/** Checks a record in full: the record with its keys in the fixed order, or every problem. */
+export function checkCompactTrace(trace: CompactTrace): Result<CompactTrace, Issue[]> {
+  return readCompactTrace(trace);
+}
+
+/** The record as written: one line of JSON, keys in a fixed order. */
 export function renderCompactTrace(trace: CompactTrace): string {
   // Re-reading the record puts its keys in the fixed order and drops nothing it should keep.
   const checked = readCompactTrace(trace);
   if (!checked.ok) throw new Error(`invalid compact trace: ${checked.error.map((i) => i.path).join(', ')}`);
-  return `${JSON.stringify(checked.value, null, 2)}\n`;
+  return JSON.stringify(checked.value);
 }
 
-/** Writes the record into a worktree at its path; returns that vault path, for the run's commit. */
-export function writeCompactTrace(worktree: string, trace: CompactTrace): Result<string, Issue[]> {
-  const checked = readCompactTrace(trace);
-  if (!checked.ok) return checked;
-  const path = compactTracePath(trace.trace);
-  const file = join(worktree, ...path.split('/'));
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, renderCompactTrace(checked.value));
-  return ok(path);
-}

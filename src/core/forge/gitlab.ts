@@ -8,6 +8,8 @@
 //    an approval carries no commit and counts for nothing;
 //  - a commit status creates an external pipeline, so `vault/policy` is
 //    required when merging needs every pipeline to succeed.
+//
+// Squash merging is the project's `squash_option`: only `never` turns it off.
 
 import type { ForgeEntry } from '../config/index.ts';
 import { isRecord, ok } from '../result/index.ts';
@@ -91,6 +93,13 @@ export function gitlabAdapter(entry: ForgeEntry, project: string, deps: ForgeDep
         requiresPolicyStatus: isRecord(settings.value.body) && settings.value.body['only_allow_merge_if_pipeline_succeeds'] === true,
         requiredApprovals: required,
       });
+    },
+    async squashMerges() {
+      const got = await forge.call('GET', repo);
+      if (!got.ok) return got;
+      if (!isRecord(got.value.body)) return forge.bad('not a project');
+      const option = got.value.body['squash_option'];
+      return ok(typeof option === 'string' ? option !== 'never' : 'unknown');
     },
   };
 }

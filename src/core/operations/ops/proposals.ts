@@ -17,7 +17,7 @@ import { undeliveredNotifications } from '../../notify/index.ts';
 import { evaluateMerge, type MergeEvaluation } from '../../policy/index.ts';
 import { listSpawns, type SpawnEntry } from '../../queue/index.ts';
 import { writersOf, type RegisteredVault } from '../../registry/index.ts';
-import { newTraceId, writeRunRecord } from '../../traces/index.ts';
+import { newTraceId, recordRun } from '../../traces/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
 import { vaultRelative } from '../locate.ts';
 import { fromError, invalid, refused, succeeded } from '../messages.ts';
@@ -250,12 +250,8 @@ export const commitOperation: Operation = {
     if (!accepted.ok) return fromError(accepted.error);
     const worktree = await ensureActorWorktree(context.git, vault, accepted.value, actor.value, context.reads);
     if (!worktree.ok) return fromError(worktree.error);
-    const paths = texts(params, 'paths');
-    // A session's commit carries its compact record, naming what the run has produced so far (concepts.md "Trace").
-    const record = caller.traceOf === undefined ? undefined
-      : await writeRunRecord(context.git, worktree.value.path, accepted.value.sha, caller.traceOf(vault.id), paths.length === 0 ? 'all' : paths);
-    if (record?.ok === false) return fromError(record.error);
-    const stage = paths.length === 0 ? [] : [...paths, ...(record === undefined ? [] : [record.value])];
+    const stage = texts(params, 'paths');
+    const identity = packageIdentity(context.installation, actor.value);
     const committed = await commitAsActor(await commitContext(context, caller), vault, worktree.value.path, {
       origin: {
         trace: caller.trace ?? newTraceId(context.ids), actor: actor.value,
@@ -264,14 +260,20 @@ export const commitOperation: Operation = {
       },
       message: text(params, 'message') ?? '',
       date: context.clock.now(),
-      identity: packageIdentity(context.installation, actor.value),
+      identity,
       ...(stage.length === 0 ? {} : { stage }),
       ...(caller.holder === undefined ? {} : { holder: caller.holder }),
     });
     if (!committed.ok) return fromError(committed.error);
     const checks = committed.value.checks.map((c) => `  ${c.name}: ${c.result}`);
+    // A session's commit carries its compact record as a note, naming what the run has produced so far (concepts.md "Trace").
+    // The commit has landed by now: a record that cannot be written is said, never a reason to undo it.
+    const traced = caller.traceOf === undefined ? undefined : await recordRun(context.git, vault.path, {
+      since: accepted.value.sha, commit: committed.value.sha, record: caller.traceOf(vault.id), attribution: { identity, date: context.clock.now() },
+    });
+    const traceLines = traced === undefined || traced.ok ? [] : [`Its trace record could not be written (${traced.error.reason}).`];
     const spawned = await spawnsOfCommit(context, vault, committed.value.sha, caller.trace);
-    return succeeded([`Committed ${committed.value.sha} on actor/${actor.value}.`, ...checks, ...spawned.lines].join('\n'), { ...committed.value, spawns: spawned.entries });
+    return succeeded([`Committed ${committed.value.sha} on actor/${actor.value}.`, ...checks, ...traceLines, ...spawned.lines].join('\n'), { ...committed.value, spawns: spawned.entries });
   },
 };
 

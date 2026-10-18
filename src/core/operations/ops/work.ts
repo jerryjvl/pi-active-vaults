@@ -7,14 +7,14 @@
 // database (architecture.md "Degradation"); the daemon runs them.
 
 import type { Candidate, VaultEvent } from '../../conditions/index.ts';
-import { listRefs, readTextAt } from '../../git/index.ts';
+import { listRefs } from '../../git/index.ts';
 import { isTraceId } from '../../ids/index.ts';
 import { requireNoUnacceptedChange } from '../../integrity/index.ts';
 import { notifyBuiltin, sendNotification, testTransport } from '../../notify/index.ts';
 import { enqueueSpawn, listSpawns, vaultJobs, type MatchedSpawns, type SpawnEntry } from '../../queue/index.ts';
 import type { RegisteredVault } from '../../registry/index.ts';
 import { runScript } from '../../scripts/index.ts';
-import { compactTracePath, newTraceId, parseCompactTrace, readFullLog, type CompactTrace } from '../../traces/index.ts';
+import { newTraceId, readFullLog, runCommits, type CompactTrace, type RunCommit } from '../../traces/index.ts';
 import type { OperationContext } from '../context.ts';
 import { locate } from '../locate.ts';
 import { fromError, invalid, refused, succeeded } from '../messages.ts';
@@ -190,18 +190,16 @@ export const notifyOperation: Operation = {
   },
 };
 
-/** The trace's compact record: on the accepted main, main, or an actor branch, whichever has it first. */
-async function findCompactTrace(context: OperationContext, vault: RegisteredVault, trace: string): Promise<CompactTrace | undefined> {
+/**
+ * The run's commits in `vault`, newest first — found by their `Vault-Trace`
+ * on the accepted main and every local branch — with the records their notes hold.
+ */
+async function traceCommits(context: OperationContext, vault: RegisteredVault, trace: string): Promise<RunCommit[]> {
   const accepted = readingFrom(context, vault);
-  const actors = await listRefs(context.git, vault.path, 'refs/heads/actor/');
-  const revisions = [...(accepted.ok ? [accepted.value.sha] : []), 'refs/heads/main', ...(actors.ok ? actors.value.map((r) => r.ref) : [])];
-  for (const revision of revisions) {
-    const found = await readTextAt(context.git, vault.path, revision, compactTracePath(trace));
-    if (!found.ok || found.value === undefined) continue;
-    const parsed = parseCompactTrace(found.value);
-    if (parsed.ok) return parsed.value;
-  }
-  return undefined;
+  const branches = await listRefs(context.git, vault.path, 'refs/heads/');
+  const revisions = [...(accepted.ok ? [accepted.value.sha] : []), ...(branches.ok ? branches.value.map((r) => r.ref) : [])];
+  const found = await runCommits(context.git, vault.path, revisions, trace);
+  return found.ok ? found.value : [];
 }
 
 export const traceOperation: Operation = {
@@ -213,22 +211,30 @@ export const traceOperation: Operation = {
   async run(context, request) {
     const id = text(request.params, 'id') ?? '';
     if (!isTraceId(id)) return invalid(`"${id}" is not a trace ID.`);
-    const records = [];
+    // Each commit's record is the run's as of that commit, so the newest readable one says the most.
+    const records: CompactTrace[] = [];
+    const commits: { vault: string; commit: string; unreadable?: readonly number[] }[] = [];
     for (const vault of request.vaults) {
-      const record = await findCompactTrace(context, vault, id);
-      if (record !== undefined) records.push(record);
+      const found = await traceCommits(context, vault, id);
+      const latest = found.flatMap((c) => ('records' in c ? c.records : [])).at(0);
+      if (latest !== undefined) records.push(latest);
+      commits.push(...found.map((c) => ({ vault: vault.id, commit: c.commit, ...('unreadable' in c ? { unreadable: c.unreadable } : {}) })));
     }
     // Full logs are the machine's; through MCP they would show every vault's detail, so only local surfaces read them.
     const logs = request.caller.surface === 'mcp' ? [] : readFullLog(context.installation.paths.logs, id);
-    if (records.length === 0 && logs.length === 0) return fromError({ reason: 'not-found', path: `trace ${id}` });
+    if (commits.length === 0 && logs.length === 0) return fromError({ reason: 'not-found', path: `trace ${id}` });
+    const short = (sha: string): string => sha.slice(0, 12);
     const lines = records.flatMap((r) => [
       `${r.vault}: ${r.trigger.event}${r.trigger.document === undefined ? '' : ` ${r.trigger.document}`}; path ${[...r.path, r.trace].join(' → ')}`,
       ...r.sessions.map((s) => `  session ${s.actor}: ${s.outcome}${s.reason === undefined ? '' : ` (${s.reason})`}, ${s.tokens} tokens`),
       ...r.documents.map((d) => `  produced ${d}`),
       ...r.scripts.map((s) => `  script ${s.name}: exit ${s.exitCode ?? 'none'}`),
       ...r.judgements.map((j) => `  judgement ${j.name}: ${j.result}`),
+      `  commits: ${commits.filter((c) => c.vault === r.vault).map((c) => short(c.commit)).join(', ')}`,
     ]);
+    lines.push(...commits.filter((c) => c.unreadable !== undefined).map((c) => `${c.vault}: the trace note on ${short(c.commit)} cannot be read (line ${c.unreadable?.join(', ')}).`));
+    lines.push(...[...new Set(commits.map((c) => c.vault))].filter((v) => !records.some((r) => r.vault === v)).map((v) => `${v}: commits without a readable record: ${commits.filter((c) => c.vault === v).map((c) => short(c.commit)).join(', ')}`));
     if (logs.length > 0) lines.push(`Full logs: ${logs.map((l) => `${l.day}/${l.name}`).join(', ')}`);
-    return succeeded(lines.join('\n'), { records, logs });
+    return succeeded(lines.join('\n'), { records, commits, logs });
   },
 };

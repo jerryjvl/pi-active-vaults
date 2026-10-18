@@ -208,10 +208,14 @@ async function forgeFindings(context: OperationContext, vault: RegisteredVault, 
   if (!account.ok) return [at('problem', `The forge cannot be asked about its settings (${account.error.reason}).`)];
   const protection = await adapter.protection(MAIN_BRANCH);
   if (!protection.ok) return [at('problem', `Main's protection cannot be read (${protection.error.reason}).`)];
-  const problems = protectionProblems(protection.value, { account: account.value, owners });
+  const squash = await adapter.squashMerges();
+  if (!squash.ok) return [at('problem', `Whether squash merges are allowed cannot be read (${squash.error.reason}).`)];
+  const problems = protectionProblems(protection.value, { account: account.value, owners, squashMerges: squash.value });
+  // What the forge's API does not say is worth knowing, not a fault: approval not required, or squash settings unreadable.
+  const warnings: readonly string[] = ['approval-not-required', 'squash-unknown'];
   return problems.length === 0
     ? [at('ok', 'Main is protected as recommended.')]
-    : problems.map((p) => at(p === 'approval-not-required' ? 'warning' : 'problem', FORGE_PROBLEMS[p]));
+    : problems.map((p) => at(warnings.includes(p) ? 'warning' : 'problem', FORGE_PROBLEMS[p]));
 }
 
 const FORGE_PROBLEMS: Readonly<Record<ReturnType<typeof protectionProblems>[number], string>> = {
@@ -222,6 +226,8 @@ const FORGE_PROBLEMS: Readonly<Record<ReturnType<typeof protectionProblems>[numb
   'policy-status-not-required': 'Main\'s protection does not require the vault/policy status.',
   'approval-not-required': 'No owner approval is required: vault/policy alone decides what merges.',
   'approval-unknown': 'Whether an owner\'s approval is required cannot be read (on GitLab, a tier without approval rules).',
+  'squash-merges': 'Squash merges are allowed: they replace a proposal\'s commits, losing their trailers, attestations and traces.',
+  'squash-unknown': 'Whether squash merges are allowed cannot be read through the forge\'s API; make sure they are disabled.',
   'executor-is-owner': 'The executor\'s forge account is an owner: it could approve its own proposals.',
 };
 

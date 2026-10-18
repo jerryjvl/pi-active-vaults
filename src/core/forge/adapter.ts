@@ -73,6 +73,8 @@ export interface ForgeAdapter {
   setStatus(sha: Sha, status: CommitStatus): Promise<Result<void, ForgeError>>;
   approvals(pull: PullRequest): Promise<Result<ForgeApproval[], ForgeError>>;
   protection(branch: string): Promise<Result<BranchProtection, ForgeError>>;
+  /** Whether the repository allows squash merges; `unknown` when the forge does not say (it may need more access). */
+  squashMerges(): Promise<Result<boolean | 'unknown', ForgeError>>;
 }
 
 export interface ForgeDepsBase {
@@ -183,17 +185,36 @@ export function standingApprovals(reviews: readonly { user: string; verdict: 'ap
   return [...standing.values()];
 }
 
+/** A repository's `allow_squash_merge` as Gitea and GitHub both give it; absent means the forge does not say. */
+export async function allowSquashMerge(forge: ForgeCaller, repo: string): Promise<Result<boolean | 'unknown', ForgeError>> {
+  const got = await forge.call('GET', repo);
+  if (!got.ok) return got;
+  if (!isRecord(got.value.body)) return forge.bad('not a repository');
+  const allowed = got.value.body['allow_squash_merge'];
+  return ok(typeof allowed === 'boolean' ? allowed : 'unknown');
+}
+
 export type ProtectionProblem =
   | 'not-protected' | 'direct-pushes' | 'force-pushes' | 'deletion' | 'policy-status-not-required'
-  | 'approval-not-required' | 'approval-unknown' | 'executor-is-owner';
+  | 'approval-not-required' | 'approval-unknown' | 'squash-merges' | 'squash-unknown' | 'executor-is-owner';
+
+/** What `vault doctor` knows about the repository beyond `main`'s protection. */
+export interface ForgeSettings {
+  /** The executor's account. */
+  readonly account: string;
+  readonly owners: readonly string[];
+  readonly squashMerges: boolean | 'unknown';
+}
 
 /**
- * How `main`'s protection and the executor's account fall short of the
- * recommended setup (security-setup.md), for `vault doctor`. Owner approval
- * not being required is reported, not refused: a vault may deliberately let
- * `vault/policy` alone decide.
+ * How `main`'s protection, the repository's merge methods and the executor's
+ * account fall short of the recommended setup (security-setup.md), for
+ * `vault doctor`. Owner approval not being required is reported, not
+ * refused: a vault may deliberately let `vault/policy` alone decide. Squash
+ * merges must be off: a squash replaces the proposal's commits, and with them
+ * the trailers, attestations and trace notes attached to them.
  */
-export function protectionProblems(protection: BranchProtection, who: { readonly account: string; readonly owners: readonly string[] }): ProtectionProblem[] {
+export function protectionProblems(protection: BranchProtection, who: ForgeSettings): ProtectionProblem[] {
   const problems: ProtectionProblem[] = [];
   if (!protection.protected) problems.push('not-protected');
   else {
@@ -204,6 +225,8 @@ export function protectionProblems(protection: BranchProtection, who: { readonly
     if (protection.requiredApprovals === 'unknown') problems.push('approval-unknown');
     else if (protection.requiredApprovals < 1) problems.push('approval-not-required');
   }
+  if (who.squashMerges === true) problems.push('squash-merges');
+  else if (who.squashMerges === 'unknown') problems.push('squash-unknown');
   if (who.owners.includes(who.account)) problems.push('executor-is-owner');
   return problems;
 }
