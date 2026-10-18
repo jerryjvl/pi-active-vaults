@@ -1,8 +1,8 @@
 // Documented behaviour: core.md `forge` — one adapter interface over Gitea,
 // GitHub and GitLab: the executor's account, opening or updating a pull
 // request, publishing commit statuses, reading owners' approvals of an exact
-// commit, and reading branch protection and whether squash merges are
-// allowed (security-setup.md: they must be disabled). Each forge's own API shapes and
+// commit, and reading branch protection and the repository's merge methods
+// (security-setup.md: squash and rebase merges must be disabled). Each forge's own API shapes and
 // token header; requests never follow redirects and errors never carry the
 // token. Local stub servers only.
 import { test } from 'node:test';
@@ -149,14 +149,32 @@ test('branch protection is read in each forge\'s terms', async () => {
   }, { protection: { push_access_levels: [{ access_level: 40 }], allow_force_push: false }, gitlab: { pipelinesMustSucceed: true } });
 });
 
-test('whether squash merges are allowed is read in each forge\'s terms, and unknown where the forge does not say', async () => {
-  for (const type of TYPES) {
-    for (const squash of [true, false, undefined]) {
-      await withForge(type, async (adapter) => {
-        assert.deepEqual(await adapter.squashMerges(), { ok: true, value: squash ?? 'unknown' }, `${type}: ${String(squash)}`);
-      }, squash === undefined ? {} : { squash });
-    }
+test('the merge methods that replace a proposal\'s commits are read in each forge\'s terms, and unknown where the forge does not say', async () => {
+  const unknown = { squash: 'unknown', rebase: 'unknown' };
+  const cases: [ForgeType, Record<string, unknown>, object][] = [
+    ['gitea', {}, unknown],
+    ['gitea', { allow_squash_merge: false, allow_rebase: false, allow_rebase_explicit: false }, { squash: false, rebase: false }],
+    ['gitea', { allow_squash_merge: true, allow_rebase: false, allow_rebase_explicit: true }, { squash: true, rebase: true }],
+    ['gitea', { allow_squash_merge: false, allow_rebase: true }, { squash: false, rebase: true }],
+    ['gitea', { allow_squash_merge: false, allow_rebase: false }, { squash: false, rebase: 'unknown' }],
+    ['github', {}, unknown],
+    ['github', { allow_squash_merge: false, allow_rebase_merge: false }, { squash: false, rebase: false }],
+    ['github', { allow_squash_merge: true, allow_rebase_merge: true }, { squash: true, rebase: true }],
+    ['gitlab', {}, unknown],
+    ['gitlab', { squash_option: 'never', merge_method: 'merge' }, { squash: false, rebase: false }],
+    ['gitlab', { squash_option: 'default_off', merge_method: 'merge', automatic_rebase_enabled: true }, { squash: true, rebase: false }],
+    ['gitlab', { squash_option: 'never', merge_method: 'ff', automatic_rebase_enabled: true }, { squash: false, rebase: true }],
+    ['gitlab', { squash_option: 'never', merge_method: 'rebase_merge', automatic_rebase_enabled: false }, { squash: false, rebase: false }],
+    ['gitlab', { squash_option: 'never', merge_method: 'ff' }, { squash: false, rebase: 'unknown' }],
+  ];
+  for (const [type, repository, expected] of cases) {
+    await withForge(type, async (adapter) => {
+      assert.deepEqual(await adapter.mergeMethods(), { ok: true, value: expected }, `${type}: ${JSON.stringify(repository)}`);
+    }, { repository });
   }
+  await withForge('github', async (adapter) => {
+    assert.equal((await adapter.mergeMethods()).ok, false, 'a refusal is an error, for doctor to report as cannot verify');
+  }, { repository: 'forbidden' });
 });
 
 test('a forge is found by the host of the vault\'s remote, and the project by its path', () => {
@@ -190,9 +208,9 @@ test('a failing, redirecting or unauthorised forge is an error naming the forge,
   });
 });
 
-test('the recommended setup is checked: protected main, pull requests only, vault/policy required, owner approval, no squash merges, an executor that is not an owner', () => {
+test('the recommended setup is checked: protected main, pull requests only, vault/policy required, owner approval, no squash or rebase merges, an executor that is not an owner', () => {
   const recommended = { protected: true, directPushes: false, forcePushes: false, deletion: false, requiresPolicyStatus: true, requiredApprovals: 1 } as const;
-  const bot = { account: 'vault-bot', owners: ['alice'], squashMerges: false } as const;
+  const bot = { account: 'vault-bot', owners: ['alice'], merges: { squash: false, rebase: false } } as const;
   assert.deepEqual(protectionProblems(recommended, bot), []);
   assert.deepEqual(protectionProblems(UNPROTECTED, bot), ['not-protected']);
   assert.deepEqual(protectionProblems({ ...recommended, directPushes: true, forcePushes: true, deletion: true }, bot),
@@ -200,6 +218,9 @@ test('the recommended setup is checked: protected main, pull requests only, vaul
   assert.deepEqual(protectionProblems({ ...recommended, requiresPolicyStatus: false, requiredApprovals: 0 }, { ...bot, account: 'alice' }),
     ['policy-status-not-required', 'approval-not-required', 'executor-is-owner']);
   assert.deepEqual(protectionProblems({ ...recommended, requiredApprovals: 'unknown' }, bot), ['approval-unknown']);
-  assert.deepEqual(protectionProblems(recommended, { ...bot, squashMerges: true }), ['squash-merges'], 'they discard the commits trailers, attestations and traces are on');
-  assert.deepEqual(protectionProblems(UNPROTECTED, { ...bot, squashMerges: 'unknown' }), ['not-protected', 'squash-unknown']);
+  assert.deepEqual(protectionProblems(recommended, { ...bot, merges: { squash: true, rebase: false } }), ['squash-merges'], 'they discard the commits trailers, attestations and traces are on');
+  assert.deepEqual(protectionProblems(recommended, { ...bot, merges: { squash: false, rebase: true } }), ['rebase-merges'], 'a rebase replaces them with new commits');
+  assert.deepEqual(protectionProblems(recommended, { ...bot, merges: { squash: true, rebase: true } }), ['squash-merges', 'rebase-merges']);
+  assert.deepEqual(protectionProblems(UNPROTECTED, { ...bot, merges: { squash: 'unknown', rebase: false } }), ['not-protected', 'merges-unknown']);
+  assert.deepEqual(protectionProblems(recommended, { ...bot, merges: { squash: false, rebase: 'unknown' } }), ['merges-unknown']);
 });

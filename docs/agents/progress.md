@@ -3,15 +3,15 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 6b — complete, awaiting review
+**Current stage:** 7 — end to end (Stage 6b review findings first)
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 6b (MCP, forge sync and outbox retry, headless launchd, the smoke test), with the Stage 6a review's trace change; see the Stage 6b entry.
-- **In progress:** nothing.
-- **Next:** review of Stage 6b. Then, when told, Stage 7 (end to end).
+- **Done:** Stage 6b, approved.
+- **In progress:** the Stage 6b review's changes, tests first: (1) merge-method check — rebase merges forbidden like squash, read best effort, "cannot verify" a warning; (2) merge-result check — a merged proposal's head must be an ancestor of the new main, reported in status, doctor and once to owners; (3) a run that commits nothing and whose last model request failed is stopped `error`; (4) the smoke test removes its directory after a failure.
+- **Next:** Stage 7 — end-to-end scenarios, the final consolidation pass, a last read of every document against behaviour, and the list of what remains unverified.
 
 ## Stage entries
 

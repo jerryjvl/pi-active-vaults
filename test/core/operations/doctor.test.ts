@@ -5,7 +5,10 @@
 // worktree; `--fix` installs hooks and corrects permissions. Assigned to this
 // stage: a hold whose holder cannot be told is reported with its process and
 // session, undelivered notifications, keyword-only search because no policy
-// entry names a vault, and no budgets.daily-tokens.
+// entry names a vault, and no budgets.daily-tokens. The Stage 6b review:
+// squash and rebase merges must be disabled in the forge; where the forge's API
+// does not show the merge methods to the executor, doctor warns that it cannot
+// verify them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -13,6 +16,7 @@ import { join } from 'node:path';
 import { takeActorHold } from '../../../src/core/actors/index.ts';
 import { listSpawns, takeDaemonRecord } from '../../../src/core/queue/index.ts';
 import { runProcess } from '../../../src/core/process/index.ts';
+import { withForgeInstallation } from '../../support/forge-vault.ts';
 import { withInstallation, type TestInstallation } from '../../support/installation.ts';
 import { RUNNING, startedSpawn } from '../../support/session.ts';
 
@@ -127,3 +131,29 @@ test('doctor --fix runs start-up recovery when no daemon runs, and leaves it to 
   assert.deepEqual(listSpawns(t.context.state).map((s) => [s.id, s.state, s.reason]), [[entry.id, 'stopped', 'restart']]);
   assert.match(fixed[0]?.message ?? '', /1 run/);
 }, { running: live }));
+
+test('doctor checks the forge\'s merge methods: squash or rebase merges allowed are problems, settings it cannot read a warning', withForgeInstallation(async (t, forge) => {
+  forge.stub.model.protection = { enable_push: false, enable_force_push: false, enable_status_check: true, status_check_contexts: ['vault/policy'], required_approvals: 1 };
+  const forgeFindings = async () => about((await findings(t)).found, 'forge').map((f) => [f.level, f.message]);
+
+  forge.stub.model.repository = { allow_squash_merge: false, allow_rebase: false, allow_rebase_explicit: false };
+  assert.deepEqual(await forgeFindings(), [['ok', 'Main is protected as recommended.']]);
+
+  forge.stub.model.repository = { allow_squash_merge: false, allow_rebase: false, allow_rebase_explicit: true };
+  const rebase = await forgeFindings();
+  assert.deepEqual(rebase.map(([level]) => level), ['problem']);
+  assert.match(rebase[0]?.[1] ?? '', /Rebase merges are allowed: they replace a proposal's commits with new ones/);
+
+  forge.stub.model.repository = { allow_squash_merge: true, allow_rebase: true };
+  assert.deepEqual((await forgeFindings()).map(([level]) => level), ['problem', 'problem']);
+
+  forge.stub.model.repository = { allow_squash_merge: false };
+  const unknown = await forgeFindings();
+  assert.deepEqual(unknown.map(([level]) => level), ['warning'], 'what the API does not show is not a fault');
+  assert.match(unknown[0]?.[1] ?? '', /cannot verify whether rebase merges are allowed/i);
+
+  forge.stub.model.repository = 'forbidden';
+  const unreadable = await forgeFindings();
+  assert.deepEqual(unreadable.map(([level]) => level), ['warning'], 'settings the executor may not read are a warning, not a failure');
+  assert.match(unreadable[0]?.[1] ?? '', /cannot verify whether squash and rebase merges are allowed \(http-error\)/i);
+}));
