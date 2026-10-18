@@ -10,24 +10,17 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { allot } from '../../src/core/budgets/index.ts';
-import { createGit } from '../../src/core/git/index.ts';
-import { createIdSource } from '../../src/core/ids/index.ts';
 import { enqueueSpawn, listSpawns, startSpawn } from '../../src/core/queue/index.ts';
 import { connectSocket, requestOver, requestOverSocket } from '../../src/core/socket/index.ts';
 import { startDaemon, type DaemonOptions } from '../../src/daemon/daemon.ts';
-import { fakePi, jobDocument } from '../support/daemon.ts';
+import { daemonOptions, fakePi, jobDocument } from '../support/daemon.ts';
 import { withInstallation, type TestInstallation } from '../support/installation.ts';
 import { ME, OTHER, RUNNING } from '../support/session.ts';
 
 const posixOnly = { skip: process.platform === 'win32' ? 'Unix domain sockets in tests' : false };
 
 function options(t: TestInstallation, extra: Partial<DaemonOptions> = {}): DaemonOptions {
-  const pi = fakePi(t, { '*': 'nothing' });
-  return {
-    host: t.host, pid: ME, pi: pi.options.pi, env: pi.options.env, timeZone: 'UTC', ticks: false, watch: false,
-    context: { git: createGit({ env: t.repo.env }), clock: t.clock, ids: createIdSource({ clock: t.clock, randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)) }), alive: t.context.alive, sandbox: 'none' },
-    ...extra,
-  };
+  return daemonOptions(t, fakePi(t, { '*': 'nothing' }), extra);
 }
 
 function job(t: TestInstallation): void {

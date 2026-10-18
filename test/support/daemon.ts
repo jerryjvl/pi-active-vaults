@@ -1,9 +1,14 @@
-// The daemon's work for tests: an automation over a test installation, its
-// headless sessions run by the fake `pi` (fake-pi.mjs) rather than a real Pi.
+// The daemon's work for tests: an automation over a test installation, or the
+// daemon adapter's options for one, its headless sessions run by the fake
+// `pi` (fake-pi.mjs) rather than a real Pi.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createAutomation, type Automation, type AutomationOptions } from '../../src/core/automation/index.ts';
+import { createGit } from '../../src/core/git/index.ts';
+import { createIdSource } from '../../src/core/ids/index.ts';
+import type { DaemonOptions } from '../../src/daemon/daemon.ts';
+import { ME } from './session.ts';
 import type { TestInstallation } from './installation.ts';
 
 export type FakePiAction = 'nothing' | 'commit' | 'hang' | 'crash' | 'refuse' | 'spend';
@@ -44,4 +49,16 @@ export function automationFor(t: TestInstallation, pi: FakePi, options: Partial<
 /** A job document: its conditions (YAML flow list), budget and actor. */
 export function jobDocument(conditions: string, options: { ttl?: string; tokens?: number; actor?: string; body?: string } = {}): string {
   return `---\napplies-when: ${conditions}\nbudget: { tokens: ${options.tokens ?? 100000}, ttl: ${options.ttl ?? '10m'} }\nactor: ${options.actor ?? 'gardener'}\n---\n${options.body ?? 'Do the job.'}\n`;
+}
+
+/** What the daemon adapter starts with in tests: the installation's machine and services, the fake Pi, no timers or watching unless asked. */
+export function daemonOptions(t: TestInstallation, pi: FakePi, extra: Partial<DaemonOptions> = {}): DaemonOptions {
+  return {
+    host: t.host, pid: ME, pi: pi.options.pi, env: pi.options.env, timeZone: 'UTC', ticks: false, watch: false,
+    context: {
+      git: createGit({ env: t.repo.env }), clock: t.clock, alive: t.context.alive, sandbox: 'none',
+      ids: createIdSource({ clock: t.clock, randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)) }),
+    },
+    ...extra,
+  };
 }

@@ -1,7 +1,8 @@
 // From an event to spawns (concepts.md "applies-when", extension.md
 // "Spawns", daemon.md "Claims"): matching an event against the jobs of the
 // vaults it reaches, then sending each request to the daemon or queueing it.
-// `vault trigger`, Pi sessions and their commits use this, as the daemon will.
+// `vault trigger`, Pi sessions and their commits use this, and so does the
+// daemon.
 //
 // Invariants:
 //  - jobs, their conditions and their scripts come from each vault's accepted
@@ -15,7 +16,7 @@
 //    a condition's script only narrows; a request writes as the job's actor.
 
 import { hasSession, type Budget } from '../budgets/index.ts';
-import { isGitEvent, matchConditions, narrowByScripts, type Candidate, type ChangedDocument, type GitEvent, type MatchContext, type ScriptFilterOptions, type VaultEvent } from '../conditions/index.ts';
+import { isGitEvent, matchConditions, narrowByScripts, type Candidate, type ChangedDocument, type GitEvent, type MatchContext, type ScriptFilterContext, type ScriptFilterOptions, type VaultEvent } from '../conditions/index.ts';
 import type { Git, GitError } from '../git/index.ts';
 import { requireNoUnacceptedChange, type AcceptedReads } from '../integrity/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
@@ -41,6 +42,11 @@ export interface MatchedSpawns {
   readonly dropped: readonly { readonly vault: string; readonly document: string; readonly reason: string }[];
   /** Vaults not matched because their `main` has an unaccepted change (or cannot be read). */
   readonly paused: readonly string[];
+}
+
+/** Where a matching's condition scripts run: each in its own registered vault. */
+export function scriptFilters(m: SpawnMatching): ScriptFilterContext {
+  return { git: m.git, store: m.store, locate: (id) => m.vaults.find((v) => v.id === id) };
 }
 
 /** Sends a request to the daemon: the claim it made, or undefined when no daemon took it. */
@@ -94,7 +100,7 @@ export async function matchSpawns(
   for (const part of eventParts(m.store, given.event, tree)) {
     const spawning = matchConditions(part.event, candidates, m.match).filter((match) => match.condition.effect === 'spawn');
     const narrowed = await narrowByScripts(
-      { git: m.git, store: m.store, locate: (id) => m.vaults.find((v) => v.id === id) }, m.scripts, part.event, spawning,
+      scriptFilters(m), m.scripts, part.event, spawning,
     );
     const event = spawnEvent(part.event, given.id);
     requests.push(...narrowed.kept.map((match) => ({

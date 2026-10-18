@@ -8,9 +8,9 @@
 // say. The actor a job writes as is likewise its own `actor`, else its
 // nearest contract's (strategy `nearest`). Everything is read from the
 // accepted `main` — once per accepted main, through the reads cache — never a
-// branch or a working tree. A condition that cannot be read applies nowhere: the document
-// is listed with no conditions and the issues that explain why, never with
-// the conditions that happened to parse.
+// branch or a working tree. A condition that cannot be read applies nowhere:
+// the document is listed with no conditions and the issues that explain why,
+// never with the conditions that happened to parse.
 
 import { ROOT_CONTRACT } from '../contracts/index.ts';
 import { describeDocumentError, inPackageDirectory, isDocumentPath, readDocumentAt } from '../documents/index.ts';

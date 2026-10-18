@@ -18,7 +18,7 @@ import { rotateLogs } from '../traces/index.ts';
 import type { Slot } from '../conditions/index.ts';
 import { localSlot } from '../conditions/index.ts';
 import { usedToday } from '../budgets/index.ts';
-import type { OperationContext } from '../operations/index.ts';
+import { spawnMatching, type OperationContext } from '../operations/index.ts';
 import { expireQueued, listSpawns, recoverRuns, runProcesses, schedulable, type RecoveryReport, type SpawnEntry, type SpawnMatching } from '../queue/index.ts';
 import { scanGitEvents } from './events.ts';
 import { METHODS, answer, claimRequested, inTree, noticeOf, readRequest, refuse, type Notice, type Reply } from './protocol.ts';
@@ -68,19 +68,8 @@ export function createAutomation(context: OperationContext, options: AutomationO
   let paused = new Set<string>();
   let lastTick: { at: number; slot: Slot } | undefined;
   let lastRotation = Number.NEGATIVE_INFINITY;
-  let matching: SpawnMatching | undefined;
-
-  const matchingOf = async (): Promise<SpawnMatching> => {
-    if (matching === undefined) {
-      const { config, vaults } = context.installation;
-      matching = {
-        git: context.git, store: context.state, vaults, reads: context.reads,
-        match: { subscriptions: config.subscriptions, equivalentLabels: config.labels.equivalent },
-        scripts: { ...(await context.scriptOptions()), builtins: [] },
-      };
-    }
-    return matching;
-  };
+  let matching: Promise<SpawnMatching> | undefined;
+  const matchingOf = (): Promise<SpawnMatching> => (matching ??= spawnMatching(context));
 
   const tell = (notice: Notice): void => {
     for (const listener of listeners) listener(notice);

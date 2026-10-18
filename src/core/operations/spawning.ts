@@ -6,13 +6,23 @@
 
 import type { VaultEvent } from '../conditions/index.ts';
 import type { GitError } from '../git/index.ts';
-import { matchSpawns, reachedVaults, submitSpawns, type MatchedSpawns, type QueueContext, type SpawnEntry } from '../queue/index.ts';
+import { matchSpawns, reachedVaults, submitSpawns, type MatchedSpawns, type QueueContext, type SpawnEntry, type SpawnMatching } from '../queue/index.ts';
 import type { Result } from '../result/index.ts';
 import type { OperationContext } from './context.ts';
 
 /** What claiming a spawn needs: IDs for its trace, the clock, and the installation's budget limits. */
 export function queueContext(context: OperationContext): QueueContext {
   return { ids: context.ids, clock: context.clock, limits: context.installation.config.budgets };
+}
+
+/** How this installation matches events to spawns: its vaults, their accepted mains read once, its subscriptions and label equivalences, and how condition scripts run. */
+export async function spawnMatching(context: OperationContext): Promise<SpawnMatching> {
+  const { config, vaults } = context.installation;
+  return {
+    git: context.git, store: context.state, vaults, reads: context.reads,
+    match: { subscriptions: config.subscriptions, equivalentLabels: config.labels.equivalent },
+    scripts: { ...(await context.scriptOptions()), builtins: [] },
+  };
 }
 
 export interface RequestedSpawns {
@@ -32,12 +42,7 @@ export async function requestSpawns(
 ): Promise<Result<RequestedSpawns, GitError>> {
   const { config, vaults } = context.installation;
   const from = 'vault' in given.event ? given.event.vault : undefined;
-  const matching = {
-    git: context.git, store: context.state, vaults, reads: context.reads,
-    match: { subscriptions: config.subscriptions, equivalentLabels: config.labels.equivalent },
-    scripts: { ...(await context.scriptOptions()), builtins: [] },
-  };
-  const matched = await matchSpawns(matching, given, reachedVaults(vaults, config.subscriptions, from), tree);
+  const matched = await matchSpawns(await spawnMatching(context), given, reachedVaults(vaults, config.subscriptions, from), tree);
   if (!matched.ok) return matched;
   const entries = await submitSpawns(context.state, queueContext(context), matched.value.requests, context.send);
   return { ok: true, value: { entries, matched: matched.value } };

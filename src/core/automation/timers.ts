@@ -12,7 +12,7 @@
 import { localSlot, narrowByScripts, parseSchedule, timerFirings, type Slot } from '../conditions/index.ts';
 import { acceptedMain } from '../integrity/index.ts';
 import { queueContext, type OperationContext } from '../operations/index.ts';
-import { advanceCursor, enqueueSpawn, readCursor, timerStream, vaultJobs, type SpawnMatching } from '../queue/index.ts';
+import { advanceCursor, enqueueSpawn, readCursor, scriptFilters, timerStream, vaultJobs, type SpawnMatching } from '../queue/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
 
 export interface TimerTickState {
@@ -47,7 +47,7 @@ export async function tickTimers(
         for (const at of firing.fire) {
           const event = { kind: 'timer' as const, at };
           const match = { vault: vault.id, document: job.path, index, condition };
-          const narrowed = await narrowByScripts({ git: context.git, store: context.state, locate: (id) => matching.vaults.find((v) => v.id === id) }, matching.scripts, event, [match]);
+          const narrowed = await narrowByScripts(scriptFilters(matching), matching.scripts, event, [match]);
           if (narrowed.kept.length === 0) continue;
           enqueueSpawn(context.state, queueContext(context), { vault: vault.id, document: job.path, condition: index, event, budget, actor });
         }

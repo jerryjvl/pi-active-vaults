@@ -21,7 +21,7 @@ import { EVENT_KINDS, matchConditions, narrowByScripts, type VaultEvent } from '
 import { isTraceId } from '../ids/index.ts';
 import { requireNoUnacceptedChange } from '../integrity/index.ts';
 import { queueContext, type OperationContext } from '../operations/index.ts';
-import { enqueueSpawn, vaultJobs, type SpawnEntry, type SpawnEvent, type SpawnMatching } from '../queue/index.ts';
+import { enqueueSpawn, scriptFilters, vaultJobs, type SpawnEntry, type SpawnEvent, type SpawnMatching } from '../queue/index.ts';
 import { isRecord } from '../result/index.ts';
 
 export const METHODS = ['ping', 'spawn', 'status', 'subscribe', 'stop'] as const;
@@ -68,7 +68,7 @@ export async function claimRequested(context: OperationContext, matching: SpawnM
   const { config } = context.installation;
   const matched = matchConditions(asked, [{ vault: vault.id, document: job.path, conditions: job.conditions }], { subscriptions: config.subscriptions, equivalentLabels: config.labels.equivalent })
     .filter((m) => m.index === condition && m.condition.effect === 'spawn');
-  const narrowed = await narrowByScripts({ git: context.git, store: context.state, locate: (id) => matching.vaults.find((v) => v.id === id) }, matching.scripts, asked, matched);
+  const narrowed = await narrowByScripts(scriptFilters(matching), matching.scripts, asked, matched);
   if (narrowed.kept.length === 0) return refuse('not-matched');
   const { entry } = enqueueSpawn(context.state, queueContext(context), {
     vault: vault.id, document: job.path, condition, event: event as unknown as SpawnEvent, budget: job.budget, actor: job.actor,

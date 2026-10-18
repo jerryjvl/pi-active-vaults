@@ -6,11 +6,9 @@
 // Tested through Pi 1.3.0's SDK, against a daemon running a fake pi.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGit } from '../../src/core/git/index.ts';
-import { createIdSource } from '../../src/core/ids/index.ts';
 import { listSpawns } from '../../src/core/queue/index.ts';
 import { startDaemon } from '../../src/daemon/daemon.ts';
-import { fakePi, jobDocument } from '../support/daemon.ts';
+import { daemonOptions, fakePi, jobDocument } from '../support/daemon.ts';
 import { withInstallation } from '../support/installation.ts';
 import { DONE, withPi } from '../support/pi.ts';
 import { OTHER, RUNNING } from '../support/session.ts';
@@ -21,10 +19,7 @@ test('with a daemon running, a session\'s spawns go to it, and the session is to
   t.repo.write('jobs/greet.md', jobDocument('[{ on: session.start, effect: spawn }]'));
   t.accept(t.repo.commit('job'));
   const pi = fakePi(t, { '*': 'nothing' });
-  const daemon = await startDaemon({
-    host: t.host, pid: OTHER, pi: pi.options.pi, env: pi.options.env, timeZone: 'UTC', ticks: false, watch: false,
-    context: { git: createGit({ env: t.repo.env }), clock: t.clock, ids: createIdSource({ clock: t.clock, randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)) }), alive: t.context.alive, sandbox: 'none' },
-  });
+  const daemon = await startDaemon(daemonOptions(t, pi, { pid: OTHER }));
   assert.ok(daemon.ok, JSON.stringify(!daemon.ok && daemon.error));
   try {
     await withPi(t, { flags: { 'vault-actor': 'alice' } }, async (session) => {

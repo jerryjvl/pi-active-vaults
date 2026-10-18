@@ -26,7 +26,7 @@ export {
 } from './spawns.ts';
 export { vaultJobs, type Job } from './jobs.ts';
 export { advanceCursor, gitStream, readCursor, timerStream, type CursorError, type CursorKey } from './cursors.ts';
-export { matchSpawns, reachedVaults, submitSpawns, type MatchedSpawns, type SpawnMatching, type SpawnSender } from './request.ts';
+export { matchSpawns, reachedVaults, scriptFilters, submitSpawns, type MatchedSpawns, type SpawnMatching, type SpawnSender } from './request.ts';
 export {
   daemonRecord, forgetRunProcess, recordRunProcess, releaseDaemonRecord, runProcesses, takeDaemonRecord,
   type DaemonRecordError, type RunningProcess,
