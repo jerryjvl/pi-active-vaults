@@ -7,251 +7,204 @@ Git changes, and queued spawns. One per machine, as a user service.
 
 | Area | Behaviour |
 |---|---|
-| **Git events** | A `reference-transaction` hook installed in each registered vault (`vault init`, `vault add`, `vault doctor --fix`) notifies the daemon of ref updates, by leaving a file named after the vault in `<state>/refs`; it also polls refs every minute as a fallback |
-| **Single instance** | Takes the daemon's record in the state database — its process ID and start time, void once that process ends — then binds its socket; if another daemon holds either, it does not run (and exits `0`, so a service manager does not restart it) |
-| **Timers** | Evaluates timer conditions each minute, in the machine's time zone; applies `missed` on start. A timer run is identified by its local date and scheduled time, so a clock change (daylight saving) neither repeats nor skips it |
-| **Matching** | Derives events from each job's cursor up to the accepted `main` and matches `applies-when` conditions (see Matching) |
-| **Integrity** | On every ref change, checks for an unaccepted change to `main`; pauses the vault's automation and notifies the owner once |
-| **Claims** | Claims each spawn with a unique insert in the state database, so no spawn runs twice |
-| **Scheduling** | Orders queued spawns by priority and runs them within the model's capacity, one job per actor at a time (see Scheduling) |
-| **Budgets** | Enforces document budgets, cascade pools and the installation's daily ceiling |
-| **Execution** | Starts `pi --mode rpc` with the spawn's context: forked from the originating session when available, fresh otherwise |
-| **Traces** | Issues trace IDs, writes full logs and rotates them |
-| **Outbox** | Each minute, retries the undelivered notifications that are due, with backoff (see [Notifications](../notifications.md)) |
-| **Forge sync** | For `forge`-mode vaults: pushes actor branches, keeps pull requests, commit statuses and the `vault/policy` status current, fetches to detect merges; merges attestation and trace notes line by line (see Forge sync) |
-| **MCP server** | Serves each MCP profile that has an endpoint on it; one that cannot be served (its token unresolved, its address in use) is reported at start and the others still are — see [MCP](../mcp.md) |
+| **Single instance** | Takes the daemon's record in the state database (process ID and start time, void once that process ends), then binds its socket. If another daemon holds either, it exits `0`, so a service manager does not restart it |
+| **Git events** | Each vault's `reference-transaction` hook leaves a file named after the vault in `<state>/refs`; refs are also polled every minute |
+| **Timers** | Evaluated each minute in the machine's time zone. A run is identified by its local date and scheduled time, so a daylight-saving change neither repeats nor skips it; `missed` applies on start |
+| **Integrity** | On every ref change, checks for an unaccepted change; pauses that vault's automation and tells its owners once per unaccepted tip |
+| **Matching, claims, scheduling** | Below |
+| **Budgets** | Document budgets, cascade pools and the daily ceiling |
+| **Traces** | Trace IDs, full logs, rotation |
+| **Outbox** | Each minute, retries due notifications with backoff ([Notifications](../notifications.md)) |
+| **Forge sync** | Below |
+| **MCP server** | Serves each MCP profile that has an endpoint; one that cannot be served (unresolved token, address in use) is reported and the rest still are ([MCP](../mcp.md)) |
 
 ## Spawn lifecycle
 
 ```mermaid
 stateDiagram-v2
   direction LR
-  [*] --> matched
-  matched --> claimed
-  claimed --> queued
+  [*] --> queued: claimed
   queued --> running
   running --> committed
   running --> no_change: ended normally without changes
   committed --> recorded
   no_change --> recorded
-  queued --> stopped: budget or ttl
-  running --> stopped: budget, ttl, error or restart
+  queued --> stopped
+  running --> stopped
   stopped --> recorded
   recorded --> [*]
 ```
 
-A spawn's identity is its document and the event that triggered it. The claim
-is recorded before anything runs; a second claim for the same identity fails
-and is ignored. Each state change is one transaction, so a crash leaves every
-spawn in exactly one state. Besides `budget`, `ttl`, `error` and `restart`, a
-spawn stops with `queue-time` (queued past `daemon.queue-time`), `requested`
-(the socket's `stop`) or `no-session` (its condition says `session-required`
-and the originating session is not known here).
+A spawn's identity is its document and the event that triggered it. Claiming
+it is a unique insert, made before anything runs, so no spawn runs twice. Each
+state change is one transaction.
+
+| Stop reason | When |
+|---|---|
+| `budget`, `ttl` | Its budget or run time is used up |
+| `error` | Its process failed, or its last model request ended in an error |
+| `restart` | The daemon restarted while it ran |
+| `queue-time` | Queued longer than `daemon.queue-time` |
+| `requested` | Stopped through the socket |
+| `no-session` | Its condition is `session-required` and the originating session is not known here |
 
 ## Matching
 
-Each job keeps a cursor per stream of events: the merges on a vault's
-accepted `main` (`merged`), and the commits on each actor branch
-(`committed`). Events after the cursor are matched against the job's
-conditions, their spawns claimed and the cursor moved past them, event by
-event.
+Each job has a cursor per event stream: merges on the accepted `main`
+(`merged`) and commits on each actor branch (`committed`). Events after the
+cursor are matched, their spawns claimed and the cursor advanced, one event at
+a time. Events come from Git history, so nothing is lost while the daemon is
+down: on start it catches up from each cursor.
 
-- A job seen for the first time starts at the merge that introduced it, when
-  the daemon already scans the vault; in a vault the daemon takes up (newly
-  registered or hosted), everything starts where its history is, so nothing
-  before is replayed. An actor branch made since starts where it left the
-  accepted `main`.
-- A vault with an unaccepted change is neither a source nor a target of
-  events while it is paused; its cursors wait, so its events are matched once
-  it is resolved.
-- A Git event is matched in parts, one per run whose changes it holds (their
-  `Vault-Trace`); each part continues that run's tree when the run is known
-  here, and otherwise starts a new one, and is a spawn identity of its own.
-  The part no run made starts a new tree.
-- A cursor whose commit has gone (rewritten history) starts again at the tip.
+- A new job starts at the merge that introduced it. In a vault the daemon
+  newly takes up, every cursor starts at the current history, so nothing
+  earlier is replayed. A new actor branch starts where it left the accepted
+  `main`.
+- A paused vault's cursors wait until it is resolved.
+- An event is matched in parts, one per run whose changes it holds (by
+  `Vault-Trace`). Each part continues that run's session tree if the run is
+  known here, else starts a new one; changes no run made start a new tree.
+  Each part is a spawn identity of its own.
+- A cursor whose commit has gone (rewritten history) restarts at the tip.
 
 ## Scheduling
 
 Queued spawns start in the order of [Architecture](../architecture.md#scheduling),
-at most `daemon.parallel` at a time — the capacity of the model Pi runs them
-with — and one job per actor: an actor busy with a run, chosen for an earlier
-spawn, or held by an interactive session waits, keeping its place. A spawn
-names its actor from the claim (the job's `actor` on the accepted `main`).
-Nothing starts for a vault with an unaccepted change.
+at most `daemon.parallel` at a time, and one per actor. A spawn's actor is the
+job's `actor` on the accepted `main` at claim time; while that actor is running
+a job, claimed by an earlier spawn or held by an interactive session, the
+spawn waits in place. Nothing starts in a paused vault.
 
 ```yaml
 daemon:
-  queue-time: 24h   # default; a spawn queued longer is stopped (queue-time)
-  parallel: 1       # default; headless sessions at once
+  queue-time: 24h   # default
+  parallel: 1       # default: headless sessions at once, the capacity of Pi's model
 ```
 
 ## Execution
 
-A spawn runs as
+A spawn runs in its actor's worktree as
 
 ```
 pi --mode rpc --vault-run <state>/runs/<trace>.json --session-id <trace> [--fork <session file>]
 ```
 
-in its actor's worktree, with the user's environment. The run file is the
-one the extension reads ([Pi extension](extension.md#headless-sessions)). It
-forks the originating session when that session is known here — it
-subscribed, giving its session file — and the condition's `context` is not
-`bare`. The daemon records the process (ID and start time) before anything
-else, asks the session to begin, waits for Pi to settle and closes its
-input. A run still going at its budget's `ttl` plus a minute is killed.
+It forks the originating session when that session subscribed here (giving
+its file) and the condition's `context` is not `bare`. The daemon records the
+process (ID and start time) first, starts the session, waits for Pi to settle
+and closes its input; a run still going a minute past its `ttl` is killed.
 
-How it ended is read from what is recorded: commits on the actor's branch
-carrying the run's trace make it `committed`; otherwise a used-up budget
-(`budget`), its run time (`ttl`), a stop on request, a failed process, or a
-last model request that ended in an error — Pi's last assistant message
-stopped with `error`, such as an unreachable endpoint — (`error`) stop it; a
-run that settled normally and committed nothing is `no-change`. A model error
-after commits leaves the run `committed`, with the error recorded at its end.
-Each step goes to the run's full log (`daemon`, its end with any `modelError`;
-Pi's events in `pi`, without streaming deltas).
+The outcome comes from what was recorded: commits carrying the run's trace
+make it `committed` (a later model error is noted in its log); otherwise a stop
+reason above applies; a run that settled normally without committing is
+`no-change`. The run's full log holds the daemon's steps and Pi's events
+(without streaming deltas).
 
 ## Start-up recovery
 
-Only one daemon runs, so nothing it started can still be legitimately running
-when it starts. Before anything else it returns its own state to a clean slate:
+Only one daemon runs, so nothing it started can still legitimately be running
+when it starts. Before anything else it:
 
-1. Ends any headless session left from its previous run, by the exact process
-   ID it recorded, after checking that process's start time so a reused ID is
-   never touched. It never matches processes by name.
-2. Marks every running spawn `stopped` with the reason `restart`, ending its
-   budget session and releasing its actor.
-3. Resets the worktree of each actor those spawns held to the actor's last
-   commit, first saving any uncommitted changes to the run's full log.
-4. Leaves queued spawns queued; they keep their queue-time limit.
+1. Ends headless sessions left from its previous run, by recorded process ID
+   after checking the start time, so a reused ID is never touched. It never
+   matches processes by name.
+2. Stops every running spawn with `restart`, ending its budget session and
+   releasing its actor.
+3. Resets those actors' worktrees to their last commit, saving uncommitted
+   changes to the run's full log first.
+4. Leaves queued spawns queued.
 
-Interactive Pi sessions are not the daemon's and are left alone: their actor
-holds stay valid while their processes live.
-
-`vault doctor --fix` runs the same recovery when no daemon is running. For
-anything the daemon owns, restarting it is the remedy.
-
-## Catch-up
-
-Events come from Git history, so nothing is lost while the daemon is down. On
-start, after recovery, it derives events from each cursor up to the accepted
-`main` and processes them in order.
+Interactive sessions are not the daemon's; their holds stand while their
+processes live. `vault doctor --fix` runs the same recovery when no daemon
+runs, so for anything the daemon owns, restarting it is the remedy.
 
 ## Hosting
 
-Two independent settings decide which daemon runs a vault's timer and Git-event
-jobs:
+Two settings decide which daemon runs a vault's timer and Git-event jobs:
 
-| Setting | Where | Default | Effect |
-|---|---|---|---|
-| `host` | The vault's entry in the installation config | `false` | This installation opts in to running the vault's jobs |
-| `executor` | `vault.executor` in the vault's root contract | unset | Only the named installation may run the vault's jobs |
-
-| `executor` | Runs on this installation when |
+| `vault.executor` (root contract) | Runs on this installation when |
 |---|---|
-| unset | `host: true` |
+| unset | its `host: true` (installation config; default `false`) |
 | this installation's name | always |
-| another installation's name | never — `vault doctor` warns if `host: true` is also set |
+| another installation's name | never — `vault doctor` warns if `host: true` is set |
 
-So nothing runs until someone opts in, and a vault can be pinned to one place
-regardless of how many machines clone it. The owners of a vault the daemon
-runs are told of an unaccepted change once per unaccepted tip, when they are
-recipient aliases in `notify`.
-
-An installation's name defaults to `<user>@<hostname>` and can be set in the
-installation config. `vault whoami` prints it — the value to put in
-`vault.executor`.
-
-Spawns from interactive sessions always run on the machine of that session.
+So nothing runs until someone opts in, and a vault can be pinned to one
+machine however many clone it. An installation's name defaults to
+`<user>@<hostname>`; `vault whoami` prints it. Spawns from an interactive
+session run on that session's machine.
 
 ## Forge sync
 
-Each minute, before anything else, every `forge`-mode vault is fetched: the
-forge's `main` becomes the accepted `main` and the local `main` follows it
-forward, so a merge in the forge is matched like any other. For the vaults the
-daemon runs, each of the vault's `actors` with a proposal has it kept current
-at the forge: when its branch's head moves, the branch is pushed and its pull
-request opened or updated, with its statuses; otherwise its statuses are
-published again every five minutes, to pick up reviews made in the forge. A
-failure is shown by `vault daemon status` and tried again the next minute.
+Each minute, every `forge`-mode vault is fetched first: the forge's `main`
+becomes the accepted `main`, the local `main` follows it forward, and merges
+are matched like any other. For the vaults this daemon runs:
 
-For those vaults it also checks merges. Before fetching, it asks the forge
-which pull requests from the vault's writers' branches were merged into `main`
-most recently (one page). After fetching, it checks each one not checked before:
-is its head an ancestor of the new accepted `main`? Asking first means each
-merge named is in the `main` it is judged against. Each result is recorded
-once. A head that is not in `main` — a squash or rebase merge — is told once to
-the owners, naming the pull request and that its attestations and trace notes
-no longer attach.
+- **Proposals.** Each of the vault's `actors` with a proposal is kept current:
+  when its head moves, the branch is pushed and its pull request opened or
+  updated with its statuses; otherwise the statuses are republished every five
+  minutes, to pick up reviews made in the forge. Failures show in `vault daemon
+  status` and are retried the next minute.
+- **Merge results.** Before fetching, it asks the forge for the most recently
+  merged pull requests (one page); after fetching, it checks once whether each
+  one's head is in the new `main`. One that is not — a squash or rebase merge —
+  is reported once to the owners, naming the pull request and that its
+  attestations and trace notes no longer attach.
+- **Branches after a lost merge.** The daemon resets the actor branch to the
+  accepted `main` only if its tip is exactly the approved head, no session
+  holds the actor and its worktree has no change (untracked files included).
+  Otherwise the report names the condition and the command to run (`git -C
+  <worktree> reset --hard main`, or `git -C <vault> branch -f actor/<name>
+  main` without a worktree). While the branch holds the approved head, `vault
+  status` and `vault doctor` list the merge and no new pull request is opened;
+  the listing ends by itself once it no longer does.
+- **Pushes.** Never forced, with one exception: after such a reset, the
+  forge's copy still holds the merged head, so the push replaces exactly that
+  commit (`--force-with-lease` on it), and is refused if the copy is anything
+  else. `main` is never pushed.
 
-The actor's branch still holds the commits `main` lacks, so it would stay a
-proposal. When the merge is first reported, the daemon resets the branch to the
-accepted `main` only if all hold: its tip is exactly the approved head, no
-session holds the actor, and its worktree has no change (untracked files
-included). Otherwise it leaves the branch, and the report says which condition
-stopped it and gives the command that resets it: `git -C <worktree> reset --hard
-main`, or `git -C <vault> branch -f actor/<name> main` where the branch has no
-worktree. While a branch holds the approved head,
-`vault status` and `vault doctor` list the merge and no pull request is opened
-for the branch, also after a restart; the listing ends by itself once the branch
-no longer holds the head, so nothing needs dismissing.
-
-The next proposal from a reset branch is not a fast-forward of the forge's
-copy, which still holds the head the forge reported merged. That is the one
-case in which an actor branch is pushed forced: the push replaces exactly that
-commit (`--force-with-lease` on it) and is refused if the forge's copy is
-anything else, someone else's later push included. Every other push is
-unforced, and `main` is never pushed.
+Attestation and trace notes are fetched, merged line by line and pushed.
 
 ## Socket protocol
 
-JSON lines over a local socket accessible only to the user (a Unix domain
-socket, `<state>/daemon.sock`; a named pipe on Windows, named after the state
-directory). A request is `{ id, method, params }`, answered
-`{ id, ok: true, result }` or `{ id, ok: false, error: { reason, … } }`.
+JSON lines over a socket only the user can reach: `<state>/daemon.sock`, or on
+Windows a named pipe named after the state directory. A request is `{ id,
+method, params }`, answered `{ id, ok: true, result }` or `{ id, ok: false,
+error: { reason, … } }`.
 
 | Method | Params | Result |
 |---|---|---|
-| `ping` | — | `version`, `capabilities` (the methods) |
-| `spawn` | A spawn request: `vault`, `document`, `condition`, `event`, optional `parent` and `relevance` | The spawn as claimed |
-| `status` | — | `queued`, `running` (with process IDs), `paused` vaults, `budgets` (`dailyUsed`, `dailyTokens`), `forge` (per vault: `at`, `accepted`, `proposed` actors, `error`) |
-| `subscribe` | `trace`; optionally `session` and its `file` | — then notices for the spawns in that session's tree |
-| `stop` | `trace` | — the running spawn is stopped (`requested`) |
+| `ping` | — | `version`, `capabilities` |
+| `spawn` | `vault`, `document`, `condition`, `event`, optional `parent`, `relevance` | The claimed spawn |
+| `status` | — | `queued`, `running` (with process IDs), `paused`, `budgets`, `forge` per vault |
+| `subscribe` | `trace`, optional `session` and its `file` | Notices for the spawns in that session's tree |
+| `stop` | `trace` | The running spawn stops (`requested`) |
 
-A spawn request is claimed under its identity, but with its budget and actor
-as the job on the accepted `main` has them, and only when the job's condition
-at `condition` is a spawn condition the event matches (its script narrowing
-it); otherwise it is refused, as it is for a paused vault. A notice is
-`{ notice: "spawn", state, trace, vault, document, parent?, root?, outcome?,
-reason?, commit? }`, with `state` `started` or `finished`.
+A `spawn` is claimed with the budget and actor of the job on the accepted
+`main`, and only if that job's condition is a spawn condition the event
+matches; otherwise, or in a paused vault, it is refused. A notice is `{
+notice: "spawn", state: started | finished, trace, vault, document, parent?,
+root?, outcome?, reason?, commit? }`.
 
 ## Service installation
 
-`vault daemon install` writes a definition for the platform:
+`vault daemon install` writes a definition for the platform; `print-unit`
+prints it without installing.
 
 | Platform | Service |
 |---|---|
 | Linux | systemd user unit, `$XDG_CONFIG_HOME/systemd/user/pi-active-vaults.service` |
-| macOS | launchd agent, `~/Library/LaunchAgents/pi-active-vaults.daemon.plist`; on a Mac nobody logs in to, `--headless`: a launchd daemon, `/Library/LaunchDaemons/pi-active-vaults.daemon.plist`, run as the user with their `HOME`, installed by the person with `sudo` |
-| Windows | Task Scheduler task at logon, `pi-active-vaults`, registered with `schtasks` |
+| macOS | launchd agent, `~/Library/LaunchAgents/pi-active-vaults.daemon.plist`; with `--headless`, for a Mac nobody logs in to, a launchd daemon in `/Library/LaunchDaemons/` run as the user, installed with `sudo` |
+| Windows | Task Scheduler task `pi-active-vaults` at logon |
 
-The service runs `vault daemon run` through the platform's shell, which
-resolves the current Node on the service's `PATH` at start; the daemon finds
-`pi` there too. That `PATH` is the one the tools were found on when the
-service was installed: the directory holding `node`, `pi` and `git` on the
-installing `PATH`, as found (links are not followed, so a version manager's
-`latest` or shim directory keeps working across upgrades), ahead of the
-platform's usual directories — `Environment=` in the systemd unit, the launchd
-plist's `EnvironmentVariables`, a `set "PATH=…"` in the Task Scheduler action. A
-login shell is not used: it rebuilds `PATH` from profiles a version manager's
-setup, which lives in an interactive shell's rc file, does not reach.
-
-`install` records those directories in the state database, and `vault doctor`
-warns when one no longer holds its tool; installing again records where they
-are now. `print-unit` prints the same definition and records nothing.
+The service runs `vault daemon run` with a fixed `PATH`: the directories in
+which `node`, `pi` and `git` were found when it was installed — as named on
+`PATH`, without following links, so a version manager's `latest` or shim
+directory keeps working across upgrades — ahead of the platform's usual ones.
+No login shell is used: it would rebuild `PATH` from profiles, which a version
+manager's interactive-shell setup does not reach. `vault doctor` warns when a
+recorded directory no longer holds its tool; installing again fixes it.
 
 ## Log rotation
 
-Full logs are kept per day and trace. Today's files stay as written; files from
-earlier days are gzip-compressed; days older than `logs.keep-days` (counting
-today) are deleted. Days are UTC dates.
+Full logs are kept per UTC day and trace. Earlier days are gzip-compressed;
+days older than `logs.keep-days` (counting today) are deleted.

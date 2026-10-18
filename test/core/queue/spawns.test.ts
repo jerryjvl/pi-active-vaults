@@ -1,4 +1,4 @@
-// Documented behaviour: daemon.md "Spawn lifecycle" and "Claims",
+// Documented behaviour: daemon.md "Spawn lifecycle",
 // architecture.md "Local storage" and "Scheduling", core.md `enqueueSpawn` — a
 // spawn's identity is its document and the event that triggered it; the claim
 // is a unique insert recorded before anything runs, and a second claim for the

@@ -21,7 +21,7 @@ A Markdown file with optional YAML frontmatter. Standard keys:
 | `labels` | Terms from the vault's vocabulary |
 | `applies-when` | Conditions under which the document is injected into a session or spawns work |
 | `budget` | `{ tokens, ttl }` — required on any document that can spawn work; `ttl` in whole seconds, minutes or hours (`90s`, `30m`, `2h`) |
-| `actor` | The actor work it spawns writes as — one of the vault's `actors`, never an owner; else the nearest contract's `actor`. A document that can spawn work and has none does not run, and `vault jobs` and `vault doctor` say so |
+| `actor` | The actor its spawned work writes as: one of the vault's `actors`, never an owner; else the nearest contract's `actor`. A spawning document without one does not run (`vault jobs` and `vault doctor` report it) |
 | `provenance` | Written by the runtime: trace ID and a compact causal path |
 
 Any other key is the vault's own.
@@ -157,6 +157,11 @@ from a session that read untrusted content. A proposal is tainted when any of
 its commits carries a `Vault-Tainted` trailer, or was not made by the package
 (has no `Vault-Trace`).
 
+**Control changes always need an owner.** Whatever the contracts say, a change
+to any `_contract.md`, anything under `.vault/`, or the `applies-when`,
+`budget` or `actor` of any document requires `owner`. Agents may propose such
+changes; review flags them.
+
 ### Judgement axes
 
 `axes` declares the questions a judgement asks of a document, each with the
@@ -196,11 +201,6 @@ axes it names (`require: [judgement:evidence, judgement:relevance]`). An axis
 that cannot be judged — no permitted model, an error, content too large for the
 model — never passes: nothing is recorded, and its requirement stays unmet.
 
-**Control changes always need an owner.** Whatever the contracts say, a change
-to any `_contract.md`, anything under `.vault/`, or the `applies-when`,
-`budget` or `actor` of any document requires `owner`. Agents may propose such changes;
-review flags them.
-
 ## Session tree
 
 Sessions start from a trigger and branch as they spawn work. Budgets flow down:
@@ -220,13 +220,11 @@ Sessions start from a trigger and branch as they spawn work. Budgets flow down:
 - No document fires twice in one tree. `budgets.max-depth` (default 4) backs
   this up.
 - **Work a run commits stays in its tree.** An event from a commit carrying a
-  run's `Vault-Trace` continues that run's tree instead of starting a new one —
-  also after the commit is merged, rebased or amended, since its message keeps
-  the trailer. So a job whose own commits match its condition does not fire
-  again. Commits without the trailer, such as a person's edits, start new trees.
-  A merge's changes are attributed to the commits that made them, so one merge
-  can continue several trees: each run's part of it is matched, and spawns,
-  on its own.
+  run's `Vault-Trace` continues that run's tree — also after a merge, rebase or
+  amend, which keep the trailer — so a job whose own commits match its
+  condition does not fire again. Commits without the trailer, such as a
+  person's edits, start new trees. A merge's changes are attributed to the
+  commits that made them, so one merge can continue several trees.
 
 **Fan-out and gather** is the built-in multi-session shape: a list of items, an
 instruction for each, an instruction to combine the results. The list can come
@@ -294,11 +292,11 @@ Attestations are stored as Git notes on `refs/notes/vault/attestations`, so they
 travel with the repository: one JSON object per line in the note on the subject.
 When notes written on different machines meet, they are merged line by line
 (Git's `cat_sort_uniq` strategy), so every record from both sides is kept. For
-each kind and name the latest record by `at` counts; of records equally late,
-one that is not `pass`. Accepting a proposal evaluates
-the merge policy against the attestations for the exact commit under review; a
-check counts only at its version on the accepted `main`, and a judgement only
-for the current content and axes.
+each kind and name the latest record by `at` counts, and of equally late ones,
+a non-`pass`. Accepting a proposal evaluates the merge policy against the
+attestations for the exact commit under review; a check counts only at its
+version on the accepted `main`, and a judgement only for the current content
+and axes.
 
 ## Actor
 
@@ -308,12 +306,11 @@ config). An actor is one of the root contract's `actors` or `owners`. Many jobs
 may write into one actor's branch; each actor's branch is one review lane.
 
 **One writer at a time.** At most one session writes as an actor at once. The
-daemon runs one job per actor at a time — each job as its `actor` — and queues
-the rest. A Pi session
-started as an actor that is busy is told which session holds it, and can wait
-or choose another actor. A session holds its actor through a record of its
-process, so a session that has ended — however it ended — holds nothing, and
-there is nothing to unlock.
+daemon runs one job per actor at a time and queues the rest. A Pi session
+started as a busy actor is told which session holds it, and can wait or choose
+another actor. A session holds its actor through a record of its process, so a
+session that has ended — however it ended — holds nothing, and there is
+nothing to unlock.
 
 A **proposal** is an actor's branch ahead of `main`. The vault's root contract
 chooses how proposals are reviewed (`vault.review`):
@@ -327,14 +324,13 @@ chooses how proposals are reviewed (`vault.review`):
 on the machine that accepted it, so another clone would see those accepts as
 unaccepted changes. A vault used on several machines uses `forge` mode.
 
-In `forge` mode the package pushes the actor branch and its notes
-(attestations and traces) to the vault's `origin` and publishes each check's attestation as a commit
-status on the proposal (`vault/check/<name>`), plus one status,
-**`vault/policy`**, saying whether the proposal satisfies the vault's merge
-policy — counting owners' forge approvals of that exact commit. It never
-pushes to `main`, and learns about merges by fetching. The forge's branch protection on `main`
-requires `vault/policy` and, in the recommended setup, an owner's approval;
-`vault doctor` verifies it is in place (see [Security
+In `forge` mode the package pushes the actor branch and its notes to the
+vault's `origin`, and publishes each check as a commit status on the proposal
+(`vault/check/<name>`) plus **`vault/policy`**: whether the proposal satisfies
+the vault's merge policy, counting owners' forge approvals of that exact
+commit. It never pushes `main` and learns of merges by fetching. Branch
+protection on `main` requires `vault/policy` and, in the recommended setup, an
+owner's approval; `vault doctor` checks it ([Security
 setup](security-setup.md)). Owners are identified by their forge usernames.
 
 A vault moves from `local` to `forge` by adding a remote and changing the mode;
@@ -359,15 +355,12 @@ the issue time in milliseconds followed by randomness, so the time can be read
 back from the ID. The ID propagates to everything the run causes.
 
 - **In the vault**: a compact record — one line of JSON with `trace`, `vault`,
-  `path` (the causal path: the trace IDs of the runs that led to this one, root
-  first), `trigger`, `sessions`, `judgements`, `scripts`, `documents` produced
-  and `elsewhere` — as a Git note on `refs/notes/vault/traces`. Each commit a
-  run makes carries the record as of that commit, naming every document the
-  run has produced so far; the `Vault-Trace` trailer is the link, so `vault
-  trace <id>` finds the run's commits by trailer and reads their notes. The
-  notes travel and merge like attestations, and are not in the tree: a record
-  is never a control change. A run that commits nothing leaves no record in
-  the vault; its full log and its spawn's state say how it ended.
+  `path` (the trace IDs of the runs that led to this one, root first),
+  `trigger`, `sessions`, `judgements`, `scripts`, `documents` produced and
+  `elsewhere` — as a Git note on `refs/notes/vault/traces` on each commit the
+  run makes, as of that commit. `vault trace <id>` finds the commits by their
+  `Vault-Trace` trailer and reads the notes, which travel and merge like
+  attestations. A run that commits nothing leaves no record in the vault.
 - **In produced documents**: a `provenance` key, `{ trace, path }`.
 - **On the machine**: full logs in the log directory as JSON lines, per UTC day
   and trace, kept for a configurable number of days including today
@@ -447,7 +440,7 @@ These are recipes, not additional concepts.
 
 | Recipe | Built from |
 |---|---|
-| Job | A document with a `spawn` condition and a budget |
+| Job | A document with a `spawn` condition, a budget and an actor |
 | Scheduled job | A job whose condition is a timer |
 | Gate | A document that runs a judgement check when content arrives; policy decides the outcome |
 | Memory | A document with session-event conditions and `inject` |

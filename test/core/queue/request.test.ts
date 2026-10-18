@@ -1,4 +1,4 @@
-// Documented behaviour: extension.md "Spawns" and daemon.md "Claims" — an
+// Documented behaviour: extension.md "Spawns" and daemon.md "Spawn lifecycle" — an
 // event that matches a job's `spawn` condition becomes a spawn request whose
 // identity (document and event) is fixed before it is sent to the daemon or
 // queued, so a request that reached the daemon and was also queued after a

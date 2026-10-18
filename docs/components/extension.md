@@ -95,7 +95,7 @@ the daemon instead of from configuration: the run file given with `--vault-run`
 is JSON with `vault`, `document`, `actor`, `trace` (the spawn's, whose
 allotment is its budget) and `event`. The run is briefed with its job document
 as on the accepted `main` and the triggering event as structured data (see
-[Concepts](../concepts.md#applies-when)). A run whose file cannot be read, or
-that has no allotment, no job on the accepted `main`, an actor that is not one
-of the vault's `actors` or no hold, does not start; one past its budget, run
-time or the daily ceiling is stopped. A job that decides there is nothing to do ends without committing.
+[Concepts](../concepts.md#applies-when)). A run does not start without a
+readable run file, an allotment, its job on the accepted `main`, a permitted
+actor and its hold; it is stopped past its budget, run time or the daily
+ceiling. A job with nothing to do ends without committing.

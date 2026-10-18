@@ -79,7 +79,7 @@ accepting. The daemon adds work that must happen while nobody is using Pi.
 | Search index | `<state>/index.sqlite` | No |
 | Full trace logs | `<state>/logs/<date>/<trace-id>/` | No |
 | Daemon socket | Unix domain socket in `<state>`; a named pipe on Windows | No |
-| Run files, hook word | `<state>/runs/<trace-id>.json` while a run lasts; `<state>/refs/<vault-id>` | No |
+| Run files; the refs hook's signals | `<state>/runs/<trace-id>.json` while a run lasts; `<state>/refs/<vault-id>` | No |
 
 `<config>` and `<state>` are the platform's own directories for the
 `pi-active-vaults` application:
@@ -205,9 +205,8 @@ sequenceDiagram
 
 ## Scheduling
 
-Model capacity is configured per model (`parallel`); headless sessions run at
-most `daemon.parallel` at a time, one job per actor. The scheduler orders queued
-requests:
+Headless sessions run at most `daemon.parallel` at a time, one job per actor;
+model roles have their own `parallel`. The scheduler orders queued spawns:
 
 1. Work that another session is waiting on.
 2. Work started by a trigger's original session before the follow-ups it caused.

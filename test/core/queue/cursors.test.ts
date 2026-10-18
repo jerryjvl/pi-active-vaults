@@ -1,5 +1,5 @@
 // Documented behaviour: architecture.md "Change-triggered work" and daemon.md
-// "Catch-up" — each job keeps a cursor per event stream; events are derived
+// "Matching" — each job keeps a cursor per event stream; events are derived
 // from the cursor up to the accepted `main`, and the cursor advances once they
 // are handled. Advancing is compare-and-swap, so two processes handling the
 // same events cannot both move it.

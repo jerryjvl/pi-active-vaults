@@ -1,6 +1,6 @@
 // Documented behaviour: daemon.md "Matching" — events are derived from each
 // job's cursor up to the accepted main and matched against `applies-when`;
-// "Catch-up" — nothing is lost while the daemon is down; "Claims" — each
+// "Matching" — nothing is lost while the daemon is down; "Spawn lifecycle" — each
 // spawn is claimed once; "Integrity" — an unaccepted change pauses the
 // vault's automation, and the owner is notified once; "Hosting" — only a
 // vault this installation hosts (or is the executor of) runs its jobs here.

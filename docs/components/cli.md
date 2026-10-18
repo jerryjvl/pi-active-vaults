@@ -25,12 +25,24 @@ its operation's parameters (`vault <command> --help`).
 
 | Command | Does |
 |---|---|
-| `vault init <path> [--template <url\|name>[@ref]] [--id <id>] [--person <name>]` | Create a vault and register it: empty — owned by the installation's `person`, every change needing checks and an owner — or from a template with fresh history. Its first commit is its accepted `main`. Installs the vault's hooks and makes your worktree. Where there is no config file yet it creates one (private), with `installation.person` from `--person`, by default the OS user's name; `--person` is refused where the config exists |
+| `vault init <path> [--template <url\|name>[@ref]] [--id <id>] [--person <name>]` | Create a vault — empty (owned by the installation's `person`, every change needing checks and an owner) or from a template with fresh history — and register it. Its first commit is its accepted `main`. Installs its hooks and makes your worktree. With no config file yet, creates one (private) with `installation.person` from `--person`, by default the OS user |
 | `vault template show <url\|name>[@ref]` | Check that a repository is a compatible template and summarise it |
 | `vault add <path> [--person <name>]` | Register an existing vault in the installation, by the id its root contract declares; nothing in it is accepted until an owner adopts `main`. Installs the vault's hooks where none of the user's are in the way, and says which it left; creates the config file as `init` does |
 | `vault list` | Registered vaults and their catalog entries, and where the installation's `person` works in each (their actor worktree, under the state directory unless the vault configures another) |
 | `vault whoami` | This installation's name, for use as a vault's `executor` |
-| `vault doctor [--fix]` | Check config, Pi, Git, model endpoints' tokens, hooks (including a `core.hooksPath` that bypasses them), daemon service (and the directories it was given for `PATH`), paths and forge settings (merge methods best effort: what the forge does not show is a warning); report a `local` vault with a remote, merged proposals whose commits did not reach `main`, sessions holding an actor (and any whose holder cannot be told from a reused process), a leftover Git lock in `main`'s worktree, undelivered notifications, search that is keyword-only because no policy entry names the vault, jobs that cannot run (no readable budget, or no actor that may write), and no `budgets.daily-tokens`; `--fix` installs hooks (the pre-push guard, and the `reference-transaction` hook that tells the daemon of ref changes) where none of the user's is in the way, corrects permissions and, when no daemon is running, runs its start-up recovery. A problem exits `1`; warnings do not |
+| `vault doctor [--fix]` | Check the installation and each vault (below). A problem exits `1`; warnings do not. `--fix` installs hooks where none of the user's is in the way, corrects permissions and, when no daemon runs, runs its start-up recovery |
+
+`vault doctor` checks:
+
+- config, Pi, Git, paths and permissions, and model endpoints' tokens (without calling them);
+- hooks, including a `core.hooksPath` that bypasses them;
+- the daemon service and the directories recorded for its `PATH`;
+- forge settings, merge methods included where the forge shows them;
+- a `local` vault with a remote, and merged proposals whose commits did not reach `main`;
+- actor holds, including any whose holder cannot be told;
+- a leftover Git lock in `main`'s worktree, and undelivered notifications;
+- search that is keyword-only because no `policy` entry names the vault;
+- jobs that cannot run (no budget, or no permitted actor), and an unset `budgets.daily-tokens`.
 
 ### Knowledge
 
@@ -48,7 +60,7 @@ its operation's parameters (`vault <command> --help`).
 | `vault status` | The installation `person`'s worktree in each vault (not over MCP), pending proposals, failing checks, queued work, holds, merged proposals whose commits did not reach `main`, undelivered notifications |
 | `vault review <actor>` | Commits, diff, checks and control-change flags; records the reviewed SHA |
 | `vault accept <actor>` | Merge the SHA you last reviewed if the merge policy is satisfied |
-| `vault accept --adopt <sha>` | Show failed checks and control changes in the delta from the accepted `main` to `<sha>` first, and require them to be acknowledged; then show the delta and, once confirmed, accept it. With neither, it goes straight to the delta. Without a terminal to confirm at, it shows the delta and exits `3`; `--acknowledge <digest> --yes` confirms what was shown |
+| `vault accept --adopt <sha>` | Show failed checks and control changes in the delta from the accepted `main` first, to be acknowledged; then the delta, and accept once confirmed. Without a terminal, it shows them and exits `3`; `--acknowledge <digest> --yes` confirms what was shown |
 | `vault sync [actor]` | Bring actor branches up to date with the accepted `main` — forward, or with a merge that the checks assess; in `forge` mode, fetch first |
 | `vault propose <actor>` | In `forge` mode: push the actor branch and open or update its pull request |
 | `vault commit -m <msg> [paths] [--actor <name>]` | Commit the actor's worktree as the current actor (else `--actor`, else the installation's `person`), with trailers, if every check passes |

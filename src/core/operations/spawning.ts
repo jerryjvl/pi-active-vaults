@@ -1,5 +1,5 @@
 // Requesting spawns on this installation (extension.md "Spawns", daemon.md
-// "Claims"): an event matched against the jobs of the vaults it reaches, and
+// "Spawn lifecycle"): an event matched against the jobs of the vaults it reaches, and
 // each match sent to the daemon or queued under its fixed identity — the one
 // way `vault trigger`, commits and Pi sessions request work — and how what
 // became of the requests is told.

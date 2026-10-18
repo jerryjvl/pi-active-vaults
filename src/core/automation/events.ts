@@ -1,4 +1,4 @@
-// Git events from cursors (daemon.md "Matching", "Catch-up"; architecture.md
+// Git events from cursors (daemon.md "Matching"; architecture.md
 // "Change-triggered work"): for each vault, the merges on its accepted main
 // (`merged`) and the commits on each actor branch (`committed`) since each
 // job's cursor are matched against that job's conditions, the spawns they

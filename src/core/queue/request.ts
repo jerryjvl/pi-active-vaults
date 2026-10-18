@@ -1,5 +1,5 @@
 // From an event to spawns (concepts.md "applies-when", extension.md
-// "Spawns", daemon.md "Claims"): matching an event against the jobs of the
+// "Spawns", daemon.md "Spawn lifecycle"): matching an event against the jobs of the
 // vaults it reaches, then sending each request to the daemon or queueing it.
 // `vault trigger`, Pi sessions and their commits use this, and so does the
 // daemon.

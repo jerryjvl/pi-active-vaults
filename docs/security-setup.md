@@ -5,13 +5,11 @@ How to deploy for the [security model](security.md).
 ## Local vaults
 
 A `local` vault has one clone; use a forge for a vault on several machines.
-Nothing to configure beyond the defaults. `vault init` and `vault add` install
-each vault's Git hooks, and `vault doctor --fix` makes sure that:
-
-- the package's Git hooks are installed in each vault (change monitoring and the
-  pre-push guard);
-- state, configuration and the daemon socket are accessible only to the user;
-- `notify` is configured, so unaccepted changes reach you when a daemon runs.
+The defaults suffice: `vault init` and `vault add` install each vault's Git
+hooks (change monitoring and the pre-push guard), and `vault doctor` checks
+that they stay installed, that state, configuration and the daemon socket are
+accessible only to you (`--fix` repairs both), and that `notify` is configured
+so unaccepted changes reach you when a daemon runs.
 
 Day to day: when a command reports an unaccepted change, look at it with
 `vault accept --adopt <sha>` and either confirm it or reset `main`.

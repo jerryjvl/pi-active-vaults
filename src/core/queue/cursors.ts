@@ -1,5 +1,5 @@
 // Job cursors (architecture.md "Change-triggered work", daemon.md
-// "Catch-up"): how far each job has handled each stream of events — Git
+// "Matching"): how far each job has handled each stream of events — Git
 // events from one source vault, or one timer condition. Events are derived
 // from the cursor up to the accepted `main`, so nothing is lost while no
 // daemon runs.
