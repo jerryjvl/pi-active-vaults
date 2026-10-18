@@ -69,8 +69,9 @@ accepting. The daemon adds work that must happen while nobody is using Pi.
 | Data | Location | Shared via Git |
 |---|---|---|
 | Documents, contracts, jobs | Vault working tree | Yes |
-| Scripts, checks, compact traces | `.vault/` in the vault | Yes |
+| Scripts, checks | `.vault/` in the vault | Yes |
 | Attestations | `refs/notes/vault/attestations` | Yes |
+| Compact traces | `refs/notes/vault/traces`, on each run's commits | Yes |
 | Proposals | Actor branches (`actor/<name>`) | Yes, for shared vaults |
 | Actor worktrees | Per vault, configured in the installation (default `<state>/worktrees/<vault-id>`) | No |
 | Installation config | `<config>/config.yaml` | No |

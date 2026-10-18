@@ -72,10 +72,11 @@ spawned work starts and finishes (also published as `pav:v1:spawn`).
 
 ### Commits
 
-The commit tool writes the session's compact trace record into the worktree,
-runs blocking checks, then commits it with the work, with `Vault-Trace` (the
-session's trace), `Vault-Actor` and `Vault-Session` trailers. The record alone
-is never a commit. Each tool result, each turn's work and the session's start
+The commit tool runs blocking checks, then commits the work with
+`Vault-Trace` (the session's trace), `Vault-Actor` and `Vault-Session`
+trailers, and attaches the session's compact trace record as of that commit
+as a note (concepts.md "Trace"). A record that cannot be written is reported;
+the commit stands. Each tool result, each turn's work and the session's start
 and end go to the trace's full log, `session`.
 
 ### Taint

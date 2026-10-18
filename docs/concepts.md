@@ -327,8 +327,8 @@ chooses how proposals are reviewed (`vault.review`):
 on the machine that accepted it, so another clone would see those accepts as
 unaccepted changes. A vault used on several machines uses `forge` mode.
 
-In `forge` mode the package pushes the actor branch and the attestation notes
-to the vault's `origin` and publishes each check's attestation as a commit
+In `forge` mode the package pushes the actor branch and its notes
+(attestations and traces) to the vault's `origin` and publishes each check's attestation as a commit
 status on the proposal (`vault/check/<name>`), plus one status,
 **`vault/policy`**, saying whether the proposal satisfies the vault's merge
 policy — counting owners' forge approvals of that exact commit. It never
@@ -358,14 +358,16 @@ Every run gets a unique, time-sortable ID at spawn: 26 upper-case characters,
 the issue time in milliseconds followed by randomness, so the time can be read
 back from the ID. The ID propagates to everything the run causes.
 
-- **In the vault**: a compact record, `.vault/traces/<yyyy>/<mm>/<trace-id>.json`
-  (UTC) — JSON with `trace`, `vault`, `path` (the causal path: the trace IDs
-  of the runs that led to this one, root first), `trigger`, `sessions`,
-  `judgements`, `scripts`, `documents` produced and `elsewhere` — committed
-  with the run's other changes on its actor branch: each of the run's commits
-  carries the record as it stands, naming every document the run has produced
-  so far. A run that commits nothing leaves no record in the vault; its full
-  log and its spawn's state say how it ended.
+- **In the vault**: a compact record — one line of JSON with `trace`, `vault`,
+  `path` (the causal path: the trace IDs of the runs that led to this one, root
+  first), `trigger`, `sessions`, `judgements`, `scripts`, `documents` produced
+  and `elsewhere` — as a Git note on `refs/notes/vault/traces`. Each commit a
+  run makes carries the record as of that commit, naming every document the
+  run has produced so far; the `Vault-Trace` trailer is the link, so `vault
+  trace <id>` finds the run's commits by trailer and reads their notes. The
+  notes travel and merge like attestations, and are not in the tree: a record
+  is never a control change. A run that commits nothing leaves no record in
+  the vault; its full log and its spawn's state say how it ended.
 - **In produced documents**: a `provenance` key, `{ trace, path }`.
 - **On the machine**: full logs in the log directory as JSON lines, per UTC day
   and trace, kept for a configurable number of days including today

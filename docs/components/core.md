@@ -42,7 +42,7 @@ it; no vault logic lives anywhere else.
 | `judgements` | Run judgement checks: build the state from a document, ask the contract's axes of the judgement model, apply `pass-when`, record the attestation (see Judgements) |
 | `notify` | Validate recipients and messages, write to the outbox, deliver through the configured transport, retry |
 | `budgets` | Allot budgets down a session tree; account for tokens; enforce limits |
-| `traces` | Issue trace IDs; write compact records and provenance; write and rotate full logs |
+| `traces` | Issue trace IDs; write compact records as notes on a run's commits and find them by trailer; provenance; write and rotate full logs |
 | `store` | The only access to `state.sqlite` and `index.sqlite`: connections, pragmas, transactions, loading `sqlite-vec` into the index, and applying the schema migrations each module supplies for its own tables |
 | `queue` | The jobs a vault's accepted `main` declares; matching an event to the spawns it requests, with their identity fixed, and sending or queueing them; spawn queue, claims and cursors, on top of `store`; scheduling (priority order, capacity, one job per actor); the daemon's own record and its runs' processes; start-up recovery |
 | `search` | Index documents per vault; keyword, vector and hybrid search; rerank; check each hit against the current content |

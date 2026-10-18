@@ -18,15 +18,17 @@ Day to day: when a command reports an unaccepted change, look at it with
 ## Forge vaults — the recommended setup
 
 Use a forge for any vault where a misbehaving agent or machine must not be able
-to change accepted knowledge, and for every vault shared between people. Three
+to change accepted knowledge, and for every vault shared between people. Four
 settings carry the guarantee; `vault doctor` checks each one through the forge's
-API and reports what is missing.
+API and reports what is missing — and, where the API does not say whether squash
+merges are allowed (GitHub tells only some accounts), says so.
 
 | Setting | Value |
 |---|---|
 | **Executor credential** | A bot account or deploy key with write access to the repository, but **not an owner**. Owner credentials are never stored on executor machines. |
 | **Protected `main`** | No direct pushes, no force pushes, no deletion; changes only through pull requests; the `vault/policy` status required. |
 | **Required approval** | At least one approval from an owner, who is not the pull request's author. |
+| **No squash merges** | Squash merging disabled for the repository. A squash replaces the proposal's commits with a new one, losing the trailers, attestations and trace notes attached to them. |
 
 On GitLab, statuses count as pipelines: require that pipelines succeed. A
 GitLab approval names no commit, so `vault/policy` counts owners' approvals

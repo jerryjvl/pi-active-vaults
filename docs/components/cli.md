@@ -62,7 +62,7 @@ its operation's parameters (`vault <command> --help`).
 | `vault trigger <name> [--payload <file>]` | Emit an external event |
 | `vault script <name> [args]` | Run an approved script; its arguments, options included, pass through |
 | `vault notify --to <alias> --subject <text>` | Send a notification (body on standard input); `vault notify test --to <alias>` checks the transport by delivering a test message at once, outside the outbox |
-| `vault trace <id>` | Show a trace; full detail while logs are retained |
+| `vault trace <id>` | Show a trace: its newest compact record per vault and its commits; full detail while logs are retained |
 
 ### Daemon
 
