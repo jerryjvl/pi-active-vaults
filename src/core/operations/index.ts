@@ -7,7 +7,9 @@ export { loadInstallation, type Installation, type InstallationError } from './i
 export { CATALOGUE, checkParams, chooseVaults, operationNamed, paramsOn, placeVaultPaths, runOperation, type VaultChoiceError } from './catalogue.ts';
 export { SCRIPT_TIMEOUT_MS, createContext, packageIdentity, scriptEnvironment, type ContextOptions, type OperationContext } from './context.ts';
 export { locate, splitVaultPath, vaultRelative, type Location } from './locate.ts';
-export { assignPositionals, parseLine, splitArguments, usage, type ParsedLine } from './commandline.ts';
+export {
+  assignPositionals, commandRequest, describeCommandLineError, parseLine, splitArguments, usage, type CommandLineError, type ParsedLine,
+} from './commandline.ts';
 export { describeError, fromError } from './messages.ts';
 export { MODEL_TEXT_LIMIT, modelResult, outcomeData, type ModelResult, type OutcomeData } from './results.ts';
 export { unacceptedNotices, type VaultNotice } from './notices.ts';

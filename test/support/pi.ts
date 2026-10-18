@@ -107,7 +107,8 @@ export async function openPi(t: TestInstallation, options: PiOptions = {}): Prom
         noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
       },
     });
-    return { ...(await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent, model: faux.getModel() })), services, diagnostics: services.diagnostics };
+    const created = await createAgentSessionFromServices({ services, sessionManager, model: faux.getModel(), ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }) });
+    return { ...created, services, diagnostics: services.diagnostics };
   }, { cwd, agentDir, sessionManager: SessionManager.inMemory(cwd) });
   await runtime.session.bindExtensions({
     uiContext: recordingUi(notices, options.confirm),

@@ -12,13 +12,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
+import { fauxAssistantMessage, fauxToolCall, type JsonObject } from '@earendil-works/pi-ai';
 import { withInstallation, type TestInstallation } from '../support/installation.ts';
 import { toolResults, withPi } from '../support/pi.ts';
 import { RUNNING } from '../support/session.ts';
 
 const done = fauxAssistantMessage('Done.');
-const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
+const call = (name: string, args: JsonObject) => fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
 
 function vaultTools(pi: Awaited<Parameters<Parameters<typeof withPi>[2]>[0]>) {
   return pi.runtime.session.getAllTools().filter((tool) => tool.name.startsWith('vault_'));

@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
+import { fauxAssistantMessage, fauxToolCall, type JsonObject } from '@earendil-works/pi-ai';
 import { actorHold, takeActorHold } from '../../src/core/actors/index.ts';
 import { budgetState } from '../../src/core/budgets/index.ts';
 import { listSpawns } from '../../src/core/queue/index.ts';
@@ -20,7 +20,7 @@ import { toolResults, withPi } from '../support/pi.ts';
 import { OTHER_HOLDER, RUNNING } from '../support/session.ts';
 
 const done = fauxAssistantMessage('Done.');
-const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
+const call = (name: string, args: JsonObject) => fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
 
 test('the session holds its actor while it runs, and releases it at shutdown', withInstallation(async (t) => {
   await withPi(t, { flags: { 'vault-actor': 'gardener' } }, async (pi) => {

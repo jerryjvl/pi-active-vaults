@@ -13,7 +13,11 @@
 // words with quotes and backslashes as a shell would, and expands nothing —
 // no variables, globs or substitutions — because nothing here runs a shell.
 
-import { paramsOn } from './catalogue.ts';
+import type { RegisteredVault } from '../registry/index.ts';
+import { err, ok, type Result } from '../result/index.ts';
+import { chooseVaults, paramsOn, placeVaultPaths, type VaultChoiceError } from './catalogue.ts';
+import type { Installation } from './installation.ts';
+import type { Location } from './locate.ts';
 import type { Operation, ParamSpec, ParamSurface } from './types.ts';
 
 export interface ParsedLine {
@@ -154,4 +158,42 @@ export function splitArguments(line: string): string[] {
   }
   if (word !== undefined) words.push(word);
   return words;
+}
+
+export type CommandLineError = { readonly reason: 'extra-arguments'; readonly extra: readonly string[] } | VaultChoiceError;
+
+/**
+ * The vaults and parameters a command line asks for: a first argument naming
+ * a registered vault is the vault, when what remains still fills the command
+ * (`vault <command> [vault] …`); the rest fill the positional parameters in
+ * order; vault paths name their vaults; and the vaults are chosen as for every
+ * surface — those named, else the one the caller is in (`here`).
+ */
+export function commandRequest(
+  installation: Pick<Installation, 'vaults'>, operation: Operation, surface: ParamSurface, line: ParsedLine, here?: Location,
+): Result<{ vaults: RegisteredVault[]; params: Record<string, unknown> }, CommandLineError> {
+  const params = { ...line.params };
+  const named = [...line.vaults];
+  const positionals = [...line.positionals];
+  const required = paramsOn(operation, surface).filter((p) => p.positional === true && p.required === true).length;
+  if (operation.vault !== 'none' && positionals.length > required && installation.vaults.some((v) => v.id === positionals[0])) {
+    named.push(positionals.shift() ?? '');
+  }
+  const extra = assignPositionals(operation, params, positionals, surface);
+  if (extra.length > 0) return err({ reason: 'extra-arguments', extra });
+  const placed = placeVaultPaths(installation, operation, surface, params, named, here);
+  const chosen = chooseVaults(installation, operation, placed.named, here?.vault);
+  return chosen.ok ? ok({ vaults: chosen.value, params: placed.params }) : chosen;
+}
+
+/** Why a command line does not fit, for the person who typed it. */
+export function describeCommandLineError(error: CommandLineError, operation: Operation, surface: ParamSurface): string {
+  switch (error.reason) {
+    case 'extra-arguments':
+      return `Too many arguments: ${error.extra.join(' ')}\n\n${usage(operation, surface)}`;
+    case 'unknown-vault':
+      return `"${error.vault}" is not a registered vault.`;
+    case 'which-vault':
+      return `Which vault? Name it (${surface === 'command' ? '/vault' : 'vault'} ${operation.command ?? operation.name} <vault> …, or --vault), or run this inside one.`;
+  }
 }

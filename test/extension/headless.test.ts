@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
+import { fauxAssistantMessage, fauxToolCall, type JsonObject } from '@earendil-works/pi-ai';
 import { actorHold } from '../../src/core/actors/index.ts';
 import { eventJson } from '../../src/core/conditions/index.ts';
 import { renderRunContext } from '../../src/core/sessions/index.ts';
@@ -17,7 +17,7 @@ import { withPi } from '../support/pi.ts';
 import { RUNNING, runOf, startedSpawn } from '../support/session.ts';
 import type { SpawnEntry } from '../../src/core/queue/index.ts';
 
-const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
+const call = (name: string, args: JsonObject) => fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
 
 function runFile(t: TestInstallation, entry: SpawnEntry, overrides: Record<string, unknown> = {}): string {
   const path = t.dir.file(`run-${entry.trace}.json`);

@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { Host } from '../core/config/index.ts';
 import {
-  CATALOGUE, assignPositionals, chooseVaults, createContext, describeError, loadInstallation, locate, outcomeData, paramsOn, parseLine, placeVaultPaths, runOperation, unacceptedNotices, usage,
+  CATALOGUE, commandRequest, createContext, describeCommandLineError, describeError, loadInstallation, locate, outcomeData, paramsOn, parseLine, runOperation, unacceptedNotices, usage,
   type ContextOptions, type Operation, type OperationOutcome,
 } from '../core/operations/index.ts';
 
@@ -58,10 +58,6 @@ function findOperation(argv: readonly string[]): { operation: Operation; rest: s
   if (twoWords !== undefined) return { operation: twoWords, rest: argv.slice(2) };
   const one = onCli.find((o) => o.command === undefined && o.name === first);
   return one === undefined ? undefined : { operation: one, rest: argv.slice(1) };
-}
-
-function requiredPositionals(operation: Operation): number {
-  return paramsOn(operation, 'cli').filter((p) => p.positional === true && p.required === true).length;
 }
 
 function print(io: CliIo, outcome: OperationOutcome, json: boolean, notices: readonly string[]): number {
@@ -113,21 +109,12 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     for (const notice of notices) io.write('stderr', `${notice}\n`);
 
     const here = locate(vaults, io.cwd);
-    const params = { ...line.params };
-    const named = [...line.vaults];
-    const positionals = [...line.positionals];
-    // `vault <command> [vault] …`: a first argument naming a vault, when what remains still fills the command.
-    if (operation.vault !== 'none' && positionals.length > requiredPositionals(operation) && vaults.some((v) => v.id === positionals[0])) {
-      named.push(positionals.shift() ?? '');
-    }
-    const extra = assignPositionals(operation, params, positionals);
-    if (extra.length > 0) {
-      io.write('stderr', `Too many arguments: ${extra.join(' ')}\n\n${usage(operation)}\n`);
+    const request = commandRequest(installation.value, operation, 'cli', line, here);
+    if (!request.ok) {
+      io.write('stderr', `${describeCommandLineError(request.error, operation, 'cli')}\n`);
       return EXIT.invalid;
     }
-    const placed = placeVaultPaths(installation.value, operation, 'cli', params, named, here);
-    Object.assign(params, placed.params);
-
+    const { params } = request.value;
     for (const spec of paramsOn(operation, 'cli')) {
       const value = params[spec.name];
       if (spec.file === true && typeof value === 'string') {
@@ -143,17 +130,9 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
         if (input !== undefined) params[spec.name] = input;
       }
     }
-
-    const chosen = chooseVaults(installation.value, operation, placed.named, here?.vault);
-    if (!chosen.ok) {
-      io.write('stderr', chosen.error.reason === 'unknown-vault'
-        ? `"${chosen.error.vault}" is not a registered vault.\n`
-        : `Which vault? Name it (vault ${operation.command ?? operation.name} <vault> …, or --vault), or run this inside one.\n`);
-      return EXIT.invalid;
-    }
     const { person } = installation.value.config;
     const caller = { surface: 'cli' as const, cwd: io.cwd, ...(person === undefined ? {} : { person }), ...(here?.actor === undefined ? {} : { actor: here.actor }) };
-    let outcome = await runOperation(context, operation, 'cli', { vaults: chosen.value, params, caller });
+    let outcome = await runOperation(context, operation, 'cli', { vaults: request.value.vaults, params, caller });
 
     // An operation awaiting confirmation (adopting) shows what it would do; the person confirms what they saw.
     const { confirm } = outcome;
@@ -163,7 +142,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
         io.write('stderr', 'Not confirmed; nothing was done.\n');
         return EXIT.refused;
       }
-      outcome = await runOperation(context, operation, 'cli', { vaults: chosen.value, caller, params: { ...params, ...confirm.params } });
+      outcome = await runOperation(context, operation, 'cli', { vaults: request.value.vaults, caller, params: { ...params, ...confirm.params } });
     }
     return print(io, outcome, line.json, notices);
   } finally {
