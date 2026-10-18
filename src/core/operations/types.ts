@@ -22,7 +22,7 @@ export interface ParamSpec {
   readonly positional?: boolean;
   /** The only values it takes. */
   readonly choices?: readonly string[];
-  /** A vault path, which may be written `<vault-id>:<path>` to name its vault. */
+  /** A vault path — or, for a list, each of them — which may be written `<vault-id>:<path>` to name its vault. */
   readonly vaultPath?: boolean;
   /** CLI: a one-letter flag. */
   readonly short?: string;

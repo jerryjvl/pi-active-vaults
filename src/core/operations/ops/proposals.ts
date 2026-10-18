@@ -234,7 +234,7 @@ export const commitOperation: Operation = {
   surfaces: { cli: true, command: false, mcp: true, tool: 'direct' },
   params: [
     { name: 'message', kind: 'string', required: true, short: 'm', description: 'The commit message' },
-    { name: 'paths', kind: 'strings', positional: true, description: 'Only these paths in the worktree (default: everything)' },
+    { name: 'paths', kind: 'strings', positional: true, vaultPath: true, description: 'Only these paths, as <vault-id>:<path> (default: everything in the worktree)' },
     { name: 'actor', kind: 'string', surfaces: ['cli', 'mcp'], description: 'The actor to commit as' },
   ],
   async run(context, request) {

@@ -119,16 +119,19 @@ export function placeVaultPaths(
 ): { params: Record<string, unknown>; named: string[] } {
   const placed = { ...params };
   const vaults = [...named];
-  for (const spec of paramsOn(operation, surface)) {
-    const value = placed[spec.name];
-    if (spec.vaultPath !== true || typeof value !== 'string') continue;
+  const place = (value: string): string => {
     const split = splitVaultPath(installation.vaults, value);
     if (split.vault !== undefined) {
       if (!vaults.includes(split.vault.id)) vaults.push(split.vault.id);
-      placed[spec.name] = split.path;
-    } else if (here !== undefined && (vaults.length === 0 || vaults[0] === here.vault.id)) {
-      placed[spec.name] = vaultRelative(value, here.path) ?? value;
+      return split.path;
     }
+    return here !== undefined && (vaults.length === 0 || vaults[0] === here.vault.id) ? vaultRelative(value, here.path) ?? value : value;
+  };
+  for (const spec of paramsOn(operation, surface)) {
+    const value = placed[spec.name];
+    if (spec.vaultPath !== true) continue;
+    if (typeof value === 'string') placed[spec.name] = place(value);
+    else if (Array.isArray(value)) placed[spec.name] = value.map((v) => (typeof v === 'string' ? place(v) : v));
   }
   return { params: placed, named: vaults };
 }
