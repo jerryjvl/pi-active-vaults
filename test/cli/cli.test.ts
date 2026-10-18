@@ -59,11 +59,13 @@ test('a usage error is exit status 2; a command needing the daemon says so and e
   assert.equal(bad.code, 2);
   assert.match(bad.stderr, /--nonsense is not an option of "read"/);
   assert.equal((await vault('read')).code, 2, 'a required parameter missing');
-  for (const argv of [['daemon', 'start'], ['daemon', 'run'], ['mcp', '--profile', 'chat']]) {
-    const ran = await vault(...argv);
-    assert.equal(ran.code, 1);
-    assert.match(ran.stderr, /needs the daemon/);
-  }
+  const status = await vault('daemon', 'status');
+  assert.equal(status.code, 1);
+  assert.match(status.stderr, /No daemon is running/);
+  const mcp = await vault('mcp', '--profile', 'chat');
+  assert.equal(mcp.code, 1);
+  assert.match(mcp.stderr, /not part of this version yet/);
+  assert.equal((await vault('daemon', 'frobnicate')).code, 2);
 }));
 
 test('every command first reports an unaccepted change on standard error', withInstallation(async (t) => {
