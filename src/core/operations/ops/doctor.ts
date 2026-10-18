@@ -62,7 +62,7 @@ async function installationFindings(context: OperationContext): Promise<Finding[
   const findings: Finding[] = [];
   findings.push(installation.configFound
     ? { level: 'ok', check: 'config', message: `${installation.paths.configFile} is valid` }
-    : { level: 'warning', check: 'config', message: `There is no config file at ${installation.paths.configFile}; "vault init" or "vault add" creates it (the person is `--person`, by default the OS user).` });
+    : { level: 'warning', check: 'config', message: `There is no config file at ${installation.paths.configFile}; "vault init" or "vault add" creates it (the person is --person, by default the OS user).` });
   const version = await gitVersion(context.git);
   findings.push(!version.ok ? { level: 'problem', check: 'git-version', message: 'Git could not be run.' }
     : meetsMinimumGitVersion(version.value) ? { level: 'ok', check: 'git-version', message: `Git ${version.value}` }
