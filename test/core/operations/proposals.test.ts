@@ -77,6 +77,16 @@ test('status shows each pending proposal with its checks and what the policy sti
   assert.match(status.text, /unmet owner: no owner has approved this commit/);
 }));
 
+test('status shows where the installation person works in each vault — not to a remote client, which has no use for a machine path', withInstallation(async (t) => {
+  const status = await t.run('status');
+  assert.ok(status.text.includes(`your worktree: ${worktree(t, 'alice')}`), status.text);
+  const vaults = (status.data as { vaults: { worktree?: string }[] }).vaults;
+  assert.equal(vaults[0]?.worktree, worktree(t, 'alice'));
+  const remote = await t.run('status', {}, { caller: { surface: 'mcp' }, surface: 'mcp' });
+  assert.ok(!remote.text.includes('your worktree'));
+  assert.equal((remote.data as { vaults: { worktree?: string }[] }).vaults[0]?.worktree, undefined);
+}));
+
 test('adopting shows the concerns and the delta first, and records nothing until they are acknowledged and confirmed', withInstallation(async (t) => {
   t.repo.write('.vault/scripts/new.sh', scriptSource('new'));
   const tip = t.repo.commit('a control change on main');

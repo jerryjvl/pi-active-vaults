@@ -2,7 +2,8 @@
 // vault, empty or from a template, and registers it; `add` registers an
 // existing vault; `list` shows the registered vaults and their catalog
 // entries; `whoami` prints the installation's name. daemon.md "Hosting" — the
-// name defaults to <user>@<hostname>.
+// name defaults to <user>@<hostname>. `list` and `status` show where the
+// installation's person works in each vault.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -42,7 +43,10 @@ test('add registers an existing vault by the id its root contract declares, unac
     assert.deepEqual(notices.map((n) => [n.vault, n.change.change]), [['garden', 'none-accepted']]);
     assert.match(notices[0]?.notice ?? '', /vault accept --adopt [0-9a-f]{40}/);
     const listed = await next.run('list');
-    assert.match(listed.text, /^home {2}.*\n {2}Home things\. — for household; local review; owners alice\ngarden/);
+    assert.match(listed.text, /^home {2}.*\n {2}Home things\. — for household; local review; owners alice\n {2}your worktree: .*\ngarden/);
+    const home = (listed.data as { vaults: { id: string; worktree?: string }[] }).vaults[0];
+    assert.equal(home?.worktree, join(t.vault.worktrees, 'alice'), 'the installation person\'s worktree, under the state directory by default');
+    assert.ok(home?.worktree?.startsWith(t.installation.paths.worktrees));
   } finally {
     other.cleanup();
   }

@@ -5,7 +5,10 @@
 
 import { createServer } from 'node:http';
 import { runCli, type CliIo } from '../../src/cli/run.ts';
+import type { Host } from '../../src/core/config/index.ts';
 import { createGit } from '../../src/core/git/index.ts';
+import type { ProcessLiveness } from '../../src/core/process/index.ts';
+import type { FakeClock } from './clock.ts';
 import type { TestInstallation } from './installation.ts';
 
 export interface Ran {
@@ -26,7 +29,21 @@ export interface CliOptions {
   readonly io?: Partial<CliIo>;
 }
 
+/** What a CLI call runs on: the machine, where it runs, and the services a test replaces. */
+export interface CliTarget {
+  readonly host: Host;
+  readonly cwd: string;
+  /** The isolated Git environment (identity, no global config). */
+  readonly gitEnv: NodeJS.ProcessEnv;
+  readonly clock: FakeClock;
+  readonly alive: ProcessLiveness;
+}
+
 export function cliFor(t: TestInstallation, options: CliOptions = {}): (...argv: string[]) => Promise<Ran> {
+  return cliOn({ host: t.host, cwd: t.repo.path, gitEnv: t.repo.env, clock: t.clock, alive: t.context.alive }, options);
+}
+
+export function cliOn(target: CliTarget, options: CliOptions = {}): (...argv: string[]) => Promise<Ran> {
   return async (...argv) => {
     let stdout = '';
     let stderr = '';
@@ -38,9 +55,9 @@ export function cliFor(t: TestInstallation, options: CliOptions = {}): (...argv:
       readStdin: async () => options.stdin,
       ...(options.confirm === undefined ? {} : { confirm: async () => options.confirm ?? false }),
       ...(options.stdio === undefined ? {} : { stdio: options.stdio }),
-      cwd: options.cwd ?? t.repo.path,
-      host: t.host,
-      context: { git: createGit({ env: t.repo.env }), clock: t.clock, sandbox: 'none', alive: t.context.alive },
+      cwd: options.cwd ?? target.cwd,
+      host: target.host,
+      context: { git: createGit({ env: target.gitEnv }), clock: target.clock, sandbox: 'none', alive: target.alive },
       ...options.io,
     };
     const code = await runCli(argv, io);
