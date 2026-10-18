@@ -3,17 +3,15 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 6a — daemon core, in progress
+**Current stage:** 6a — complete, awaiting review
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 5 review decisions: `builtin:notify` exits 3 on refusal; a job runs as its `actor` (frontmatter, else nearest contract; one of the vault's `actors`).
-- **Done (6a):** item 1, trace capture (each commit carries the run's compact record; tool results, turns, start and end in the `session` full log).
-- **Done (6a):** item 2, one cache for reads from the accepted main (`integrity/reads.ts`, `context.reads`).
-- **In progress:** item 3, the daemon. Done so far: job actor, timers (`conditions/timers.ts`, croner 10.0.1), long-lived children and `endProcess` (`process/child.ts`), the socket module, queue runs/scheduling/recovery/chain continuation. Also done: config `daemon` (queue-time, parallel), the `automation` module, service definitions and `findPi`. Also done: the daemon adapter, CLI daemon commands, the refs hook and recovery in doctor, the daemon link (extension and CLI). Next: docs (daemon.md, core.md, architecture, concepts, cli.md, extension.md), the refactoring pass, the Stage 6a entry.
-- **Next:** refactoring pass and the Stage 6a entry. Stage 6b (MCP, forge sync scheduling, outbox retry) waits for the next session.
+- **Done:** Stage 6a (daemon core), with the Stage 5 review decisions; see the Stage 6a entry.
+- **In progress:** nothing.
+- **Next:** review of Stage 6a. Then, when told, Stage 6b (MCP, forge sync scheduling, outbox retry).
 
 ## Stage entries
 
@@ -368,3 +366,61 @@ Copy this block for each stage:
   2. *MCP writes:* `5751368` — `mcp.md` says `write` and `commit` write only as one of the vault's `actors`, never an owner, and that every MCP commit carries `Vault-Tainted`; `concepts.md` "Actor" too. Both are listed under Gaps for Stage 6.
   3. *Notes:* the global Pi is left alone and Stage 5 tests use the 1.3.0 dev dependency; the cron-library age rule is recorded for Stage 6.
   4. *Stage 5 gaps:* holds taken at session start and released at shutdown; a headless job handed the triggering event as data (`eventJson`, in its brief); spawn identity fixed before sending or queueing (`submitSpawns`); per-turn budget records (`recordTurn`).
+
+### Stage 6a — Daemon core (L3 automation, L4 daemon)
+
+- **Commits:** `4d0693c..` on `impl/v1` — the Stage 5 review decisions (`4d0693c`–`579dbad`), trace capture (`e6ff3ea`–`995839b`), the read cache (`119bafe`), then tests-first and implementation commits for the daemon core: timers, long-lived processes, the socket, the queue's runs, scheduling, recovery and chain continuation, the `daemon` config section, `automation`, service definitions, the daemon adapter, the CLI's daemon commands, doctor's hook and recovery, the daemon link (`6d8afea`, `de04acd` among them); the documentation (`dc471f4` and the commit after it); the refactoring pass (`5316db1`, with `db5df23` and `50ffd52` during the stage); and this entry as the last commit. As before, each `test(…)` commit for new behaviour fails until the commit after it; every other commit passes.
+- **Results:** `npm test`: 799 tests, 799 pass, none skipped on Linux. `npm run check`: no errors. `npm run build`: compiles; the compiled automation, socket, daemon, CLI and extension modules import under plain Node, and `node dist/cli/main.js daemon status` says no daemon runs (exit 1). Node v24.18.0, git 2.55.0, Pi 1.3.0 (dev dependency; its CLI has `--mode rpc`, `--session-id` and `--fork`), croner 10.0.1, Linux.
+- **Built:**
+  - Review decisions: `builtin:notify` refuses with 3; a job's `actor` (frontmatter, else nearest contract; one of the vault's `actors`), checked by `vaultJobs`, recorded on each spawn (queue migration 2), required by matching and `vault run`, reported by `vault jobs` and `vault doctor`, a control key; a headless run writes only as a vault actor.
+  - Trace capture (`sessions/trace.ts`, `traces/run.ts`): each of a session's commits carries its compact record — trigger, causal path (`budgets.treePath`), its session, its scripts, other vaults as opaque references, every document its commits produced; the record alone is never a commit. Tool results, turns and the session's start and end go to the `session` full log, bounded per line. Scripts and notifications from a session use its trace.
+  - The read cache (`integrity/reads.ts`): one per process on `context.reads`; identity, contracts, conditions, jobs, script and check resolution, job documents read once per vault and accepted SHA; used by every operation, the sessions module (its per-session document map is gone), policy, review, accept, judgements and forge sync. `architecture.md` "Reads from the accepted main".
+  - L0: `socket` (new): listen (refused where another answers, stale takeover, nothing that is not a socket removed, 0600), connect, JSON-lines requests by ID. `process`: `startChild` (long-lived, line-split output) and `endProcess` (only the recorded process). `result.lineSplitter`. `config`: socket, run-file and refs paths; the `daemon` section; `serviceFor` (systemd, launchd, Task Scheduler) and `findPi`; `packageVersion`. `git`: `uncommittedPaths`, `uncommittedDiff`, `discardUncommitted`, `lastAdded`.
+  - L1–L2: `conditions/timers.ts` (croner; slots by local date and minute; `timerFirings`), schedules validated when parsed; `queue`: the daemon's record and run processes (migration 3), `schedulable`, `recoverRuns`, Git events matched in parts per run (`GitEvent.tree`, keys `…@<trace>`), `matchSpawns` filter, `scriptFilters`; stop reasons `requested` and `no-session`; `budgets.hasSession`, `usedToday`.
+  - L3: `automation` (new): `createAutomation` — `start` (recovery, catch-up), `tick` (hosting, pause and owners told once, Git events from cursors, timers, queue time, log rotation), `schedule`, `handle` (ping, spawn, status, subscribe, stop), `stop`; `startRun` (pi --mode rpc); `linkDaemon`. `operations`: `spawnMatching`, `context.send`, `identityOf`, `notifyDeps` exported.
+  - L4: `src/daemon/daemon.ts` (`startDaemon`); `src/cli/daemon.ts` (`vault daemon install|start|stop|status|run|print-unit`), `src/cli/program.ts`; the CLI and Pi sessions link to a running daemon; doctor installs the `reference-transaction` hook, reports the daemon and recovers under `--fix`.
+  - Test support: hosted and further vaults in a test installation, `fake-pi.mjs` (RPC: nothing, commit, hang, crash, refuse, spend), `daemon.ts` helpers, `runFileFor`.
+- **Tests:** fail-closed and documented behaviour:
+  - *Job actor:* missing, an owner, unknown or not text — reported, not matched, not run; changing it is a control change; a headless run as an owner is refused.
+  - *Read cache:* loaded once per vault and SHA, also when asked at once; a newer SHA loads fresh and drops the old; failures are not kept; in one context an accept is picked up by the next read and an unaccepted change never is; in a Pi session too, while the catalog stays as it started.
+  - *Traces:* a run's commits carry its record (documents accumulate); an interactive commit of some paths records only those; a record-only commit is refused as nothing to commit; tool results and the end are in the full log; long results are cut and say so.
+  - *Timers:* slots in the time zone; due slots fire once; clocks forward — not skipped; back — not repeated; missed while down — run-once runs the latest once, skip none; a new timer fires nothing for the past; a paused vault fires nothing and its missed slots count as missed; an unhosted vault none; invalid schedules refused without echoing them.
+  - *Single instance:* a second daemon refused while the first's record stands (also when its process cannot be told), taken over once it ended; only its own record released; the socket refused where another answers, a crashed one's taken over, a non-socket never removed, mode 0600.
+  - *Recovery:* the recorded session ended only when its start time matches (a reused ID untouched), spawns stopped `restart`, budget sessions ended, holds released, worktrees reset with their changes (tracked and untracked) in the `recovery` log, queued spawns kept, interactive holds untouched; at daemon start and under `doctor --fix` only when no daemon runs.
+  - *Scheduling and execution:* priority order, capacity, one job per actor, a held actor waits, no actor never; the run's command line, worktree and run file; committed, no-change, crash → `error`, hang → killed `ttl`, spent → `budget`, stop → `requested`, `session-required` without a session → `no-session`; nothing starts for a paused vault; process records forgotten and run files removed.
+  - *Matching:* events since cursors claimed once in order; a job accepted while down catches up from its merge; a vault taken up replays nothing; a paused vault claims nothing and its owner is told once, then catches up once adopted; hosting and executor; a commit's immediate request and the daemon's derivation are one spawn; subscribed vaults; a merge continues each run's tree, a job's own run's change does not refire it.
+  - *Protocol:* ping; spawn claimed with the accepted main's budget and actor, refused for a non-job, a wrong condition, a non-matching event, an unknown or paused vault, a malformed request; status; subscribe notices only for the session's tree; stop; unknown methods.
+  - *Adapters:* the daemon end to end over its socket with the fake pi; hook word; CLI daemon commands (service manager calls through an injected runner); a Pi session's spawns go to a running daemon with start and finish notices.
+  - *Boundaries:* `node:net` only in `socket`, `croner` only in the timers, processes only in `process`.
+- **Refactoring:** `5316db1` one `spawnMatching` for requestSpawns and the automation, one `scriptFilters` (three copies), shared daemon test options; `db5df23` one home for the package version and the CLI entry-point path; `50ffd52` the daemon link's sender on the context, so `requestSpawns` and `sessionEvent` lost their `send` parameters; during the stage: the line splitter shared by children and sockets, `identityOf` for three near-copies, `packageHook` for both hooks, `never` for every way a run ends without running, the run-file helper in test support, `effectiveContractWith`. Comments, module headers, `core.md`, `AGENTS.md` and the plan's layer map checked against behaviour.
+- **Decisions:**
+  - *Job actor:* an issue names the key (`actor`, or `<contract>:actor` when inherited), never the value; when the vault's identity cannot be read no job has an actor.
+  - *Traces:* the compact record is written before each of a run's commits (the branch tip holds the latest); `outcome` in it is `committed`; a run that commits nothing leaves no compact record — its full log and spawn state tell; interactive sessions' trigger is `session.start`; `elsewhere` lists the other vaults whose paths the session touched; `recorded` means the run's end is in its full log.
+  - *Read cache:* keyed by `AcceptedMain` (vault, SHA); per vault only the last SHA asked about is kept; Result values with `ok: false` and throws are not kept; the catalog is computed once per session; uncached callers (one read per command) remain where no context exists.
+  - *Timers:* the slot is `YYYY-MM-DDTHH:MM` local; cron evaluated in UTC on wall-clock time; "missed" means at start, after more than two minutes between ticks, or after a pause; run-once runs the latest missed one plus any due now.
+  - *Cursors:* streams `merged:<vault>` and `committed:<vault>:actor/<name>`; the daemon keeps per vault how far it scanned (document `''`); start rules as in `daemon.md` "Matching".
+  - *Chain:* a Git event's parts are its changes grouped by `Vault-Trace` (the part with none sorts first); a part continues its run's tree only if that run is in this machine's budget ledger; each part's identity adds `@<trace>`.
+  - *Singleton:* the daemon's record (process ID and start time) in `state.sqlite`, compare-and-swap, before the socket is bound (Node removes a socket file by path on close, so two takeovers could otherwise both bind); a second daemon exits 0.
+  - *Execution:* the prompt is "Begin the job you were briefed with."; on `agent_settled` stdin closes and a grace period later the process is killed; the deadline is the budget's `ttl` from the run's start plus one minute; Pi's `message_update` and `tool_execution_update` are not logged; a `pi` whose start time cannot be told is recorded as `unknown` (recovery then never ends it by ID); manual and timer spawns cannot be requested over the socket.
+  - *Owners told:* only for vaults the daemon runs, only owners whose names are recipient aliases, once per tip per daemon process (and the outbox's cooldown).
+  - *Socket:* Unix socket paths over 103 bytes are refused (`path-too-long`); on Windows a named pipe `\\.\pipe\pi-active-vaults-<hash of the state directory>`.
+  - *Services:* systemd unit through `/bin/sh -lc`, launchd agent with `KeepAlive` on failure, a Task Scheduler task at logon written as UTF-16; `install` registers (enables) but does not start.
+  - *Links:* the extension and the CLI link when a daemon answers a ping within a second; a refusal queues locally; notices go to the person (`ui.notify`) and `pav:v1:spawn`, not to the model.
+- **Needs owner approval:**
+  1. `dc471f4` — the `daemon` section: `queue-time` (default 24h) and `parallel` (default 1). Capacity is one number because Pi chooses the agent's model; per-model capacity would need jobs to name their model.
+  2. **A conflict to decide:** compact trace records live under `.vault/traces/`, and anything under `.vault/` is a control change, so every commit a session makes now needs an owner at merge — which defeats merge rules that need only checks for content (concepts.md's "Agent-memory vault"). Proposal, not implemented: a *new* compact record at its own trace path is not a control change (changing or deleting an existing one still is). Left fail-closed until you decide.
+  3. Documented as built, worth a look: the matching rules (where cursors start, runs' parts of a merge with their own identity), the outcome rules, stop reasons `requested` and `no-session`, owners told only for hosted vaults, `daemon run` exiting 0 when another runs, the protocol's params and results (`daemon.md`); no compact record for runs that commit nothing (`concepts.md`); the record with each commit (`extension.md`).
+  4. Owner decisions from the Stage 5 review recorded as given (job actor; `builtin:notify` statuses).
+- **Gaps:**
+  - Stage 6b: MCP profiles (HTTP and standard I/O, write rules, exhaustive permission tests — `vault mcp` still says it is not part of this version), forge sync scheduling, outbox retry scheduling.
+  - Headless runs are tested with a fake pi only; a real `pi --mode rpc` loading the extension, and `--fork` with a real session file, are unverified. The session files the daemon may fork are kept in memory, so after a restart a `session-required` spawn whose session has not subscribed again is stopped `no-session`.
+  - Not built: the launchd *daemon* variant for headless macOS; fan-out through the daemon (it still runs sequentially in the session).
+  - Windows and macOS untested on real machines: named-pipe access (the default ACL), Task Scheduler XML and `schtasks`, `launchctl` commands, `findPi` on Windows, killing a process tree on Windows (only the process), Git for Windows running the refs hook.
+  - A commit made by hand on a branch created before the daemon took the vault up is not derived; package commits request their spawns at the commit.
+  - Real-time waits in tests: fake pi runs (a 1 s `ttl` test with 200 ms grace), socket round trips, polling up to 2 s for the hook watcher, 6 s for the extension link, process-exit polling.
+  - As before, Node 22.18 and git 2.36 (the declared minimums) are untested.
+- **Review findings addressed:**
+  1. *d88183f:* approved; nothing changed.
+  2. *Job actor:* tests first (`38829dd`, `9beb302`), then `579dbad`; `concepts.md` documents `actor` (document and contract keys, control changes, one job per actor).
+  3. *builtin:notify statuses:* `4d0693c` (test), `5816f26` (code and `notifications.md`).
+  4. *Stage 6a:* items 1–3 as above.
