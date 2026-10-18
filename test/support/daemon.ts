@@ -1,0 +1,47 @@
+// The daemon's work for tests: an automation over a test installation, its
+// headless sessions run by the fake `pi` (fake-pi.mjs) rather than a real Pi.
+
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { createAutomation, type Automation, type AutomationOptions } from '../../src/core/automation/index.ts';
+import type { TestInstallation } from './installation.ts';
+
+export type FakePiAction = 'nothing' | 'commit' | 'hang' | 'crash' | 'refuse' | 'spend';
+
+export interface FakePi {
+  readonly options: Pick<AutomationOptions, 'pi' | 'env'>;
+  /** Each start of the fake, in order. */
+  starts(): { argv: string[]; cwd: string; run?: Record<string, unknown>; pid: number }[];
+}
+
+const FAKE = fileURLToPath(new URL('./fake-pi.mjs', import.meta.url));
+
+/** The fake Pi, doing `actions` per job document (or "*"), in the installation's environment. */
+export function fakePi(t: TestInstallation, actions: Readonly<Record<string, FakePiAction>> = {}): FakePi {
+  const log = t.dir.file('fake-pi.log');
+  return {
+    options: {
+      pi: { file: process.execPath, args: [FAKE] },
+      env: { ...t.host.env, FAKE_PI_ACTIONS: JSON.stringify(actions), FAKE_PI_LOG: log },
+    },
+    starts: () => {
+      let text = '';
+      try {
+        text = readFileSync(log, 'utf8');
+      } catch {
+        return [];
+      }
+      return text.trim().split('\n').filter((l) => l !== '').map((l) => JSON.parse(l));
+    },
+  };
+}
+
+/** An automation for `t` with the fake Pi, in UTC unless a time zone is given. */
+export function automationFor(t: TestInstallation, pi: FakePi, options: Partial<AutomationOptions> = {}): Automation {
+  return createAutomation(t.context, { ...pi.options, timeZone: 'UTC', version: '0.0.0-test', graceMs: 2000, ...options });
+}
+
+/** A job document: its conditions (YAML flow list), budget and actor. */
+export function jobDocument(conditions: string, options: { ttl?: string; tokens?: number; actor?: string; body?: string } = {}): string {
+  return `---\napplies-when: ${conditions}\nbudget: { tokens: ${options.tokens ?? 100000}, ttl: ${options.ttl ?? '10m'} }\nactor: ${options.actor ?? 'gardener'}\n---\n${options.body ?? 'Do the job.'}\n`;
+}

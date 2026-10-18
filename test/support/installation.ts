@@ -31,6 +31,10 @@ export interface InstallationOptions {
   readonly unknown?: readonly number[];
   /** Extra environment variables of the machine (secrets referenced by ${ENV}). */
   readonly env?: Record<string, string>;
+  /** This installation runs the vault's background jobs (`host: true`). */
+  readonly host?: boolean;
+  /** Further vaults, each a repository of its own with its main accepted, registered after the first. */
+  readonly others?: readonly { readonly id: string; readonly host?: boolean; readonly contract?: RootContractOptions }[];
 }
 
 export interface TestInstallation {
@@ -40,6 +44,8 @@ export interface TestInstallation {
   readonly installation: Installation;
   readonly context: OperationContext;
   readonly vault: RegisteredVault;
+  /** The further vaults, by ID. */
+  readonly others: Readonly<Record<string, { readonly repo: TempRepo; readonly vault: RegisteredVault }>>;
   readonly clock: FakeClock;
   accept(sha?: string): AcceptedMain;
   /** Runs an operation as the CLI would, as alice unless `caller` says otherwise. */
@@ -78,10 +84,17 @@ export function withInstallation(run: (t: TestInstallation) => Promise<void>, op
     const host = hostFor(dir, repo, options.env);
     repo.write('_contract.md', rootContract(options.contract));
     repo.commit('Create vault');
+    const others = (options.others ?? []).map((other) => {
+      const made = createTempRepo();
+      made.write('_contract.md', rootContract({ ...other.contract, id: other.id }));
+      made.commit('Create vault');
+      return { other, repo: made };
+    });
+    const entry = (id: string, path: string, hosted: boolean | undefined): string => `{ id: ${id}, path: ${JSON.stringify(path)}${hosted === true ? ', host: true' : ''} }`;
     mkdirSync(dir.file('config'), { recursive: true, mode: 0o700 });
     writeFileSync(dir.file('config', 'config.yaml'), [
       'installation: { name: alice@homeserver, person: alice }',
-      `vaults: [{ id: ${options.contract?.id ?? 'home'}, path: ${JSON.stringify(repo.path)} }]`,
+      `vaults: [${[entry(options.contract?.id ?? 'home', repo.path, options.host), ...others.map((o) => entry(o.other.id, o.repo.path, o.other.host))].join(', ')}]`,
       options.config ?? '',
     ].join('\n'), { mode: 0o600 });
     const alive: ProcessLiveness = async (pid) =>
@@ -97,8 +110,9 @@ export function withInstallation(run: (t: TestInstallation) => Promise<void>, op
       const context = made.value;
       const [vault] = loaded.value.vaults;
       if (vault === undefined) throw new Error('no vault');
+      const registered = Object.fromEntries(others.map((o) => [o.other.id, { repo: o.repo, vault: loaded.value.vaults.find((v) => v.id === o.other.id) as RegisteredVault }]));
       const t: TestInstallation = {
-        dir, repo, host, installation: loaded.value, context, vault, clock,
+        dir, repo, host, installation: loaded.value, context, vault, others: registered, clock,
         accept(sha = repo.git('rev-parse', 'refs/heads/main')) {
           const recorded = recordAccepted(context.state, vault.id, { sha, how: 'init', by: 'alice', at: clock.now() }, acceptedMain(context.state, vault.id)?.sha ?? null);
           if (!recorded.ok) throw new Error(`accept: ${JSON.stringify(recorded.error)}`);
@@ -119,9 +133,14 @@ export function withInstallation(run: (t: TestInstallation) => Promise<void>, op
     try {
       const t = make();
       t.accept();
+      for (const o of others) {
+        const recorded = recordAccepted(t.context.state, o.other.id, { sha: o.repo.git('rev-parse', 'refs/heads/main'), how: 'init', by: 'alice', at: clock.now() }, null);
+        if (!recorded.ok) throw new Error(`accept ${o.other.id}: ${JSON.stringify(recorded.error)}`);
+      }
       await run(t);
     } finally {
       for (const context of contexts) context.close();
+      for (const o of others) o.repo.cleanup();
       repo.cleanup();
       dir.cleanup();
     }
