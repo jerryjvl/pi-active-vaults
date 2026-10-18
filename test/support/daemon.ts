@@ -1,13 +1,14 @@
 // The daemon's work for tests: an automation over a test installation, or the
-// daemon adapter's options for one, its headless sessions run by the fake
-// `pi` (fake-pi.mjs) rather than a real Pi.
+// daemon adapter itself (its options, or one started and stopped around a
+// test), its headless sessions run by the fake `pi` (fake-pi.mjs) rather
+// than a real Pi.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createAutomation, type Automation, type AutomationOptions } from '../../src/core/automation/index.ts';
 import { createGit } from '../../src/core/git/index.ts';
 import { createIdSource } from '../../src/core/ids/index.ts';
-import type { DaemonOptions } from '../../src/daemon/daemon.ts';
+import { startDaemon, type DaemonOptions, type RunningDaemon } from '../../src/daemon/daemon.ts';
 import { ME } from './session.ts';
 import type { TestInstallation } from './installation.ts';
 
@@ -61,4 +62,28 @@ export function daemonOptions(t: TestInstallation, pi: FakePi, extra: Partial<Da
     },
     ...extra,
   };
+}
+
+/**
+ * Runs `run` with the daemon adapter started on `t` — its socket, endpoints
+ * and automation — and stops it after. `minute` is one minute of the
+ * daemon's work as its timers would do it — a tick (forge sync, integrity,
+ * Git events, timers, the outbox), then starting what can start — waited
+ * out until its runs have ended.
+ */
+export async function withDaemon(
+  t: TestInstallation, pi: FakePi, run: (daemon: RunningDaemon, minute: () => Promise<void>) => Promise<void>, extra: Partial<DaemonOptions> = {},
+): Promise<void> {
+  const started = await startDaemon(daemonOptions(t, pi, extra));
+  if (!started.ok) throw new Error(`the daemon did not start: ${JSON.stringify(started.error)}`);
+  const { automation } = started.value;
+  try {
+    await run(started.value, async () => {
+      await automation.tick();
+      await automation.schedule();
+      await automation.idle();
+    });
+  } finally {
+    await started.value.stop();
+  }
 }
