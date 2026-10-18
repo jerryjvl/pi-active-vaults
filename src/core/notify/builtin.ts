@@ -7,7 +7,7 @@
 // The body comes from `--body-file` (relative to where the script runs) or
 // standard input. Arguments are read strictly: an unknown or repeated option,
 // or a missing one, exits 2 and sends nothing. A refusal (a raw address, an
-// unknown alias, a limit) exits 1. Otherwise it prints the outcome and the
+// unknown alias, a limit) exits 3 — the statuses the CLI uses. Otherwise it prints the outcome and the
 // Message-ID and exits 0 — a message kept for retry is not lost.
 
 import { readFileSync } from 'node:fs';
@@ -60,7 +60,7 @@ export function notifyBuiltin(deps: NotifyDeps, context: { readonly trace: strin
       const sent = await sendNotification(deps, {
         to: given.get('--to') ?? '', subject: given.get('--subject') ?? '', body, trace: context.trace, ...(key === undefined ? {} : { key }),
       });
-      if (!sent.ok) return output(1, '', `refused: ${sent.error.reason}\n`);
+      if (!sent.ok) return output(3, '', `refused: ${sent.error.reason}\n`);
       return output(0, `${sent.value.outcome} ${sent.value.messageId}\n`);
     },
   };

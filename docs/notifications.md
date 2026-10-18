@@ -21,7 +21,8 @@ the `vault_script` tool; people and scripts use `vault notify`.
 
 It prints the outcome — `sent`, `queued` (kept for retry), `duplicate` or
 `undeliverable` — and the `Message-ID`, and exits `0`; a refusal (a raw
-address, an unknown alias, a limit) exits `1`, and a usage error `2`.
+address, an unknown alias, a limit) exits `3`, and a usage error `2`, as the
+CLI's commands do.
 
 ## Configuration
 
