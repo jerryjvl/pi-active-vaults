@@ -8,38 +8,28 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CLI_PROGRAM } from '../../src/cli/program.ts';
-import { runCli, type CliIo } from '../../src/cli/run.ts';
-import { createGit } from '../../src/core/git/index.ts';
+import type { CliIo } from '../../src/cli/run.ts';
 import { requestOverSocket } from '../../src/core/socket/index.ts';
+import { cliFor } from '../support/cli.ts';
 import { fakePi } from '../support/daemon.ts';
 import { withInstallation, type TestInstallation } from '../support/installation.ts';
 import { ME, OTHER, RUNNING } from '../support/session.ts';
 
 const linuxOnly = { skip: process.platform !== 'linux' ? 'the systemd unit' : false };
 
+/** The CLI with its service manager recorded rather than run, and the service definition written under the test's directory. */
 function cli(t: TestInstallation, extra: Partial<CliIo> = {}) {
   const ran: string[][] = [];
-  const run = async (...argv: string[]) => {
-    let stdout = '';
-    let stderr = '';
-    const io: CliIo = {
-      write: (stream, text) => {
-        if (stream === 'stdout') stdout += text;
-        else stderr += text;
-      },
-      readStdin: async () => undefined,
-      cwd: t.repo.path,
+  const run = cliFor(t, {
+    io: {
       host: { ...t.host, env: { ...t.host.env, XDG_CONFIG_HOME: t.dir.file('xdg') } },
-      context: { git: createGit({ env: t.repo.env }), clock: t.clock, sandbox: 'none', alive: t.context.alive },
       runProgram: async (program) => {
         ran.push([program.file, ...program.args]);
         return 0;
       },
       ...extra,
-    };
-    const code = await runCli(argv, io);
-    return { code, stdout, stderr };
-  };
+    },
+  });
   return { run, ran };
 }
 

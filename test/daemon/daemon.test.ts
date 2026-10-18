@@ -13,6 +13,7 @@ import { allot } from '../../src/core/budgets/index.ts';
 import { enqueueSpawn, listSpawns, startSpawn } from '../../src/core/queue/index.ts';
 import { connectSocket, requestOver, requestOverSocket } from '../../src/core/socket/index.ts';
 import { startDaemon, type DaemonOptions } from '../../src/daemon/daemon.ts';
+import { freePort } from '../support/cli.ts';
 import { daemonOptions, fakePi, jobDocument } from '../support/daemon.ts';
 import { INITIALIZE, post } from '../support/mcp-client.ts';
 import { withInstallation, type TestInstallation } from '../support/installation.ts';
@@ -110,16 +111,6 @@ test('the daemon recovers before anything else: a spawn left running is stopped 
     await daemon.value.stop();
   }
 }, { running: RUNNING }));
-
-/** A TCP port nothing listens on just now. */
-async function freePort(): Promise<number> {
-  const { createServer } = await import('node:http');
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  return typeof address === 'object' && address !== null ? address.port : 0;
-}
 
 test('the daemon serves each profile with an endpoint, reports one it cannot, and stops serving when it stops', posixOnly, async () => {
   const port = await freePort();
