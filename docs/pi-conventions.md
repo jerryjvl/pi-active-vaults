@@ -6,7 +6,7 @@ shipped with the installed Pi (`pi --version`) when an API is in doubt.
 ## Packaging
 
 - One npm package with the `pi-package` keyword and a `pi` manifest listing the
-  extension and skills.
+  extension.
 - Pi's own packages (`@earendil-works/pi-coding-agent`, `pi-ai`, `pi-agent-core`,
   `pi-tui`, `typebox`) are `peerDependencies` with range `"*"`. They are never
   bundled — a second copy breaks Pi's module mapping.

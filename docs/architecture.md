@@ -244,7 +244,7 @@ docs/
 - TypeScript, compiled with `tsc` (`npm run build`) from `src/` to `dist/`, which
   mirrors it; relative `.ts` import specifiers are rewritten to `.js`. The
   `vault` bin and the Pi extension are the compiled files under `dist/`, and
-  only `dist/` and `skills/` are published; `prepack` runs the build, so a
+  only `dist/` is published; `prepack` runs the build, so a
   packed package always carries current output. Tests run directly on the source
   under Node's type stripping, so they need no build.
 - Node.js ≥ 22.18: the built-in `node:sqlite` for all local storage (no native

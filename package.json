@@ -14,15 +14,11 @@
     "vault": "./dist/cli/main.js"
   },
   "files": [
-    "dist",
-    "skills"
+    "dist"
   ],
   "pi": {
     "extensions": [
       "./dist/extension/index.js"
-    ],
-    "skills": [
-      "./skills"
     ]
   },
   "scripts": {
