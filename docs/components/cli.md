@@ -77,6 +77,7 @@ its operation's parameters (`vault <command> --help`).
 ## Installation of the command
 
 Pi does not put package executables on `PATH`. The extension's `/vault
-install-cli` command writes a small launcher to a user directory on `PATH`
-(`~/.local/bin/vault` on Linux and macOS, `vault.cmd` under `%LOCALAPPDATA%` on
-Windows); `npx pi-active-vaults` also works.
+install-cli` command writes a small launcher to a user directory usually on
+`PATH` (`~/.local/bin/vault` on Linux and macOS,
+`%LOCALAPPDATA%\Microsoft\WindowsApps\vault.cmd` on Windows) and says if it is
+not; it replaces only a launcher it wrote. `npx pi-active-vaults` also works.

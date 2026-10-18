@@ -10,18 +10,21 @@ Tools are generated from the core's catalogue of operations; a tool's name is
 `vault_` followed by the operation's name. `vault_fan_out` is the exception: it
 orchestrates sessions, so it exists only in Pi.
 
-All tools take vault paths as `<vault-id>:<path>`. Results carry text for the
-model and `structuredContent` for programmatic callers.
+All tools take vault paths as `<vault-id>:<path>`; a tool over many vaults takes
+`vaults`, and otherwise the vault is the one the path names, the one the
+session's directory is in, or the session's own. Results carry text for the
+model and `structuredContent` — `{ status, data, text, notices }`, as the
+CLI's `--json` — for programmatic callers.
 
 | Tool | Exposure | Parameters | Returns |
 |---|---|---|---|
 | `vault_search` | `direct` | `query`, `vaults?`, `scope?`, `limit?` | Ranked hits: path, heading, excerpt, freshness |
 | `vault_read` | `direct` | `path`, `range?` | Content, freshness against the accepted `main` |
 | `vault_contract` | `codemode` | `path` | Effective contract with the origin of each key |
-| `vault_commit` | `direct` | `message`, `paths?` | Commit SHA, or the checks that blocked it |
+| `vault_commit` | `direct` | `message`, `paths?` | Commit SHA and what it spawned, or the checks that blocked it |
 | `vault_script` | `direct` | `name`, `args?` | Exit status and output of an approved script |
-| `vault_fan_out` | `direct` | `items`, `each`, `gather` | The gathered result, and each item's outcome |
-| `vault_jobs` | `codemode` | `vault?` | Jobs, conditions, last and next run |
+| `vault_fan_out` | `direct` | `items`, `each`, `gather` | The gathered result, and each item's outcome (`done`, `failed`, `skipped`) |
+| `vault_jobs` | `codemode` | `vaults?` | Jobs, conditions, last and next run |
 
 Judgements and acceptance are deliberately not tools: the model must not judge
 or approve its own work.
@@ -38,7 +41,10 @@ or approve its own work.
 
 ## Commands
 
-Commands are typed by the person using Pi, so they may perform owner actions.
+Commands are typed by the person using Pi, so they may perform owner actions;
+they act as the installation's `person`. Their arguments are read as the
+CLI's are. What a command says is added to the session as a `pav:vault`
+message, shown and not sent to the model on its own.
 
 | Command | Does |
 |---|---|
@@ -51,7 +57,7 @@ Commands are typed by the person using Pi, so they may perform owner actions.
 | `/vault run <document>` | Run a job now |
 | `/vault trace <id>` | Show a trace |
 | `/vault doctor` | Health check |
-| `/vault install-cli` | Put the `vault` launcher on `PATH` |
+| `/vault install-cli` | Put the `vault` launcher on `PATH` (see [CLI](components/cli.md#installation-of-the-command)) |
 
 ## Hooks
 
@@ -59,15 +65,15 @@ Commands are typed by the person using Pi, so they may perform owner actions.
 |---|---|
 | `session_start`, `session_shutdown` | Start and release resources |
 | `before_agent_start` | Vault catalog in the system prompt |
-| `tool_call` | Write guard, session events, context injection |
-| `tool_result` | Trace capture, taint |
-| `turn_end` | Budget accounting |
+| `tool_call` | Write guard, session events |
+| `tool_result` | Trace capture, taint, injected context |
+| `turn_end`, `session_compact` | Budget accounting |
 
 ## Flags
 
 | Flag | Use |
 |---|---|
-| `--vault-run <file>` | Headless run context written by the daemon: actor, budget, trace, triggering event |
+| `--vault-run <file>` | Headless run context written by the daemon: vault, job document, actor, trace (whose allotment is the budget), triggering event (see [Pi extension](components/extension.md#headless-sessions)) |
 | `--vault-actor <name>` | Actor for an interactive session (default from configuration) |
 
 ## Events
@@ -76,10 +82,10 @@ Published on `pi.events`, namespaced `pav:v1:`.
 
 | Channel | Payload |
 |---|---|
-| `pav:v1:ready` | Extension version and capabilities, after `session_start` |
+| `pav:v1:ready` | Extension `version`, `capabilities` (the request methods) and the session's `trace`, after `session_start` |
 | `pav:v1:event` | A session or Git event, as matched against conditions |
-| `pav:v1:spawn` | Spawn requested, started, finished or stopped, with trace ID |
-| `pav:v1:request` / `pav:v1:reply:<id>` | Request and reply for `ping`, `search`, `contract`, `status` |
+| `pav:v1:spawn` | Spawn requested, started, finished or stopped (`state`), with `trace`, `vault`, `document` and, when stopped, `reason` |
+| `pav:v1:request` / `pav:v1:reply:<id>` | Request `{ id, method, params }` and reply for `ping`, `search`, `contract`, `status`: `{ ok, status, data, text, notices }`, or `{ ok: false, error }`. Nothing that writes or acts as an owner is offered |
 
 A change that breaks a payload creates a `pav:v2:` channel; `v1` is kept until
 removed in a major release.
