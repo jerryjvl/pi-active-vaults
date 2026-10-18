@@ -10,6 +10,7 @@
 // forge's URL, a stub forge API and a sendmail command that can be made to fail.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -172,6 +173,14 @@ const OBSTACLES: readonly { name: string; before: (t: TestInstallation) => Promi
     why: /moved on from the approved head/,
   },
   {
+    name: 'the branch has moved on from the approved head and has no worktree',
+    before: async (t) => {
+      await commitAsGardener(t, 'notes/c.md', '# C\n');
+      t.repo.git('worktree', 'remove', join(t.vault.worktrees, 'gardener'));
+    },
+    why: /moved on from the approved head/,
+  },
+  {
     name: 'its worktree has a tracked change',
     before: async (t) => { writeFileSync(join(t.vault.worktrees, 'gardener', 'notes', 'b.md'), 'edited'); },
     why: /uncommitted changes/,
@@ -195,11 +204,15 @@ for (const { name, before, why, after } of OBSTACLES) {
     assert.equal(status.length, 1);
     assert.match(status[0] ?? '', new RegExp(`#2 from gardener .*head ${head} is not in main`));
     assert.match(status[0] ?? '', /reset actor\/gardener to main/, 'what to do');
+    const command = /`(git [^`]+)`/.exec(status[0] ?? '')?.[1];
+    assert.ok(command !== undefined, 'the exact command');
+    assert.match(status[0] ?? '', /discards/, 'and what it costs');
+    assert.equal(command.includes(join(t.vault.worktrees, 'gardener')), t.repo.git('worktree', 'list').includes(join(t.vault.worktrees, 'gardener')), 'it names the worktree where the branch has one, the vault where not');
     assert.equal((await lostIn(t, 'doctor')).length, 1);
     const told = outboxOf(t);
     assert.equal(told.length, 1);
     assert.match(told[0]?.body ?? '', why);
-    assert.match(told[0]?.body ?? '', /reset actor\/gardener to main/);
+    assert.ok((told[0]?.body ?? '').includes(command), 'the notice gives the same command');
 
     t.clock.advance(10 * MINUTE);
     await automation.tick();
@@ -212,16 +225,15 @@ for (const { name, before, why, after } of OBSTACLES) {
 
     // The owner follows the report; it clears itself.
     await after?.(t);
-    t.repo.git('-C', join(t.vault.worktrees, 'gardener'), 'reset', '--hard', '--quiet', 'main');
+    execFileSync('sh', ['-c', command], { env: t.repo.env });
     assert.deepEqual(await lostIn(t, 'status'), []);
     assert.deepEqual(await lostIn(t, 'doctor'), []);
     await restarted.tick();
     assert.equal(outboxOf(t).length, 1);
     assert.deepEqual(pullsOf(forge), [[1, 'merged'], [2, 'merged']]);
 
-    // New work is proposed like any other. Pushes are never forced, so the forge's copy of the
-    // branch — which has the merged commits — must be gone, as a forge deletes it after a merge.
-    forge.remote('update-ref', '-d', BRANCH);
+    // New work is proposed like any other: the forge still holds the branch at the head it
+    // reported merged, which the push replaces.
     await commitAsGardener(t, 'notes/d.md', '# D\n');
     await restarted.tick();
     assert.deepEqual(pullsOf(forge), [[1, 'merged'], [2, 'merged'], [3, 'open']]);

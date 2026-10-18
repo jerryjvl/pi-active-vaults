@@ -3,7 +3,9 @@
 // the package pushes actor branches and its notes (attestations and traces), opens or updates a
 // pull request, and publishes each check's result and one `vault/policy`
 // status saying whether the proposal satisfies the vault's merge policy, with
-// owners' forge approvals of the exact commit. It never pushes `main`. It
+// owners' forge approvals of the exact commit. It never pushes `main`, and
+// pushes an actor branch forced only to replace the forge's copy when that is
+// exactly the head the forge reported merged (a lease on that commit). It
 // learns about merges by fetching: the forge's `main` becomes the accepted
 // `main`, and notes from the forge merge line by line. Pushing is a
 // propagating action, refused during an unaccepted change.
@@ -11,10 +13,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readAttestations, recordAttestation } from '../../../src/core/attestations/index.ts';
 import { acceptedMain, integrityStatus } from '../../../src/core/integrity/index.ts';
-import { proposeToForge, publishStatuses, pushToForge, syncWithForge, type ForgeDeps } from '../../../src/core/forge/index.ts';
+import { checkMerges, proposeToForge, publishStatuses, pushToForge, syncWithForge, uncheckedMerges, type ForgeDeps } from '../../../src/core/forge/index.ts';
 import { TEST_ATTRIBUTION, createTempRepo } from '../../support/git-repo.ts';
 import { FORGE_TOKEN } from '../../support/forge-stub.ts';
-import { connectToForge, mergeInForge, withForge, type Forge } from '../../support/forge-vault.ts';
+import { connectToForge, mergeInForge, mergePullInForge, withForge, type Forge } from '../../support/forge-vault.ts';
 import { scriptSource, withTestVault, type TestVault } from '../../support/vault.ts';
 
 interface ForgeWithDeps extends Forge {
@@ -134,7 +136,78 @@ test('nothing but actor branches and the package\'s notes is ever pushed', withT
       const pushed = await pushToForge(v.git, v.repo.path, [refspec]);
       assert.deepEqual(!pushed.ok && pushed.error, { reason: 'not-pushable', refspec }, refspec);
     }
+    // The one forced push is a lease on an actor branch's own ref, nothing else's.
+    for (const lease of [{ ref: 'refs/heads/main', sha: v.initial }, { ref: 'refs/notes/vault/traces', sha: v.initial }]) {
+      const forced = await pushToForge(v.git, v.repo.path, ['refs/heads/actor/gardener:refs/heads/actor/gardener'], { lease });
+      assert.deepEqual(!forced.ok && forced.error.reason, 'not-pushable', lease.ref);
+    }
     assert.equal(forge.remote('rev-parse', 'refs/heads/main'), v.initial);
+  });
+}, forgeVault));
+
+/** A proposal squash-merged in the forge and judged, with its branch then reset to main: the state in which the next proposal's push is not a fast-forward. Returns the head the forge reported merged. */
+async function mergedAndReset(v: TestVault, forge: ForgeWithDeps): Promise<string> {
+  assert.ok((await syncWithForge(forge.deps, v.vault)).ok);
+  const merged = v.propose({ 'topics/a.md': 'first\n' });
+  assert.ok((await proposeToForge(forge.deps, v.vault, 'gardener')).ok);
+  const asked = await uncheckedMerges(forge.deps, v.vault, ['gardener']);
+  assert.ok(asked.ok && asked.value.length === 0, 'nothing merged yet');
+  mergePullInForge(forge, 1, 'squash');
+  const next = await uncheckedMerges(forge.deps, v.vault, ['gardener']);
+  const synced = await syncWithForge(forge.deps, v.vault);
+  assert.ok(next.ok && synced.ok);
+  const judged = await checkMerges(forge.deps, v.vault, synced.value.accepted, next.value);
+  assert.ok(judged.ok && judged.value.length === 1 && !judged.value[0]?.kept);
+  v.repo.git('branch', '--force', 'actor/gardener', 'main');
+  return merged;
+}
+
+test('after a merge that replaced a proposal\'s commits, the next proposal replaces the forge\'s copy of the branch — it is the head the forge reported merged — and main is untouched', withTestVault(async (v) => {
+  await withForgeFor(v, async (forge) => {
+    const merged = await mergedAndReset(v, forge);
+    assert.equal(forge.remote('rev-parse', 'refs/heads/actor/gardener'), merged);
+    const main = forge.remote('rev-parse', 'refs/heads/main');
+    const next = v.propose({ 'topics/b.md': 'second\n' });
+    const proposed = await proposeToForge(forge.deps, v.vault, 'gardener');
+    assert.ok(proposed.ok, JSON.stringify(proposed));
+    assert.equal(proposed.value.opened, true, 'the first pull request is merged: a new one');
+    assert.equal(forge.remote('rev-parse', 'refs/heads/actor/gardener'), next);
+    assert.equal(forge.remote('rev-parse', 'refs/heads/main'), main);
+  });
+}, forgeVault));
+
+test('a branch the forge holds at anything but the head it reported merged is never overwritten', withTestVault(async (v) => {
+  await withForgeFor(v, async (forge) => {
+    await mergedAndReset(v, forge);
+    // Someone pushed to the forge's copy since: the lease on the merged head no longer holds.
+    const other = createTempRepo();
+    try {
+      other.git('fetch', '--quiet', forge.bare, 'refs/heads/actor/gardener:refs/heads/other');
+      other.git('checkout', '--quiet', 'other');
+      other.write('theirs.md', 'someone else\n');
+      other.commit('Their work');
+      other.git('push', '--quiet', forge.bare, 'HEAD:refs/heads/actor/gardener');
+      const theirs = forge.remote('rev-parse', 'refs/heads/actor/gardener');
+      v.propose({ 'topics/b.md': 'second\n' });
+      const refused = await proposeToForge(forge.deps, v.vault, 'gardener');
+      assert.equal(!refused.ok && refused.error.reason, 'git-failed');
+      assert.equal(forge.remote('rev-parse', 'refs/heads/actor/gardener'), theirs);
+    } finally {
+      other.cleanup();
+    }
+  });
+}, forgeVault));
+
+test('a branch that is not a fast-forward of the forge\'s copy is pushed unforced when the forge reported nothing merged from it', withTestVault(async (v) => {
+  await withForgeFor(v, async (forge) => {
+    assert.ok((await syncWithForge(forge.deps, v.vault)).ok);
+    const first = v.propose({ 'topics/a.md': 'first\n' });
+    assert.ok((await proposeToForge(forge.deps, v.vault, 'gardener')).ok);
+    v.repo.git('branch', '--force', 'actor/gardener', 'main');
+    v.propose({ 'topics/b.md': 'second\n' });
+    const refused = await proposeToForge(forge.deps, v.vault, 'gardener');
+    assert.equal(!refused.ok && refused.error.reason, 'git-failed');
+    assert.equal(forge.remote('rev-parse', 'refs/heads/actor/gardener'), first);
   });
 }, forgeVault));
 
