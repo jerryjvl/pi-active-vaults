@@ -1,15 +1,20 @@
 // Reading a command line into an operation's parameters, from the
-// operation's own specs: positional parameters in order (a list takes the
-// rest; a passthrough list takes options too, so a script's own pass
-// through), `--name value`, `--name=value`, `-x value`, `--flag` for
-// booleans, and a repeated flag for a list. Nothing about any particular
-// command is known here.
+// operation's own specs — the same for the `vault` CLI and Pi's `/vault`
+// commands, each offering its own surface's parameters: positional parameters
+// in order (a list takes the rest; a passthrough list takes options too, so a
+// script's own pass through), `--name value`, `--name=value`, `-x value`,
+// `--flag` for booleans, and a repeated flag for a list. Nothing about any
+// particular command is known here.
 //
 // The global flags every command takes: `--json`, `--vault <id>` (repeatable),
 // `--help`.
+//
+// Pi hands a command its arguments as one string; `splitArguments` groups
+// words with quotes and backslashes as a shell would, and expands nothing —
+// no variables, globs or substitutions — because nothing here runs a shell.
 
-import type { Operation, ParamSpec } from '../core/operations/index.ts';
-import { paramsOn } from '../core/operations/index.ts';
+import { paramsOn } from './catalogue.ts';
+import type { Operation, ParamSpec, ParamSurface } from './types.ts';
 
 export interface ParsedLine {
   readonly params: Record<string, unknown>;
@@ -48,8 +53,8 @@ function setValue(params: Record<string, unknown>, spec: ParamSpec, value: strin
 }
 
 /** Splits the arguments after the command into flags and positionals. */
-export function parseLine(operation: Operation, argv: readonly string[]): ParsedLine {
-  const specs = paramsOn(operation, 'cli');
+export function parseLine(operation: Operation, argv: readonly string[], surface: ParamSurface = 'cli'): ParsedLine {
+  const specs = paramsOn(operation, surface);
   const params: Record<string, unknown> = {};
   const positionals: string[] = [];
   const vaults: string[] = [];
@@ -96,8 +101,8 @@ export function parseLine(operation: Operation, argv: readonly string[]): Parsed
 }
 
 /** Gives the positional arguments to the operation's positional parameters, in order; returns what is left over. */
-export function assignPositionals(operation: Operation, params: Record<string, unknown>, positionals: readonly string[]): string[] {
-  const specs = paramsOn(operation, 'cli').filter((p) => p.positional === true);
+export function assignPositionals(operation: Operation, params: Record<string, unknown>, positionals: readonly string[], surface: ParamSurface = 'cli'): string[] {
+  const specs = paramsOn(operation, surface).filter((p) => p.positional === true);
   const left = [...positionals];
   for (const spec of specs) {
     if (left.length === 0) break;
@@ -111,8 +116,8 @@ export function assignPositionals(operation: Operation, params: Record<string, u
 }
 
 /** How a command is used, from its specs. */
-export function usage(operation: Operation): string {
-  const specs = paramsOn(operation, 'cli');
+export function usage(operation: Operation, surface: ParamSurface = 'cli'): string {
+  const specs = paramsOn(operation, surface);
   const positional = specs.filter((p) => p.positional === true)
     .map((p) => (p.kind === 'strings' ? `[${p.name}...]` : p.required === true ? `<${p.name}>` : `[${p.name}]`));
   const vault = operation.vault === 'none' ? [] : ['[vault]'];
@@ -121,5 +126,32 @@ export function usage(operation: Operation): string {
     const text = `${p.short === undefined ? '' : `-${p.short}, `}--${kebab(p.name)}${value}`;
     return `  ${text.padEnd(28)} ${p.description}${p.stdin === true ? ' (read from standard input when not given)' : ''}${p.file === true ? ' (a file)' : ''}`;
   });
-  return [`vault ${operation.command ?? operation.name} ${[...vault, ...positional].join(' ')}`.trimEnd(), `  ${operation.summary}`, ...(flags.length === 0 ? [] : ['', ...flags])].join('\n');
+  return [`${surface === 'command' ? '/vault' : 'vault'} ${operation.command ?? operation.name} ${[...vault, ...positional].join(' ')}`.trimEnd(), `  ${operation.summary}`, ...(flags.length === 0 ? [] : ['', ...flags])].join('\n');
+}
+
+/** The words of a command line: quotes group, a backslash escapes the next character, and nothing is expanded. */
+export function splitArguments(line: string): string[] {
+  const words: string[] = [];
+  let word: string | undefined;
+  let quote: '"' | "'" | undefined;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i] as string;
+    if (quote !== undefined) {
+      if (c === quote) quote = undefined;
+      else if (c === '\\' && quote === '"' && i + 1 < line.length) word += line[++i] as string;
+      else word += c;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      word ??= '';
+    } else if (c === '\\' && i + 1 < line.length) {
+      word = (word ?? '') + (line[++i] as string);
+    } else if (/\s/.test(c)) {
+      if (word !== undefined) words.push(word);
+      word = undefined;
+    } else {
+      word = (word ?? '') + c;
+    }
+  }
+  if (word !== undefined) words.push(word);
+  return words;
 }

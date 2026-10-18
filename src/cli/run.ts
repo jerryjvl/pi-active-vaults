@@ -18,10 +18,9 @@ import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { Host } from '../core/config/index.ts';
 import {
-  CATALOGUE, chooseVaults, createContext, describeError, loadInstallation, locate, paramsOn, placeVaultPaths, runOperation, unacceptedNotices,
+  CATALOGUE, assignPositionals, chooseVaults, createContext, describeError, loadInstallation, locate, paramsOn, parseLine, placeVaultPaths, runOperation, unacceptedNotices, usage,
   type ContextOptions, type Operation, type OperationOutcome,
 } from '../core/operations/index.ts';
-import { assignPositionals, parseLine, usage } from './args.ts';
 
 export interface CliIo {
   write(stream: 'stdout' | 'stderr', text: string): void;
