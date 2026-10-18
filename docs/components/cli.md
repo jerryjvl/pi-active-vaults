@@ -30,7 +30,7 @@ its operation's parameters (`vault <command> --help`).
 | `vault add <path>` | Register an existing vault in the installation, by the id its root contract declares; nothing in it is accepted until an owner adopts `main` |
 | `vault list` | Registered vaults and their catalog entries |
 | `vault whoami` | This installation's name, for use as a vault's `executor` |
-| `vault doctor [--fix]` | Check config, Pi, Git, model endpoints' tokens, hooks (including a `core.hooksPath` that bypasses them), daemon service, paths and forge settings; report a `local` vault with a remote, sessions holding an actor (and any whose holder cannot be told from a reused process), a leftover Git lock in `main`'s worktree, undelivered notifications, search that is keyword-only because no policy entry names the vault, jobs that cannot run (no readable budget, or no actor that may write), and no `budgets.daily-tokens`; `--fix` installs hooks (the pre-push guard, and the `reference-transaction` hook that tells the daemon of ref changes) where none of the user's is in the way, corrects permissions and, when no daemon is running, runs its start-up recovery. A problem exits `1`; warnings do not |
+| `vault doctor [--fix]` | Check config, Pi, Git, model endpoints' tokens, hooks (including a `core.hooksPath` that bypasses them), daemon service, paths and forge settings (merge methods best effort: what the forge does not show is a warning); report a `local` vault with a remote, merged proposals whose commits did not reach `main`, sessions holding an actor (and any whose holder cannot be told from a reused process), a leftover Git lock in `main`'s worktree, undelivered notifications, search that is keyword-only because no policy entry names the vault, jobs that cannot run (no readable budget, or no actor that may write), and no `budgets.daily-tokens`; `--fix` installs hooks (the pre-push guard, and the `reference-transaction` hook that tells the daemon of ref changes) where none of the user's is in the way, corrects permissions and, when no daemon is running, runs its start-up recovery. A problem exits `1`; warnings do not |
 
 ### Knowledge
 
@@ -45,7 +45,7 @@ its operation's parameters (`vault <command> --help`).
 
 | Command | Does |
 |---|---|
-| `vault status` | Pending proposals, failing checks, queued work |
+| `vault status` | Pending proposals, failing checks, queued work, holds, merged proposals whose commits did not reach `main`, undelivered notifications |
 | `vault review <actor>` | Commits, diff, checks and control-change flags; records the reviewed SHA |
 | `vault accept <actor>` | Merge the SHA you last reviewed if the merge policy is satisfied |
 | `vault accept --adopt <sha>` | Show failed checks and control changes in the delta from the accepted `main` to `<sha>` first, and require them to be acknowledged; then show the delta and, once confirmed, accept it. With neither, it goes straight to the delta. Without a terminal to confirm at, it shows the delta and exits `3`; `--acknowledge <digest> --yes` confirms what was shown |

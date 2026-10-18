@@ -42,6 +42,10 @@ The merge methods to turn off:
   the fast-forward and semi-linear methods, a merge request's **Rebase** also
   replaces the proposal's commits.
 
+Whatever the settings, when the daemon learns that a proposal was merged it
+checks that the proposal's head is in the new `main`. If it is not, `vault
+status` and `vault doctor` report it, and the vault's owners are told once.
+
 On GitLab, statuses count as pipelines: require that pipelines succeed. A
 GitLab approval names no commit, so `vault/policy` counts owners' approvals
 only where approvals are reset when commits are pushed (a setting not every

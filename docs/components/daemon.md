@@ -172,6 +172,15 @@ request opened or updated, with its statuses; otherwise its statuses are
 published again every five minutes, to pick up reviews made in the forge. A
 failure is shown by `vault daemon status` and tried again the next minute.
 
+For those vaults it also checks merges. Before fetching, it asks the forge
+which pull requests from the vault's writers' branches were merged into `main`
+most recently (one page). After fetching, it checks each one not checked before:
+is its head an ancestor of the new accepted `main`? Asking first means each
+merge named is in the `main` it is judged against. Each result is recorded
+once. A head that is not in `main` — a squash or rebase merge — is reported by
+`vault status` and `vault doctor` and told once to the owners, naming the pull
+request and that its attestations and trace notes no longer attach.
+
 ## Socket protocol
 
 JSON lines over a local socket accessible only to the user (a Unix domain

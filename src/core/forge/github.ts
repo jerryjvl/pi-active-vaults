@@ -17,7 +17,7 @@
 import type { ForgeEntry } from '../config/index.ts';
 import { isRecord, ok, type Result } from '../result/index.ts';
 import {
-  POLICY_CONTEXT, UNPROTECTED, anyAllowed, forgeCaller, headPull, isShaValue, onePull, readAccount, readMergeMethods, shortDescription, standingApprovals,
+  POLICY_CONTEXT, UNPROTECTED, anyAllowed, forgeCaller, headPull, isShaValue, mergedPulls, onePull, readAccount, readMergeMethods, shortDescription, standingApprovals,
   type ForgeAdapter, type ForgeDepsBase, type ForgeError,
 } from './adapter.ts';
 
@@ -134,6 +134,11 @@ export function githubAdapter(entry: ForgeEntry, project: string, deps: ForgeDep
         reviews.push({ user, verdict, ...(isShaValue(review['commit_id']) ? { commit: review['commit_id'] } : {}) } as const);
       }
       return ok(standingApprovals(reviews));
+    },
+    async mergedPullRequests(base) {
+      // A list says a pull request was merged only by `merged_at` (`headPull` reads both).
+      const listed = await forge.firstPage(`${repo}/pulls?state=closed&base=${encodeURIComponent(base)}&sort=updated&direction=desc`, 'per_page', PAGE);
+      return listed.ok ? mergedPulls(forge, headPull, listed.value) : listed;
     },
     async protection(branch) {
       const classic = await classicProtection(branch);

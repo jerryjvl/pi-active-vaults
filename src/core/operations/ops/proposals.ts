@@ -10,7 +10,7 @@ import {
   type ActorCommitContext, type AdoptionDelta, type Review,
 } from '../../actors/index.ts';
 import { deriveEvents } from '../../events/index.ts';
-import { proposeToForge, syncWithForge } from '../../forge/index.ts';
+import { lostMergeText, lostMerges, proposeToForge, syncWithForge } from '../../forge/index.ts';
 import { diffText } from '../../git/index.ts';
 import { requireNoUnacceptedChange } from '../../integrity/index.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
@@ -77,7 +77,9 @@ export const statusOperation: Operation = {
       for (const spawn of work) lines.push(`  ${spawn.state}: ${spawn.document} (trace ${spawn.trace})`);
       const held = holds.filter((h) => h.vault === vault.id);
       for (const hold of held) lines.push(`  ${hold.actor} held by session ${hold.holder.session} (process ${hold.holder.process.pid}${hold.standing === 'cannot-tell' ? ', cannot tell whether it still runs' : ''})`);
-      vaults.push({ vault: vault.id, accepted: accepted.ok ? accepted.value.sha : null, proposals, work, holds: held });
+      const lost = lostMerges(context.state, vault.id);
+      for (const merge of lost) lines.push(`  ${lostMergeText(merge)}`);
+      vaults.push({ vault: vault.id, accepted: accepted.ok ? accepted.value.sha : null, proposals, work, holds: held, lostMerges: lost });
     }
     // The outbox is the whole installation's, so a remote client — permitted for some vaults — does not see it.
     const undelivered = request.caller.surface === 'mcp' ? [] : undeliveredNotifications(context.state);

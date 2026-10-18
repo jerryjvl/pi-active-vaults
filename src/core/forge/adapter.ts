@@ -12,7 +12,8 @@
 //  - an approval carries the exact commit it approved, or no commit when the
 //    forge cannot say — and then counts for nothing;
 //  - lists are read page by page up to a bound; a longer list is an error
-//    rather than a silently shortened answer.
+//    rather than a silently shortened answer. Only "most recent" questions
+//    read a first page alone, by design.
 
 import { resolveSecret, type ForgeEntry, type SecretDeps } from '../config/index.ts';
 import { isSha, type Sha } from '../git/index.ts';
@@ -72,6 +73,8 @@ export interface ForgeAdapter {
   updatePullRequest(number: number, request: { title: string; body: string }): Promise<Result<void, ForgeError>>;
   setStatus(sha: Sha, status: CommitStatus): Promise<Result<void, ForgeError>>;
   approvals(pull: PullRequest): Promise<Result<ForgeApproval[], ForgeError>>;
+  /** The pull requests merged into `base` most recently, newest first: one page. Each `headSha` is the head it was merged at. */
+  mergedPullRequests(base: string): Promise<Result<PullRequest[], ForgeError>>;
   protection(branch: string): Promise<Result<BranchProtection, ForgeError>>;
   /** Which merge methods that replace a proposal's commits the repository allows. */
   mergeMethods(): Promise<Result<MergeMethods, ForgeError>>;
@@ -135,6 +138,8 @@ export interface ForgeCaller {
   call(method: HttpRequest['method'], path: string, body?: unknown): Promise<Result<{ status: number; body: unknown }, ForgeError>>;
   /** GET a list across pages of `size`, with the forge's own page-size parameter. */
   list(path: string, sizeParameter: string, size: number): Promise<Result<unknown[], ForgeError>>;
+  /** GET only the first page of a list: for questions about what is most recent. */
+  firstPage(path: string, sizeParameter: string, size: number): Promise<Result<unknown[], ForgeError>>;
   bad(detail: string): Result<never, ForgeError>;
 }
 
@@ -156,20 +161,26 @@ export function forgeCaller(entry: ForgeEntry, deps: ForgeDepsBase, headers: (to
     return sent.ok ? ok(sent.value) : err({ ...sent.error, forge });
   };
 
+  const page = async (path: string, sizeParameter: string, size: number, number: number): Promise<Result<unknown[], ForgeError>> => {
+    const got = await call('GET', `${path}${path.includes('?') ? '&' : '?'}${sizeParameter}=${size}&page=${number}`);
+    if (!got.ok) return got;
+    return Array.isArray(got.value.body) ? ok(got.value.body) : bad('expected a list');
+  };
+
   const list: ForgeCaller['list'] = async (path, sizeParameter, size) => {
     const items: unknown[] = [];
-    const joiner = path.includes('?') ? '&' : '?';
-    for (let page = 1; page <= MAX_PAGES; page++) {
-      const got = await call('GET', `${path}${joiner}${sizeParameter}=${size}&page=${page}`);
+    for (let number = 1; number <= MAX_PAGES; number++) {
+      const got = await page(path, sizeParameter, size, number);
       if (!got.ok) return got;
-      if (!Array.isArray(got.value.body)) return bad('expected a list');
-      items.push(...got.value.body);
-      if (got.value.body.length < size) return ok(items);
+      items.push(...got.value);
+      if (got.value.length < size) return ok(items);
     }
     return bad('more pages than the package reads');
   };
 
-  return { forge, call, list, bad };
+  const firstPage: ForgeCaller['firstPage'] = (path, sizeParameter, size) => page(path, sizeParameter, size, 1);
+
+  return { forge, call, list, firstPage, bad };
 }
 
 /** The account a forge's `/user` answer names, in its `field`. */
@@ -187,6 +198,13 @@ export function headPull(value: unknown): PullRequest | undefined {
   if (typeof ref !== 'string' || !isShaValue(sha)) return undefined;
   const merged = value['merged'] === true || typeof value['merged_at'] === 'string';
   return { number: value['number'], url: typeof value['html_url'] === 'string' ? value['html_url'] : '', head: ref, headSha: sha, state: merged ? 'merged' : value['state'] === 'open' ? 'open' : 'closed' };
+}
+
+/** The merged ones among listed pull requests read with `pullOf`, or a bad response. */
+export function mergedPulls(forge: ForgeCaller, pullOf: (value: unknown) => PullRequest | undefined, listed: readonly unknown[]): Result<PullRequest[], ForgeError> {
+  const pulls = listed.map(pullOf);
+  if (pulls.some((p) => p === undefined)) return forge.bad('not a pull request');
+  return ok((pulls as PullRequest[]).filter((p) => p.state === 'merged'));
 }
 
 /** One pull request read with `pullOf`, or a bad response. */

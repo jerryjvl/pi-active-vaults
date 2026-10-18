@@ -9,6 +9,7 @@
 import { actorsSchema } from '../actors/index.ts';
 import { budgetsSchema } from '../budgets/index.ts';
 import type { InstallationPaths } from '../config/index.ts';
+import { forgeSchema } from '../forge/index.ts';
 import { integritySchema } from '../integrity/index.ts';
 import { notifySchema } from '../notify/index.ts';
 import { queueSchema } from '../queue/index.ts';
@@ -24,7 +25,7 @@ import {
   type StoreOptions,
 } from '../store/index.ts';
 
-export const STATE_MODULES: readonly ModuleSchema[] = [integritySchema, actorsSchema, budgetsSchema, queueSchema, notifySchema];
+export const STATE_MODULES: readonly ModuleSchema[] = [integritySchema, actorsSchema, budgetsSchema, queueSchema, notifySchema, forgeSchema];
 
 export const INDEX_MODULES: readonly ModuleSchema[] = [searchSchema];
 

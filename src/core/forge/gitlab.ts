@@ -17,7 +17,7 @@
 import type { ForgeEntry } from '../config/index.ts';
 import { isRecord, ok } from '../result/index.ts';
 import {
-  UNPROTECTED, anyAllowed, forgeCaller, isShaValue, onePull, readAccount, readMergeMethods, shortDescription,
+  UNPROTECTED, anyAllowed, forgeCaller, isShaValue, mergedPulls, onePull, readAccount, readMergeMethods, shortDescription,
   type Allowed, type ForgeAdapter, type ForgeDepsBase, type ForgeError, type PullRequest, type StatusState,
 } from './adapter.ts';
 
@@ -79,6 +79,10 @@ export function gitlabAdapter(entry: ForgeEntry, project: string, deps: ForgeDep
       const users = by.map((a: unknown) => (isRecord(a) && isRecord(a['user']) ? a['user']['username'] : undefined));
       if (!users.every((u): u is string => typeof u === 'string')) return forge.bad('not an approval');
       return ok(users.map((user) => (bound ? { user, commit: pull.headSha } : { user })));
+    },
+    async mergedPullRequests(base) {
+      const listed = await forge.firstPage(`${repo}/merge_requests?state=merged&target_branch=${encodeURIComponent(base)}&order_by=updated_at&sort=desc`, 'per_page', PAGE);
+      return listed.ok ? mergedPulls(forge, pullOf, listed.value) : listed;
     },
     async protection(branch) {
       const got = await forge.call('GET', `${repo}/protected_branches/${encodeURIComponent(branch)}`);

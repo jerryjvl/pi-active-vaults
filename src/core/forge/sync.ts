@@ -86,7 +86,8 @@ export async function pushToForge(git: Git, repo: string, refspecs: readonly str
   return pushRefs(git, repo, REMOTE, refspecs);
 }
 
-async function connect(deps: ForgeDeps, vault: VaultLocation): Promise<Result<ForgeAdapter, ForgeSyncError>> {
+/** The adapter for the vault's forge: the one its `origin` is on. */
+export async function connectForge(deps: ForgeDeps, vault: VaultLocation): Promise<Result<ForgeAdapter, ForgeSyncError>> {
   const url = await remoteUrl(deps.git, vault.path, REMOTE);
   if (!url.ok) return url;
   if (url.value === undefined) return err({ reason: 'no-remote', remote: REMOTE });
@@ -175,7 +176,7 @@ async function prepare(deps: ForgeDeps, vault: VaultLocation, actor: string): Pr
   if (!owners.ok) return owners;
   const proposal = await readProposal(deps.git, vault.path, accepted.value, actor);
   if (!proposal.ok) return proposal;
-  const adapter = await connect(deps, vault);
+  const adapter = await connectForge(deps, vault);
   return adapter.ok ? ok({ accepted: accepted.value, owners: owners.value, proposal: proposal.value, adapter: adapter.value }) : adapter;
 }
 
@@ -256,7 +257,7 @@ async function forwardMain(git: Git, repo: string, to: Sha): Promise<Result<bool
 export async function syncWithForge(
   deps: ForgeDeps, vault: VaultLocation,
 ): Promise<Result<{ accepted: AcceptedMain; mainUpdated: boolean }, ForgeSyncError>> {
-  const adapter = await connect(deps, vault);
+  const adapter = await connectForge(deps, vault);
   if (!adapter.ok) return adapter;
   const met = await meetNotes(deps, vault, [`+${MAIN_REF}:${FORGE_MAIN}`]);
   if (!met.ok) return met;

@@ -7,7 +7,7 @@
 import type { ForgeEntry } from '../config/index.ts';
 import { isRecord, ok } from '../result/index.ts';
 import {
-  POLICY_CONTEXT, UNPROTECTED, anyAllowed, forgeCaller, headPull, isShaValue, onePull, readAccount, readMergeMethods, shortDescription, standingApprovals,
+  POLICY_CONTEXT, UNPROTECTED, anyAllowed, forgeCaller, headPull, isShaValue, mergedPulls, onePull, readAccount, readMergeMethods, shortDescription, standingApprovals,
   type ForgeAdapter, type ForgeDepsBase,
 } from './adapter.ts';
 
@@ -54,6 +54,10 @@ export function giteaAdapter(entry: ForgeEntry, project: string, deps: ForgeDeps
         reviews.push({ user, verdict, ...(isShaValue(review['commit_id']) ? { commit: review['commit_id'] } : {}) } as const);
       }
       return ok(standingApprovals(reviews));
+    },
+    async mergedPullRequests(base) {
+      const listed = await forge.firstPage(`${repo}/pulls?state=closed&sort=recentclose&base_branch=${encodeURIComponent(base)}`, 'limit', PAGE);
+      return listed.ok ? mergedPulls(forge, headPull, listed.value) : listed;
     },
     async protection(branch) {
       const got = await forge.call('GET', `${repo}/branch_protections/${encodeURIComponent(branch)}`);

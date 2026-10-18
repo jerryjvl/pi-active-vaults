@@ -10,7 +10,8 @@
 // Checks: the config file, Git, Pi, each model role's token; per vault, its
 // identity, a `core.hooksPath` that bypasses the package's hooks, the
 // pre-push guard, a remote on a `local` vault, locks left in main's worktree,
-// forge protection in `forge` mode, hosting conflicts, search falling back to
+// forge protection and merge methods in `forge` mode, merged proposals whose
+// commits did not reach main, hosting conflicts, search falling back to
 // keywords because no policy entry names the vault, and jobs that cannot run; then sessions holding
 // actors (and those whose holder cannot be told apart from a reused process),
 // undelivered notifications, notify not being configured, and no daily token
@@ -20,7 +21,7 @@ import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from 'no
 import { dirname, join } from 'node:path';
 import { listActorHolds } from '../../actors/index.ts';
 import { ensurePrivateDir, resolveSecret, MODEL_ROLES, type PlatformKind } from '../../config/index.ts';
-import { forgeAdapter, forgeProject, protectionProblems } from '../../forge/index.ts';
+import { forgeAdapter, forgeProject, lostMergeText, lostMerges, protectionProblems } from '../../forge/index.ts';
 import {
   configValue, gitDirectories, gitVersion, listRemotes, listWorktrees, meetsMinimumGitVersion, remoteUrl, MINIMUM_GIT_VERSION,
 } from '../../git/index.ts';
@@ -177,6 +178,8 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
   }
 
   if (identity.value.review === 'forge') findings.push(...await forgeFindings(context, vault, identity.value.owners));
+  // A merge that lost its commits is history, not a setting to fix: worth knowing, so a warning.
+  for (const merge of lostMerges(context.state, vault.id)) findings.push(at('warning', 'merges', lostMergeText(merge)));
   if (hosting(vault, identity.value, installation.config.name).conflict) {
     findings.push(at('warning', 'hosting', `host is true, but the vault's executor is ${identity.value.executor ?? ''}, so its jobs do not run here.`));
   }

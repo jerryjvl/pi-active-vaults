@@ -8,11 +8,12 @@
 // and its queued work does not start, until an owner resolves it. Its owners
 // are told once per unaccepted tip, through `builtin:notify`'s outbox, when
 // they are recipient aliases of this installation; nothing is sent otherwise.
+// `notifyOwners` is that one way of telling owners, used for every notice.
 
-import { integrityStatus, acceptedIdentity, acceptedMain, unacceptedNotice, type UnacceptedChange } from '../integrity/index.ts';
+import { integrityStatus, acceptedIdentity, acceptedMain, unacceptedNotice, type AcceptedMain, type UnacceptedChange } from '../integrity/index.ts';
 import { sendNotification } from '../notify/index.ts';
 import { notifyDeps, scriptEnvironment, type OperationContext } from '../operations/index.ts';
-import { hosting, type RegisteredVault } from '../registry/index.ts';
+import { hosting, type RegisteredVault, type VaultIdentity } from '../registry/index.ts';
 import { newTraceId } from '../traces/index.ts';
 
 /** The vaults whose timer and Git-event jobs run on this installation. */
@@ -45,17 +46,29 @@ export async function pausedVaults(context: OperationContext, vaults: readonly R
  */
 export async function tellOwners(context: OperationContext, vault: RegisteredVault, change: UnacceptedChange, told: Set<string>): Promise<void> {
   const key = `unaccepted:${vault.id}:${change.tip ?? 'missing'}`;
-  if (told.has(key)) return;
+  if (told.has(key) || change.accepted === undefined) return;
   told.add(key);
+  await notifyOwners(context, vault, change.accepted, (review) => ({
+    subject: `Vault "${vault.id}": an unaccepted change to main`, body: `${unacceptedNotice(change, review)}\n`, key,
+  }));
+}
+
+/**
+ * Sends a message to each of the vault's owners — as the accepted main names
+ * them — who is a recipient alias of this installation; nothing when notify
+ * is not configured. `key` lets the outbox drop a repeat within its cooldown.
+ */
+export async function notifyOwners(
+  context: OperationContext, vault: RegisteredVault, accepted: AcceptedMain,
+  message: (review: VaultIdentity['review']) => { subject: string; body: string; key: string },
+): Promise<void> {
   const deps = notifyDeps(context, scriptEnvironment(context.installation));
-  const accepted = change.accepted;
-  if (deps === undefined || accepted === undefined) return;
+  if (deps === undefined) return;
   const identity = await acceptedIdentity(context.reads, context.git, vault.path, accepted);
   if (!identity.ok) return;
+  const { subject, body, key } = message(identity.value.review);
   const trace = newTraceId(context.ids);
   for (const owner of identity.value.owners.filter((o) => deps.config.recipients[o] !== undefined)) {
-    await sendNotification(deps, {
-      to: owner, subject: `Vault "${vault.id}": an unaccepted change to main`, body: `${unacceptedNotice(change, identity.value.review)}\n`, trace, key,
-    });
+    await sendNotification(deps, { to: owner, subject, body, trace, key });
   }
 }
