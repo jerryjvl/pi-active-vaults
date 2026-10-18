@@ -63,8 +63,8 @@ test('a usage error is exit status 2; a command needing the daemon says so and e
   assert.equal(status.code, 1);
   assert.match(status.stderr, /No daemon is running/);
   const mcp = await vault('mcp', '--profile', 'chat');
-  assert.equal(mcp.code, 1);
-  assert.match(mcp.stderr, /not part of this version yet/);
+  assert.equal(mcp.code, 2, 'no such profile');
+  assert.match(mcp.stderr, /no MCP profile is named "chat"/);
   assert.equal((await vault('daemon', 'frobnicate')).code, 2);
 }));
 

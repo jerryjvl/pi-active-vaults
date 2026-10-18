@@ -1,23 +1,24 @@
-// The daemon's local socket (daemon.md "Single instance", "Socket protocol"):
-// the one place the package listens or connects — a Unix domain socket in
-// the state directory, a named pipe on Windows — speaking JSON lines.
+// The one place the package listens or connects: the daemon's local socket
+// (daemon.md "Single instance", "Socket protocol") — a Unix domain socket in
+// the state directory, a named pipe on Windows — speaking JSON lines, and
+// HTTP endpoints for local clients (http.ts).
 //
 // Invariants:
-//  - one listener holds the socket: listening where another answers is
-//    refused (`in-use`); a socket file left by a listener that has gone is
-//    taken over, and nothing that is not a socket is ever removed. Two
-//    listeners taking over one stale file at once could both bind, so only
-//    the holder of the daemon's record (queue) may listen;
-//  - the socket file is the user's only (0600, in the private state
-//    directory); a named pipe has the user's default ACL;
+//  - a path is bound under one set of rules (bind.ts): one listener holds
+//    it, a stale socket is taken over, nothing that is not a socket is
+//    removed, and the file is the user's only. Only the holder of the
+//    daemon's record (queue) may listen on the daemon's socket;
 //  - messages are JSON values, one per line (`lineSplitter`), with bounded
 //    lines; a line that is not JSON is dropped; a request is answered by its
 //    `id`, and anything else on the connection (notices) is left to listeners.
 
 import { randomBytes } from 'node:crypto';
-import { chmodSync, lstatSync, unlinkSync } from 'node:fs';
-import { createConnection, createServer, type Server, type Socket } from 'node:net';
+import { createConnection, createServer, type Socket } from 'node:net';
 import { err, isRecord, lineSplitter, ok, type Result } from '../result/index.ts';
+import { bindPath, type ListenError } from './bind.ts';
+
+export type { ListenError } from './bind.ts';
+export { listenHttp, type HttpEndpoint, type HttpServer, type HttpServeOptions } from './http.ts';
 
 export interface Channel {
   send(message: unknown): void;
@@ -32,12 +33,6 @@ export interface SocketServer {
   close(): Promise<void>;
 }
 
-export type ListenError =
-  | { readonly reason: 'in-use' }
-  | { readonly reason: 'not-a-socket' }
-  | { readonly reason: 'path-too-long' }
-  | { readonly reason: 'cannot-listen'; readonly code: string };
-
 export type ConnectError = { readonly reason: 'not-running' } | { readonly reason: 'cannot-connect'; readonly code: string };
 
 export type RequestError =
@@ -46,14 +41,8 @@ export type RequestError =
   | { readonly reason: 'refused'; readonly error: unknown };
 
 const MAX_LINE_BYTES = 16 * 1024 * 1024;
-/** The longest Unix domain socket path every platform accepts (macOS: 104 bytes with its terminator). */
-const MAX_UNIX_PATH_BYTES = 103;
 const CONNECT_TIMEOUT_MS = 2000;
 const REQUEST_TIMEOUT_MS = 10_000;
-
-function isPipe(path: string): boolean {
-  return path.startsWith('\\\\.\\pipe\\');
-}
 
 function channelOf(socket: Socket): Channel {
   const listeners: ((message: unknown) => void)[] = [];
@@ -131,17 +120,6 @@ export async function requestOverSocket(path: string, method: string, params: un
   }
 }
 
-function bind(server: Server, path: string): Promise<NodeJS.ErrnoException | undefined> {
-  return new Promise((resolve) => {
-    const failed = (error: NodeJS.ErrnoException): void => resolve(error);
-    server.once('error', failed);
-    server.listen(path, () => {
-      server.off('error', failed);
-      resolve(undefined);
-    });
-  });
-}
-
 /**
  * Listens at `path`, handing each connection to `onChannel`, unless another
  * listener answers there. A socket file nothing answers at is taken over —
@@ -149,8 +127,6 @@ function bind(server: Server, path: string): Promise<NodeJS.ErrnoException | und
  * in the state database first).
  */
 export async function listenSocket(path: string, onChannel: (channel: Channel) => void): Promise<Result<SocketServer, ListenError>> {
-  const pipe = isPipe(path);
-  if (!pipe && Buffer.byteLength(path) > MAX_UNIX_PATH_BYTES) return err({ reason: 'path-too-long' });
   const open = new Set<Socket>();
   const server = createServer((socket) => {
     open.add(socket);
@@ -158,30 +134,8 @@ export async function listenSocket(path: string, onChannel: (channel: Channel) =
     onChannel(channelOf(socket));
   });
 
-  let failed = await bind(server, path);
-  if (failed?.code === 'EADDRINUSE' && !pipe) {
-    let stat;
-    try {
-      stat = lstatSync(path);
-    } catch {
-      stat = undefined;
-    }
-    if (stat !== undefined && !stat.isSocket()) return err({ reason: 'not-a-socket' });
-    const probe = await connectSocket(path);
-    if (probe.ok) {
-      probe.value.close();
-      return err({ reason: 'in-use' });
-    }
-    // Nothing answers: a socket left by a listener that has gone.
-    try {
-      unlinkSync(path);
-    } catch {
-      // Removed meanwhile: binding decides.
-    }
-    failed = await bind(server, path);
-  }
-  if (failed !== undefined) return err(failed.code === 'EADDRINUSE' ? { reason: 'in-use' } : { reason: 'cannot-listen', code: failed.code ?? 'UNKNOWN' });
-  if (!pipe) chmodSync(path, 0o600);
+  const failed = await bindPath(server, path);
+  if (failed !== undefined) return err(failed);
 
   return ok({
     // Node removes the socket file itself once the server is closed.

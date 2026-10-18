@@ -21,6 +21,7 @@
 
 import { parseSecretRef, type SecretRef } from '../config/index.ts';
 import { applyListOps } from '../contracts/index.ts';
+import type { HttpEndpoint } from '../socket/index.ts';
 import { DataReader, issuePath, type Issue, type Result } from '../result/index.ts';
 
 /** Every permission, in the order clients are shown the operations. */
@@ -39,10 +40,8 @@ export const PERMISSION_GROUPS: Readonly<Record<string, readonly Permission[]>> 
   '@admin': ['review', 'accept', 'reindex'],
 };
 
-export type Endpoint =
-  | { readonly kind: 'tcp'; readonly host: string; readonly port: number }
-  /** A Unix domain socket, or a named pipe on Windows. */
-  | { readonly kind: 'path'; readonly path: string };
+/** Where a profile is served: a loopback address and port, or a socket or pipe path. */
+export type Endpoint = HttpEndpoint;
 
 export interface McpProfile {
   readonly name: string;

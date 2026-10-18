@@ -55,5 +55,6 @@ test('HTTP requests are made only by the http module, which never follows redire
 });
 
 test('sockets are opened only by the socket module', () => {
-  assert.deepEqual([...importersOf('node:net'), ...importersOf('net')], ['core/socket/index.ts']);
+  const importers = [...importersOf('node:net'), ...importersOf('net')];
+  assert.ok(importers.length > 0 && importers.every((file) => file.startsWith('core/socket/')), importers.join(', '));
 });

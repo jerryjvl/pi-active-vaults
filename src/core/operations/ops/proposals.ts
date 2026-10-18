@@ -23,7 +23,7 @@ import { vaultRelative } from '../locate.ts';
 import { fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Caller, Operation } from '../types.ts';
 import { requestSpawns, spawnLines } from '../spawning.ts';
-import { actorOf, flag, forgeDeps, identityOf, personOf, readingFrom, text, texts, theVault } from './common.ts';
+import { flag, forgeDeps, identityOf, personOf, readingFrom, text, texts, theVault, writerOf } from './common.ts';
 
 const ACTOR_PARAM = { name: 'actor', kind: 'string', positional: true, description: 'The actor whose proposal it is' } as const;
 
@@ -141,7 +141,8 @@ export const acceptOperation: Operation = {
     ACTOR_PARAM,
     { name: 'adopt', kind: 'string', description: 'Adopt this commit, main\'s tip, as the accepted main instead' },
     { name: 'acknowledge', kind: 'string', description: 'The acknowledgement the delta showed for its concerns' },
-    { name: 'yes', kind: 'boolean', short: 'y', description: 'Confirm adopting the delta shown' },
+    // Confirming is the person's: never offered where a model could give it (Pi tools, MCP).
+    { name: 'yes', kind: 'boolean', short: 'y', surfaces: ['cli', 'command'], description: 'Confirm adopting the delta shown' },
   ],
   async run(context, request) {
     const vault = theVault(request);
@@ -239,12 +240,12 @@ export const commitOperation: Operation = {
   params: [
     { name: 'message', kind: 'string', required: true, short: 'm', description: 'The commit message' },
     { name: 'paths', kind: 'strings', positional: true, vaultPath: true, description: 'Only these paths, as <vault-id>:<path> (default: everything in the worktree)' },
-    { name: 'actor', kind: 'string', surfaces: ['cli', 'mcp'], description: 'The actor to commit as' },
+    { name: 'actor', kind: 'string', surfaces: ['cli', 'mcp'], required: ['mcp'], description: 'The actor to commit as' },
   ],
   async run(context, request) {
     const vault = theVault(request);
     const { caller, params } = request;
-    const actor = actorOf(caller, params);
+    const actor = await writerOf(context, vault, caller, params);
     if (!actor.ok) return fromError(actor.error);
     const accepted = await requireNoUnacceptedChange(context.git, context.state, vault);
     if (!accepted.ok) return fromError(accepted.error);
@@ -305,11 +306,11 @@ export const writeOperation: Operation = {
   params: [
     { name: 'path', kind: 'string', required: true, vaultPath: true, description: 'The document, as <vault-id>:<path>' },
     { name: 'content', kind: 'string', required: true, description: 'Its whole new content' },
-    { name: 'actor', kind: 'string', surfaces: ['mcp'], description: 'The actor to write as' },
+    { name: 'actor', kind: 'string', surfaces: ['mcp'], required: ['mcp'], description: 'The actor to write as: one of the vault\'s actors' },
   ],
   async run(context, request) {
     const vault = theVault(request);
-    const actor = actorOf(request.caller, request.params);
+    const actor = await writerOf(context, vault, request.caller, request.params);
     if (!actor.ok) return fromError(actor.error);
     const hold = await heldByAnother(context.state, context.alive, vault.id, actor.value, request.caller.holder);
     if (hold !== undefined) return fromError({ reason: 'actor-busy', hold });

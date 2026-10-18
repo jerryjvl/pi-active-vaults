@@ -42,6 +42,11 @@ export function paramsOn(operation: Operation, surface: ParamSurface): ParamSpec
   return operation.params.filter((p) => p.surfaces === undefined || p.surfaces.includes(surface));
 }
 
+/** Whether the parameter must be given on `surface`. */
+export function isRequired(spec: ParamSpec, surface: ParamSurface): boolean {
+  return spec.required === true || (Array.isArray(spec.required) && spec.required.includes(surface));
+}
+
 function kindOk(spec: ParamSpec, value: unknown): boolean {
   switch (spec.kind) {
     case 'string':
@@ -65,7 +70,7 @@ export function checkParams(operation: Operation, surface: ParamSurface, params:
   for (const spec of offered) {
     const value = params[spec.name];
     if (value === undefined) {
-      if (spec.required === true) r.add(spec.name, 'is required');
+      if (isRequired(spec, surface)) r.add(spec.name, 'is required');
     } else if (!kindOk(spec, value)) {
       r.add(spec.name, `must be ${spec.kind === 'strings' ? 'a list of strings' : `a${spec.kind === 'integer' ? 'n' : ''} ${spec.kind}`}`);
     } else if (spec.choices !== undefined && !spec.choices.includes(value as string)) {

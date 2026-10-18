@@ -94,6 +94,11 @@ export async function runDaemonCommand(argv: readonly string[], io: CliIo): Prom
       return EXIT.failed;
     }
     io.write('stderr', `vault daemon: running${daemon.value.recovered.stopped.length === 0 ? '' : `; ${daemon.value.recovered.stopped.length} run(s) left running before were stopped`}.\n`);
+    for (const endpoint of daemon.value.endpoints) {
+      io.write('stderr', 'address' in endpoint
+        ? `vault daemon: MCP profile "${endpoint.profile}" at ${endpoint.address}.\n`
+        : `vault daemon: MCP profile "${endpoint.profile}" is not served (${endpoint.error.reason}${'where' in endpoint.error ? ` in ${endpoint.error.where}` : ''}).\n`);
+    }
     await (io.until ?? new Promise<void>(() => {}));
     await daemon.value.stop();
     return EXIT.ok;

@@ -12,7 +12,7 @@
 import type { ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { Type, type TSchema } from 'typebox';
 import {
-  CATALOGUE, callRequest, describeCommandLineError, modelResult, paramsOn, type Operation, type ParamSpec,
+  CATALOGUE, callRequest, describeCommandLineError, isRequired, modelResult, paramsOn, type Operation, type ParamSpec,
 } from '../core/operations/index.ts';
 import { liveOr, type Holder } from './live.ts';
 import { operate, whereOf } from './operate.ts';
@@ -51,7 +51,7 @@ function schemaOf(spec: ParamSpec): TSchema {
 /** The tool's parameters: the operation's, on the tool surface, and `vaults` for one over many. */
 export function parametersOf(operation: Operation): TSchema {
   const properties: Record<string, TSchema> = {};
-  for (const spec of paramsOn(operation, 'tool')) properties[spec.name] = spec.required === true ? schemaOf(spec) : Type.Optional(schemaOf(spec));
+  for (const spec of paramsOn(operation, 'tool')) properties[spec.name] = isRequired(spec, 'tool') ? schemaOf(spec) : Type.Optional(schemaOf(spec));
   if (operation.vault === 'many') properties['vaults'] = Type.Optional(Type.Array(Type.String(), { description: 'The vault IDs to use (default: every vault)' }));
   return Type.Object(properties);
 }

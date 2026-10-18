@@ -11,6 +11,8 @@
 //    `<state>/refs` — makes it look at that vault at once;
 //  - the socket speaks the protocol `automation.handle` answers, and pushes
 //    notices to the connections that subscribed;
+//  - each MCP profile with an endpoint is served there (mcp.md); one that
+//    cannot be is reported and the others still are;
 //  - stopping ends its runs (recovered as restarted on the next start), its
 //    socket and its record.
 
@@ -21,6 +23,7 @@ import { createContext, loadInstallation, type ContextOptions, type OperationCon
 import { releaseDaemonRecord, takeDaemonRecord, type RecoveryReport } from '../core/queue/index.ts';
 import { err, isRecord, ok, type Result } from '../core/result/index.ts';
 import { listenSocket, type Channel, type ListenError, type SocketServer } from '../core/socket/index.ts';
+import { startMcpEndpoint, type McpEndpoint, type McpEndpointError } from '../mcp/index.ts';
 
 export interface DaemonOptions {
   readonly host: Host;
@@ -44,6 +47,8 @@ export interface RunningDaemon {
   readonly automation: Automation;
   /** What start-up recovery did. */
   readonly recovered: RecoveryReport;
+  /** Each MCP profile with an endpoint: served, or why not. */
+  readonly endpoints: readonly (McpEndpoint | { readonly profile: string; readonly error: McpEndpointError })[];
   stop(): Promise<void>;
 }
 
@@ -132,6 +137,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Result<Runnin
   }
   const recovered = await automation.start();
   schedule();
+  const endpoints: (McpEndpoint | { profile: string; error: McpEndpointError })[] = [];
+  for (const profile of installation.value.mcp.profiles.filter((p) => p.listen !== undefined)) {
+    const started = await startMcpEndpoint(context, profile);
+    endpoints.push(started.ok ? started.value : { profile: profile.name, error: started.error });
+  }
 
   const timers: ReturnType<typeof setInterval>[] = [];
   let ticking = Promise.resolve();
@@ -160,9 +170,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Result<Runnin
   return ok({
     automation,
     recovered,
+    endpoints,
     async stop() {
       for (const timer of timers) clearInterval(timer);
       watcher?.close();
+      for (const endpoint of endpoints) if ('close' in endpoint) await endpoint.close();
       await ticking;
       await scheduling;
       await automation.stop();

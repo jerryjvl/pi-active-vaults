@@ -18,7 +18,8 @@ export interface ParamSpec {
   readonly name: string;
   readonly kind: ParamKind;
   readonly description: string;
-  readonly required?: boolean;
+  /** Required everywhere, or only on these surfaces (an MCP write names its actor; elsewhere it has one). */
+  readonly required?: boolean | readonly ParamSurface[];
   /** CLI: taken from the positional arguments, in order (a `strings` one takes the rest). */
   readonly positional?: boolean;
   /** The only values it takes. */

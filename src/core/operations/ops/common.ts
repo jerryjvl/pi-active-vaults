@@ -6,7 +6,7 @@
 import type { ForgeDeps } from '../../forge/index.ts';
 import { MAIN_BRANCH, acceptedIdentity, acceptedMain, type AcceptedMain } from '../../integrity/index.ts';
 import type { NotifyDeps } from '../../notify/index.ts';
-import { readVaultIdentity, type IdentityError, type RegisteredVault, type VaultIdentity } from '../../registry/index.ts';
+import { isOwner, isVaultActor, readVaultIdentity, type IdentityError, type RegisteredVault, type VaultIdentity } from '../../registry/index.ts';
 import { err, ok, type Result } from '../../result/index.ts';
 import type { SearchContext } from '../../search/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
@@ -49,10 +49,25 @@ export function personOf(caller: Caller): Result<string, { reason: 'no-person' }
   return caller.person === undefined ? err({ reason: 'no-person' }) : ok(caller.person);
 }
 
-/** The actor a write is made as: the caller's, or the one the parameters name where the surface allows it. */
-export function actorOf(caller: Caller, params: Params): Result<string, { reason: 'no-person' }> {
-  const actor = text(params, 'actor') ?? caller.actor ?? caller.person;
-  return actor === undefined ? err({ reason: 'no-person' }) : ok(actor);
+export type WriterError = { readonly reason: 'no-person' } | { readonly reason: 'not-a-vault-actor'; readonly vault: string; readonly actor: string } | IdentityError;
+
+/**
+ * The actor a write is made as: the one the parameters name where the
+ * surface offers it, else the caller's, else the person's. Over MCP it is
+ * always named and must be one of the vault's `actors`, never an owner
+ * (mcp.md "Rules"): a client is no person, and what it read is unknown, so
+ * it never writes as one — not even as its profile's owner.
+ */
+export async function writerOf(context: OperationContext, vault: RegisteredVault, caller: Caller, params: Params): Promise<Result<string, WriterError>> {
+  const named = text(params, 'actor');
+  if (caller.surface !== 'mcp') {
+    const actor = named ?? caller.actor ?? caller.person;
+    return actor === undefined ? err({ reason: 'no-person' }) : ok(actor);
+  }
+  if (named === undefined) return err({ reason: 'no-person' });
+  const identity = await identityOf(context, vault);
+  if (!identity.ok) return identity;
+  return isVaultActor(identity.value, named) && !isOwner(identity.value, named) ? ok(named) : err({ reason: 'not-a-vault-actor', vault: vault.id, actor: named });
 }
 
 export function searchContext(context: OperationContext, index: SearchContext['index']): SearchContext {

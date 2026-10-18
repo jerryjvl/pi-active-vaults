@@ -30,7 +30,7 @@ export function failed(text: string, data?: unknown): OperationOutcome {
 const REFUSALS = new Set([
   'unaccepted-change', 'policy-unmet', 'checks-failed', 'not-owner', 'not-reviewed', 'branch-moved', 'actor-busy',
   'raw-address', 'unknown-recipient', 'rate-limited', 'too-large', 'unacknowledged', 'not-main-tip', 'not-permitted',
-  'no-person', 'forge-mode', 'not-forge-mode', 'not-pushable', 'shadows-builtin', 'unknown-actor', 'outside-worktree',
+  'no-person', 'not-a-vault-actor', 'forge-mode', 'not-forge-mode', 'not-pushable', 'shadows-builtin', 'unknown-actor', 'outside-worktree',
 ]);
 
 type ErrorValue = { readonly reason: string } & Record<string, unknown>;
@@ -128,6 +128,8 @@ export function describeError(error: ErrorValue): string {
       return `${str(e['what'])} is not configured.`;
     case 'not-found':
       return `${str(e['path']) || 'It'} was not found.`;
+    case 'not-a-vault-actor':
+      return `"${str(e['actor'])}" is not one of vault "${str(e['vault'])}"'s actors; through MCP, writes are made only as one of them, never as an owner.`;
     case 'not-permitted':
       return `"${str(e['operation'])}" is not permitted for vault "${str(e['vault'])}".`;
     case 'invalid':

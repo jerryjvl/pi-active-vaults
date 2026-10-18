@@ -1,6 +1,6 @@
 // The `vault` command (cli.md): every operation the catalogue offers on the
 // CLI, generated from it — this file knows no command by name except
-// `daemon …` (daemon.ts) and `mcp`, which control processes. It parses,
+// `daemon …` (daemon.ts) and `mcp` (mcp.ts), which run as processes. It parses,
 // asks the core, and presents:
 //
 //  - every command first reports each vault with an unaccepted change, on
@@ -16,6 +16,7 @@
 //    it shows the delta and how to confirm it.
 
 import { readFileSync } from 'node:fs';
+import type { Readable, Writable } from 'node:stream';
 import { isAbsolute, resolve } from 'node:path';
 import type { Host, ServiceProgram } from '../core/config/index.ts';
 import {
@@ -25,6 +26,7 @@ import {
 import { linkDaemon } from '../core/automation/index.ts';
 import type { DaemonOptions } from '../daemon/daemon.ts';
 import { runDaemonCommand } from './daemon.ts';
+import { runMcpCommand } from './mcp.ts';
 
 export interface CliIo {
   write(stream: 'stdout' | 'stderr', text: string): void;
@@ -40,6 +42,8 @@ export interface CliIo {
   readonly until?: Promise<void>;
   /** How `vault daemon` runs a service manager's command (tests). */
   readonly runProgram?: (program: ServiceProgram) => Promise<number>;
+  /** The streams `vault mcp` speaks over (default: the process's own standard input and output). */
+  readonly stdio?: { readonly input: Readable; readonly output: Writable };
   /** What `vault daemon run` is started with besides the machine (tests). */
   readonly daemon?: Pick<DaemonOptions, 'pid' | 'pi' | 'env' | 'timeZone'>;
 }
@@ -82,10 +86,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     return EXIT.ok;
   }
   if (command === 'daemon') return runDaemonCommand(argv, io);
-  if (command === 'mcp') {
-    io.write('stderr', `vault ${argv.join(' ')}: MCP is not part of this version yet.\n`);
-    return EXIT.failed;
-  }
+  if (command === 'mcp') return runMcpCommand(argv, io);
   const found = findOperation(argv);
   if (found === undefined) {
     io.write('stderr', `vault: "${command}" is not a command.\n\n${overview()}\n`);

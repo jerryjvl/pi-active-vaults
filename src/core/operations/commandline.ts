@@ -15,7 +15,7 @@
 
 import type { RegisteredVault } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
-import { chooseVaults, paramsOn, placeVaultPaths, type VaultChoiceError } from './catalogue.ts';
+import { chooseVaults, isRequired, paramsOn, placeVaultPaths, type VaultChoiceError } from './catalogue.ts';
 import type { Installation } from './installation.ts';
 import type { Location } from './locate.ts';
 import type { Operation, ParamSpec, ParamSurface } from './types.ts';
@@ -123,7 +123,7 @@ export function assignPositionals(operation: Operation, params: Record<string, u
 export function usage(operation: Operation, surface: ParamSurface = 'cli'): string {
   const specs = paramsOn(operation, surface);
   const positional = specs.filter((p) => p.positional === true)
-    .map((p) => (p.kind === 'strings' ? `[${p.name}...]` : p.required === true ? `<${p.name}>` : `[${p.name}]`));
+    .map((p) => (p.kind === 'strings' ? `[${p.name}...]` : isRequired(p, surface) ? `<${p.name}>` : `[${p.name}]`));
   const vault = operation.vault === 'none' ? [] : ['[vault]'];
   const flags = specs.filter((p) => p.positional !== true).map((p) => {
     const value = p.kind === 'boolean' ? '' : ` <${p.name}>`;
@@ -175,7 +175,7 @@ export function commandRequest(
   const params = { ...line.params };
   const named = [...line.vaults];
   const positionals = [...line.positionals];
-  const required = paramsOn(operation, surface).filter((p) => p.positional === true && p.required === true).length;
+  const required = paramsOn(operation, surface).filter((p) => p.positional === true && isRequired(p, surface)).length;
   if (operation.vault !== 'none' && positionals.length > required && installation.vaults.some((v) => v.id === positionals[0])) {
     named.push(positionals.shift() ?? '');
   }
