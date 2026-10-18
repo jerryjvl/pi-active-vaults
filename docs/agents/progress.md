@@ -521,3 +521,29 @@ Copy this block for each stage:
   3. *Merge-result check:* `e6447f6` (tests), `b39063a` — status, doctor and one notification to the owners, naming the pull request and that its attestations and trace notes no longer attach.
   4. *Run outcomes:* `497f185` (test), `fe35963`; `daemon.md` updated; confirmed with the real Pi against a closed port (stopped `error`).
   5. *Smoke cleanup:* `316d797`; the leftover `/tmp/pav-smoke-Zm8Fln` was removed (unexamined, so why it was left is not known); the fix covers set-up failures, throws and interrupts.
+
+
+### Stage 7 review — a merged proposal's branch, and the empty `skills/`
+
+- **Commits:** `c3bf885..` on `impl/v1` — tests (`c3bf885`, failing until `75233e7`), `5bee56b`, `75233e7`, `ac48f93`, `d19e2f0`, and this entry as the last commit.
+- **Results:** `npm test`: 858 tests, 858 pass, none skipped on Linux. `npm run check`: no errors. `npm run build`: compiles. Node v24.18.0, git 2.55.0, Linux. Mutation-checked: dropping the "not proposed again" skip, the hold check or the clean-worktree check each fails tests.
+- **Built:**
+  - *Reset:* `actors/reset.ts` `resetActorBranch` (and `git`'s `resetHard`): the branch moves to the accepted `main` only when its tip is exactly the approved head, no session holds the actor (any hold that stands), and its worktree has no change at all, untracked files included; a branch without a worktree moves by compare-and-swap on the head. Each refusal is an outcome (`moved`, `actor-busy`, `uncommitted-changes`, `no-branch`), never a partial reset.
+  - *Forge sync:* when a lost merge is first reported (`judgeMerges`), the reset is tried and the owners' notice says what became of the branch — reset, or left with the condition that stopped it and what to do. The reset happens whether or not notifications are configured.
+  - *Reports clear themselves:* `lostMerges` is now asynchronous and lists a lost merge only while its actor branch holds the approved head (a branch it cannot read counts as holding it, so a report is not dropped on a failure); `vault status` and `vault doctor` show `lostMergeReport` (what happened and what to do). Nothing needs dismissing.
+  - *No new pull request:* `proposeFor` skips an actor whose branch holds a lost merge's head, judged from the state store and Git, so a restart neither reopens a pull request nor re-reports (the merge is recorded once, as before).
+  - *Skills:* `skills/`, the `files` entry and the `pi.skills` manifest entry are gone; `architecture.md` and `pi-conventions.md` no longer name skills.
+- **Tests:** `test/core/actors/reset.test.ts` (reset with and without a worktree; each condition that prevents it; a hold that has ended no longer prevents it); `test/core/automation/background.test.ts`: squash and rebase merges reset the branch and the owner is told once, also over later ticks and a restart, with no pull request opened; for each of a session's hold, a moved tip, a tracked change and an untracked file: the branch is untouched, status and doctor list the merge with what to do, the owner is told once with the reason, no pull request is opened across ticks and a restart, the report clears when the owner resets the branch, and new work is proposed again.
+- **Decisions:**
+  - The reset is tried once, when the merge is first reported; a branch left as it is stays so until the owner resets it (the daemon does not reset it later, when the holding session ends, so it never moves a branch the owner was told to look at).
+  - "Holds the approved head" is the condition for both listing and not proposing again, so a branch with later work on top of the approved head is not proposed either, until it is reset; the report says so.
+  - Two lost merges of one actor in one tick: the first resets the branch, so the second is reported as left because the branch moved (rare; not special-cased).
+- **Needs owner approval:**
+  1. **A question:** pushes of actor branches are never forced (`pushToForge`), so after a reset the next proposal's push is rejected (`git-failed` in the daemon's status) while the forge still has the branch at the merged head. It works once the forge has deleted the head branch after the merge (a forge setting: Gitea "delete branch after merge", GitHub "automatically delete head branches", GitLab "delete source branch"), or the owner deletes it. The test deletes it to model that. Options: name the setting in `security-setup.md`, or let the package push actor branches with a lease. Nothing changed.
+- **Gaps:**
+  - No test of the manual instruction itself (`git reset --hard main` in the worktree is what the tests do; `git branch -f` where there is no worktree is untested).
+  - The deleted-head-branch behaviour above is checked only against the stub forge, not a real one.
+- **Review findings addressed:**
+  1. *Per-forge settings, the forge row in `security.md`, the README status line, the merge-check rules in `daemon.md`:* approved; the listing-forever rule is replaced by the reset rule above (`daemon.md`, `core.md`).
+  2. *Reset after a squash or rebase merge:* tests first (`c3bf885`), then `5bee56b`, `75233e7`, docs `d19e2f0`.
+  3. *Empty `skills/`:* dropped (`ac48f93`); the Stage 7 question 5 is closed.
