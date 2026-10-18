@@ -60,7 +60,7 @@ test('a run past its budget is stopped', withInstallation(async (t) => {
 }, { running: RUNNING }));
 
 test('a run writes only in its worktree', withInstallation(async (t) => {
-  const entry = startedSpawn(t);
+  const entry = startedSpawn(t, 'jobs/daily.md', 1_000_000);
   await withPi(t, { flags: { 'vault-run': runFile(t, entry) } }, async (pi) => {
     pi.respond(call('write', { path: t.dir.file('elsewhere.txt'), content: 'x' }), call('write', { path: join(t.vault.worktrees, 'gardener', 'a.md'), content: 'A' }), fauxAssistantMessage('Done.'));
     await pi.prompt('Run the job.');

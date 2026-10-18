@@ -61,16 +61,24 @@ function textOf(content: unknown): string {
   return Array.isArray(content) ? content.map((c: { type?: string; text?: string }) => (c.type === 'text' ? c.text ?? '' : '')).join('') : '';
 }
 
-/** A UI that records what it is told and answers confirmations as the test says; everything else does nothing. */
+/**
+ * A UI that records what it is told and answers confirmations as the test
+ * says; everything else does nothing. A plain object, since Pi copies the UI
+ * with a spread.
+ */
 function recordingUi(notices: PiSession['notices'], confirm: boolean | undefined): ExtensionUIContext {
-  const quiet = new Proxy({}, { get: () => () => undefined });
-  return new Proxy(quiet as ExtensionUIContext, {
-    get: (_target, key) => {
-      if (key === 'notify') return (text: string, level = 'info') => notices.push({ text, level });
-      if (key === 'confirm') return async () => confirm ?? false;
-      return () => undefined;
-    },
-  });
+  const nothing = (): undefined => undefined;
+  const methods = [
+    'select', 'input', 'onTerminalInput', 'setStatus', 'setWorkingMessage', 'setWorkingVisible', 'setWorkingIndicator',
+    'setHiddenThinkingLabel', 'setWidget', 'setFooter', 'setHeader', 'setTitle', 'custom', 'pasteToEditor', 'setEditorText',
+    'getEditorText', 'editor', 'addAutocompleteProvider', 'setEditorComponent', 'getEditorComponent', 'getAllThemes', 'getTheme',
+    'setTheme', 'getToolsExpanded', 'setToolsExpanded',
+  ];
+  return {
+    ...Object.fromEntries(methods.map((m) => [m, nothing])),
+    notify: (text: string, level = 'info') => { notices.push({ text, level }); },
+    confirm: async () => confirm ?? false,
+  } as unknown as ExtensionUIContext;
 }
 
 export async function openPi(t: TestInstallation, options: PiOptions = {}): Promise<PiSession> {
