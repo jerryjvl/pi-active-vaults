@@ -1,6 +1,7 @@
 // The `vault` command (cli.md): every operation the catalogue offers on the
-// CLI, generated from it — this file knows no command by name except the
-// daemon's, which need the daemon. It parses, asks the core, and presents:
+// CLI, generated from it — this file knows no command by name except
+// `daemon …` (daemon.ts) and `mcp`, which control processes. It parses,
+// asks the core, and presents:
 //
 //  - every command first reports each vault with an unaccepted change, on
 //    standard error;
@@ -16,11 +17,13 @@
 
 import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
-import type { Host } from '../core/config/index.ts';
+import type { Host, ServiceProgram } from '../core/config/index.ts';
 import {
   CATALOGUE, commandRequest, createContext, describeCommandLineError, describeError, loadInstallation, locate, outcomeData, paramsOn, parseLine, runOperation, unacceptedNotices, usage,
   type ContextOptions, type Operation, type OperationOutcome,
 } from '../core/operations/index.ts';
+import type { DaemonOptions } from '../daemon/daemon.ts';
+import { runDaemonCommand } from './daemon.ts';
 
 export interface CliIo {
   write(stream: 'stdout' | 'stderr', text: string): void;
@@ -32,10 +35,15 @@ export interface CliIo {
   readonly host: Host;
   /** Services to use instead of the system's (tests). */
   readonly context?: ContextOptions;
+  /** `vault daemon run` stops when this resolves (the process's signals); it runs until then. */
+  readonly until?: Promise<void>;
+  /** How `vault daemon` runs a service manager's command (tests). */
+  readonly runProgram?: (program: ServiceProgram) => Promise<number>;
+  /** What `vault daemon run` is started with besides the machine (tests). */
+  readonly daemon?: Pick<DaemonOptions, 'pid' | 'pi' | 'env' | 'timeZone'>;
 }
 
 const EXIT = { ok: 0, failed: 1, invalid: 2, refused: 3 } as const;
-const DAEMON_COMMANDS = ['daemon', 'mcp'];
 
 const onCli = CATALOGUE.filter((o) => o.surfaces.cli);
 
@@ -72,8 +80,9 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     io.write('stdout', `${overview()}\n`);
     return EXIT.ok;
   }
-  if (DAEMON_COMMANDS.includes(command)) {
-    io.write('stderr', `vault ${argv.join(' ')}: this needs the daemon, which is not part of this version yet.\n`);
+  if (command === 'daemon') return runDaemonCommand(argv, io);
+  if (command === 'mcp') {
+    io.write('stderr', `vault ${argv.join(' ')}: MCP is not part of this version yet.\n`);
     return EXIT.failed;
   }
   const found = findOperation(argv);

@@ -31,6 +31,10 @@ const io: CliIo = {
     : {}),
   cwd: process.cwd(),
   host: currentHost(),
+  // `vault daemon run` stops on the signals a service manager or a terminal sends.
+  until: new Promise<void>((resolve) => {
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => resolve());
+  }),
 };
 
 process.exitCode = await runCli(process.argv.slice(2), io);
