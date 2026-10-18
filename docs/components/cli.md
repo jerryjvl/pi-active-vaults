@@ -72,6 +72,7 @@ its operation's parameters (`vault <command> --help`).
 | `vault daemon start` / `stop` / `status` | Control the installed service; `status` asks the running daemon and exits `1` when there is none |
 | `vault daemon run` | Run in the foreground until signalled; when another daemon already runs, it says so and exits `0` |
 | `vault daemon print-unit` | Print the service definition, for declarative setups |
+| `vault daemon … --headless` | macOS: the launchd daemon for a Mac nobody logs in to; `print-unit` prints it, and `install`, `start` and `stop` say what to run with `sudo`, since it is the system's |
 | `vault mcp --profile <name>` | Serve one MCP profile over standard input/output, for local MCP clients |
 
 ## Installation of the command

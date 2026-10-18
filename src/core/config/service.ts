@@ -2,7 +2,8 @@
 // user's own Pi, which the daemon runs headless sessions with.
 //
 // One definition per platform: a systemd user unit on Linux, a launchd agent
-// on macOS, a Task Scheduler task at logon on Windows — with the commands that
+// on macOS — or, on a Mac nobody logs in to, a launchd daemon run as the
+// user — a Task Scheduler task at logon on Windows — with the commands that
 // register, start, stop and query it, as programs and arguments. Each runs
 // the package's CLI (`vault daemon run`) through the platform's shell, which
 // finds `node` on PATH when the service starts, so upgrading Node does not
@@ -42,6 +43,7 @@ export interface ServiceDefinition {
 
 export type ServiceError =
   | { readonly reason: 'unsafe-path'; readonly program: string }
+  | { readonly reason: 'not-supported'; readonly os: Host['os'] }
   | { readonly reason: 'no-directory'; readonly variable: string };
 
 const NAME = 'pi-active-vaults';
@@ -84,9 +86,14 @@ function linux(host: Host, program: string): ServiceDefinition {
   };
 }
 
-function macos(host: Host, program: string, logs: string, uid: number | undefined): ServiceDefinition {
-  const file = `${host.home}/Library/LaunchAgents/${LAUNCHD_LABEL}.plist`;
-  const domain = `gui/${uid ?? 0}`;
+/**
+ * A launchd agent in the user's GUI domain — or, `headless`, a launchd
+ * daemon in the system domain, run as the user with their home, for a Mac
+ * nobody logs in to (installing it needs administrator rights).
+ */
+function macos(host: Host, program: string, logs: string, uid: number | undefined, headless: boolean): ServiceDefinition {
+  const file = headless ? `/Library/LaunchDaemons/${LAUNCHD_LABEL}.plist` : `${host.home}/Library/LaunchAgents/${LAUNCHD_LABEL}.plist`;
+  const domain = headless ? 'system' : `gui/${uid ?? 0}`;
   const launchctl = (...args: string[]): ServiceProgram => ({ file: '/bin/launchctl', args });
   return {
     file,
@@ -97,6 +104,10 @@ function macos(host: Host, program: string, logs: string, uid: number | undefine
       '<plist version="1.0">',
       '<dict>',
       `  <key>Label</key>\n  <string>${LAUNCHD_LABEL}</string>`,
+      ...(headless ? [
+        `  <key>UserName</key>\n  <string>${xml(host.user)}</string>`,
+        `  <key>EnvironmentVariables</key>\n  <dict>\n    <key>HOME</key>\n    <string>${xml(host.home)}</string>\n  </dict>`,
+      ] : []),
       '  <key>ProgramArguments</key>',
       '  <array>',
       ...['/bin/sh', '-lc', 'exec node "$0" daemon run', program].map((a) => `    <string>${xml(a)}</string>`),
@@ -161,14 +172,18 @@ function windows(host: Host, program: string, state: string): Result<ServiceDefi
 }
 
 /** The service definition for running `program` (the CLI's entry point) as the daemon on `host`. */
-export function serviceFor(host: Host, program: string, where: { readonly state: string; readonly uid?: number }): Result<ServiceDefinition, ServiceError> {
+export function serviceFor(
+  host: Host, program: string, where: { readonly state: string; readonly uid?: number; readonly headless?: boolean },
+): Result<ServiceDefinition, ServiceError> {
   if (/[\r\n\0]/.test(program)) return err({ reason: 'unsafe-path', program });
+  const headless = where.headless === true;
+  if (headless && host.os !== 'darwin') return err({ reason: 'not-supported', os: host.os });
   const logs = pathFor(host.os).join(where.state, 'logs');
   switch (host.os) {
     case 'win32':
       return /["%]/.test(program) ? err({ reason: 'unsafe-path', program }) : windows(host, program, where.state);
     case 'darwin':
-      return ok(macos(host, program, logs, where.uid));
+      return ok(macos(host, program, logs, where.uid, headless));
     default:
       return ok(linux(host, program));
   }

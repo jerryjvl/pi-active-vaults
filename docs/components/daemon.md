@@ -201,7 +201,7 @@ reason?, commit? }`, with `state` `started` or `finished`.
 | Platform | Service |
 |---|---|
 | Linux | systemd user unit, `$XDG_CONFIG_HOME/systemd/user/pi-active-vaults.service` |
-| macOS | launchd agent, `~/Library/LaunchAgents/pi-active-vaults.daemon.plist` (a launchd daemon with a user on headless machines) |
+| macOS | launchd agent, `~/Library/LaunchAgents/pi-active-vaults.daemon.plist`; on a Mac nobody logs in to, `--headless`: a launchd daemon, `/Library/LaunchDaemons/pi-active-vaults.daemon.plist`, run as the user with their `HOME`, installed by the person with `sudo` |
 | Windows | Task Scheduler task at logon, `pi-active-vaults`, registered with `schtasks` |
 
 The service runs `vault daemon run` through the platform's shell (a login

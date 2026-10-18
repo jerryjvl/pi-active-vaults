@@ -7,6 +7,11 @@
 //   status      ask the running daemon (exit 1 when there is none)
 //   run         run the daemon in the foreground until signalled
 //   print-unit  print the service definition, for declarative setups
+//
+// `--headless` (macOS) is the launchd daemon for a Mac nobody logs in to. It
+// lives in the system domain, so installing, starting and stopping it need
+// administrator rights the package never asks for: `print-unit --headless`
+// prints it, and the other commands say what to run with sudo.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -59,10 +64,15 @@ function statusText(status: unknown): string {
 }
 
 export async function runDaemonCommand(argv: readonly string[], io: CliIo): Promise<number> {
-  const [, command] = argv;
+  const [, command, ...options] = argv;
   const known = COMMANDS.find((c) => c === command);
-  if (known === undefined) {
-    io.write('stderr', `Usage: vault daemon ${COMMANDS.join('|')}\n`);
+  const headless = options.includes('--headless');
+  if (known === undefined || options.some((o) => o !== '--headless')) {
+    io.write('stderr', `Usage: vault daemon ${COMMANDS.join('|')} [--headless]\n`);
+    return EXIT.invalid;
+  }
+  if (headless && (known === 'status' || known === 'run')) {
+    io.write('stderr', `vault daemon ${known}: --headless is only for install, start, stop and print-unit.\n`);
     return EXIT.invalid;
   }
   const installation = loadInstallation(io.host);
@@ -107,13 +117,25 @@ export async function runDaemonCommand(argv: readonly string[], io: CliIo): Prom
   }
 
   const service = serviceFor(io.host, CLI_PROGRAM, {
-    state: dirname(paths.stateDb), ...(typeof process.getuid === 'function' ? { uid: process.getuid() } : {}),
+    state: dirname(paths.stateDb), headless, ...(typeof process.getuid === 'function' ? { uid: process.getuid() } : {}),
   });
+  if (!service.ok && service.error.reason === 'not-supported') {
+    io.write('stderr', 'vault daemon: --headless is for macOS, where a launchd daemon runs the daemon on a Mac nobody logs in to.\n');
+    return EXIT.invalid;
+  }
   if (!service.ok) {
     io.write('stderr', `vault daemon: the service cannot be defined (${service.error.reason}).\n`);
     return EXIT.failed;
   }
   const definition: ServiceDefinition = service.value;
+  if (headless && known !== 'print-unit') {
+    const sudo = (programs: readonly ServiceProgram[]): string[] => programs.map((p) => `  sudo ${[p.file, ...p.args].join(' ')}`);
+    const steps = known === 'install'
+      ? [`  vault daemon print-unit --headless | sudo tee ${definition.file} >/dev/null`, ...sudo(definition.commands.install)]
+      : sudo(definition.commands[known]);
+    io.write('stderr', `vault daemon: the headless daemon is the system's, so this needs administrator rights. Run:\n${steps.join('\n')}\n`);
+    return EXIT.invalid;
+  }
   switch (known) {
     case 'print-unit':
       io.write('stdout', definition.text);
