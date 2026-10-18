@@ -11,6 +11,7 @@ export {
   hasSession,
   startSession,
   treePath,
+  usedToday,
   type AllotRefusal,
   type AllotRequest,
   type Allotment,

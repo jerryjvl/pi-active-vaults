@@ -61,7 +61,7 @@ test('a run that changes nothing is no-change; one that crashes is stopped with 
   assert.deepEqual(audit.map((r) => r.state), ['recorded', 'recorded']);
   const noChange = readFullLog(t.installation.paths.logs, listSpawns(t.context.state)[0]?.trace ?? '').find((l) => l.name === 'daemon');
   assert.match(noChange?.text ?? '', /"outcome":"no-change"/);
-}, { contract: { actors: ['gardener', 'librarian'] } }));
+}, { contract: { actors: ['gardener', 'librarian'] }, config: 'daemon: { parallel: 2 }' }));
 
 test('a run past its run time is killed and stopped with ttl; one past its budget is stopped with budget', withInstallation(async (t) => {
   jobs(t, { 'jobs/slow.md': jobDocument(MANUAL, { ttl: '1s' }), 'jobs/costly.md': jobDocument(MANUAL, { actor: 'librarian' }) });
@@ -71,7 +71,7 @@ test('a run past its run time is killed and stopped with ttl; one past its budge
   await automation.idle();
   const ended = Object.fromEntries(listSpawns(t.context.state).map((s) => [s.document, s.reason]));
   assert.deepEqual(ended, { 'jobs/costly.md': 'budget', 'jobs/slow.md': 'ttl' });
-}, { contract: { actors: ['gardener', 'librarian'] } }));
+}, { contract: { actors: ['gardener', 'librarian'] }, config: 'daemon: { parallel: 2 }' }));
 
 test('one job per actor at a time, within capacity: the next starts when the first has ended', withInstallation(async (t) => {
   jobs(t, { 'jobs/a.md': jobDocument(MANUAL), 'jobs/b.md': jobDocument(MANUAL) });

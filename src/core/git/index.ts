@@ -24,6 +24,7 @@ export {
   changedPaths,
   commitsBetween,
   diffText,
+  lastAdded,
   listFiles,
   listTree,
   pathTypeAt,

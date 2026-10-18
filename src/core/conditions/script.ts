@@ -14,7 +14,7 @@ import { runScript, type ScriptRunOptions } from '../scripts/index.ts';
 import type { Git } from '../git/index.ts';
 import type { VaultLocation } from '../integrity/index.ts';
 import type { Queryable } from '../store/index.ts';
-import { eventJson, type Match, type VaultEvent } from './match.ts';
+import { eventJson, type Match } from './match.ts';
 
 export interface ScriptFilterContext {
   readonly git: Git;
@@ -31,9 +31,9 @@ export interface Narrowed {
   readonly dropped: { readonly match: Match; readonly reason: string }[];
 }
 
-/** Runs the script of each match that has one, in order; keeps those that exit 0 and every match without a script. */
+/** Runs the script of each match that has one, in order, given the event (any a spawn answers, a timer's too); keeps those that exit 0 and every match without a script. */
 export async function narrowByScripts(
-  context: ScriptFilterContext, options: ScriptFilterOptions, event: VaultEvent, matches: readonly Match[],
+  context: ScriptFilterContext, options: ScriptFilterOptions, event: { readonly kind: string }, matches: readonly Match[],
 ): Promise<Narrowed> {
   const narrowed: Narrowed = { kept: [], dropped: [] };
   const input = eventJson(event);

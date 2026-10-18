@@ -62,10 +62,14 @@ function spawnEvent(event: VaultEvent, id: string | undefined): SpawnEvent {
   return { ...event, id };
 }
 
-/** The spawn requests `event` makes in `targets`: every spawn condition it matches on their accepted mains, narrowed by scripts. */
+/**
+ * The spawn requests `event` makes in `targets`: every spawn condition it
+ * matches on their accepted mains, narrowed by scripts — of only the jobs
+ * `only` keeps, when given (the daemon matches each job from its own cursor).
+ */
 export async function matchSpawns(
   m: SpawnMatching, given: { readonly event: VaultEvent; readonly id?: string }, targets: readonly RegisteredVault[],
-  tree: { readonly parent?: string } = {},
+  tree: { readonly parent?: string } = {}, only?: (vault: string, document: string) => boolean,
 ): Promise<Result<MatchedSpawns, GitError>> {
   const candidates: Candidate[] = [];
   const runnable = new Map<string, { budget: Budget; actor: string }>();
@@ -80,6 +84,7 @@ export async function matchSpawns(
     if (!jobs.ok) return jobs;
     for (const job of jobs.value) {
       if (job.budget === undefined || job.actor === undefined) continue; // cannot spawn; `vault jobs` says why
+      if (only !== undefined && !only(vault.id, job.path)) continue;
       candidates.push({ vault: vault.id, document: job.path, conditions: job.conditions });
       runnable.set(`${vault.id}:${job.path}`, { budget: job.budget, actor: job.actor });
     }

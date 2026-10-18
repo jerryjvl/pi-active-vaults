@@ -16,6 +16,7 @@ export { describeError, fromError } from './messages.ts';
 export { MODEL_TEXT_LIMIT, modelResult, outcomeData, type ModelResult, type OutcomeData } from './results.ts';
 export { unacceptedNotices, type VaultNotice } from './notices.ts';
 export { doctorFindings, type Finding } from './ops/doctor.ts';
+export { notifyDeps } from './ops/common.ts';
 export { queueContext, requestSpawns, spawnLines, type RequestedSpawns } from './spawning.ts';
 export type {
   Caller, Operation, OperationOutcome, OperationRequest, OperationStatus, ParamKind, ParamSpec, ParamSurface, Surfaces, VaultScope,

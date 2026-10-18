@@ -103,11 +103,13 @@ export type SpawnState = 'queued' | 'running' | 'committed' | 'no-change' | 'sto
 
 /**
  * Why a queued or running spawn stopped: over its budget or run time, queued
- * too long, an error, or still running when the daemon restarted (start-up
- * recovery). A spawn its session tree refused at the claim carries the
- * tree's reason instead.
+ * too long, an error, still running when the daemon restarted (start-up
+ * recovery), stopped on request (the socket's `stop`), or a job that needs
+ * its originating session without one to fork (`context: session-required`).
+ * A spawn its session tree refused at the claim carries the tree's reason
+ * instead.
  */
-export type StopReason = 'budget' | 'ttl' | 'queue-time' | 'error' | 'restart';
+export type StopReason = 'budget' | 'ttl' | 'queue-time' | 'error' | 'restart' | 'requested' | 'no-session';
 
 export interface SpawnRequest {
   readonly vault: string;

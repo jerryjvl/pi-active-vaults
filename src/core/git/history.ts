@@ -220,3 +220,14 @@ export async function pathTypeAt(
   const type = ran.value.stdout.toString('utf8').trim();
   return ok(type === 'tree' ? 'directory' : type === 'blob' ? 'file' : undefined);
 }
+
+/** The latest commit on `revision`'s first-parent history that added `path` — a merge, for what an accept brought — if any. */
+export async function lastAdded(git: Git, repo: string, revision: string, path: string): Promise<Result<Sha | undefined, GitError>> {
+  const checked = checkTreePath(path);
+  if (!checked.ok) return checked;
+  const sha = await resolveRevision(git, repo, revision);
+  if (!sha.ok) return sha;
+  const text = await runForText(git, ['log', '--first-parent', '--diff-filter=A', '--format=%H', '-n', '1', sha.value, '--', path], { cwd: repo });
+  if (!text.ok) return text;
+  return ok(text.value === '' ? undefined : text.value);
+}

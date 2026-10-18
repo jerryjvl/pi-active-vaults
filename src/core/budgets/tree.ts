@@ -111,7 +111,8 @@ function session(tx: Queryable, trace: string): SessionRow | undefined {
   return tx.get<SessionRow>(`SELECT ${SESSION_COLUMNS} FROM budgets_sessions WHERE trace = ?`, [trace]);
 }
 
-function usedToday(tx: Queryable, clock: Clock): number {
+/** Work counted across the installation today (UTC). */
+export function usedToday(tx: Queryable, clock: Clock): number {
   return tx.get<{ used: number }>('SELECT used FROM budgets_daily WHERE day = ?', [utcDay(clock.now())])?.used ?? 0;
 }
 
