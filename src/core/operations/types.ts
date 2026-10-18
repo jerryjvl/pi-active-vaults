@@ -61,6 +61,8 @@ export interface Caller {
   readonly actor?: string;
   /** The Pi session (or headless run) calling, and its hold on the actor. */
   readonly session?: string;
+  /** That session's trace: its commits carry it, and what they spawn joins its session tree. */
+  readonly trace?: string;
   readonly holder?: Holder;
   readonly tainted?: boolean;
   /** The MCP profile the call came through. */

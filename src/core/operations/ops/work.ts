@@ -11,7 +11,7 @@ import { listRefs, readTextAt } from '../../git/index.ts';
 import { isTraceId } from '../../ids/index.ts';
 import { requireNoUnacceptedChange } from '../../integrity/index.ts';
 import { notifyBuiltin, sendNotification, testTransport } from '../../notify/index.ts';
-import { enqueueSpawn, listSpawns, matchSpawns, reachedVaults, submitSpawns, vaultJobs, type SpawnEntry } from '../../queue/index.ts';
+import { enqueueSpawn, listSpawns, matchSpawns, reachedVaults, submitSpawns, vaultJobs, type MatchedSpawns, type SpawnEntry } from '../../queue/index.ts';
 import type { RegisteredVault } from '../../registry/index.ts';
 import { runScript } from '../../scripts/index.ts';
 import { compactTracePath, newTraceId, parseCompactTrace, readFullLog, type CompactTrace } from '../../traces/index.ts';
@@ -19,7 +19,7 @@ import type { OperationContext } from '../context.ts';
 import { locate } from '../locate.ts';
 import { fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Operation, OperationRequest } from '../types.ts';
-import { notifyDeps, queueContext, readingFrom, spawnMatching, text, texts, theVault } from './common.ts';
+import { notifyDeps, queueContext, readingFrom, spawnLines, spawnMatching, text, texts, theVault } from './common.ts';
 
 /** A condition in a line: its event and what it filters on. */
 function conditionText(condition: Candidate['conditions'][number]): string {
@@ -91,11 +91,9 @@ export const runOperation: Operation = {
   },
 };
 
-function queuedOutcome(entries: readonly SpawnEntry[], dropped: readonly string[] = []): ReturnType<typeof succeeded> {
-  const lines = entries.map((e) => (e.state === 'queued'
-    ? `Queued ${e.vault}:${e.document} as trace ${e.trace}; the daemon runs it.`
-    : `${e.vault}:${e.document} was not queued: ${e.reason ?? e.state}.`));
-  return succeeded([...(lines.length === 0 ? ['Nothing matched.'] : lines), ...dropped].join('\n'), { spawns: entries });
+function queuedOutcome(entries: readonly SpawnEntry[], matched: Pick<MatchedSpawns, 'dropped' | 'paused'> = { dropped: [], paused: [] }): ReturnType<typeof succeeded> {
+  const lines = spawnLines(entries, matched);
+  return succeeded((entries.length === 0 ? ['Nothing matched.', ...lines] : lines).join('\n'), { spawns: entries });
 }
 
 const MAX_PAYLOAD_BYTES = 64 * 1024;
@@ -125,10 +123,7 @@ export const triggerOperation: Operation = {
     const { vaults, config } = context.installation;
     const matched = await matchSpawns(await spawnMatching(context), { event, id: newTraceId(context.ids) }, reachedVaults(vaults, config.subscriptions, vault.id));
     if (!matched.ok) return fromError(matched.error);
-    const entries = await submitSpawns(context.state, queueContext(context), matched.value.requests);
-    const dropped = matched.value.dropped.map((d) => `${d.vault}:${d.document}: its script did not match (${d.reason}).`);
-    const paused = matched.value.paused.map((id) => `Vault "${id}" is paused (unaccepted change); its jobs were not matched.`);
-    return queuedOutcome(entries, [...dropped, ...paused]);
+    return queuedOutcome(await submitSpawns(context.state, queueContext(context), matched.value.requests), matched.value);
   },
 };
 

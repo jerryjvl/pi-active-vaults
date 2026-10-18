@@ -9,19 +9,20 @@ import {
   accept, adopt, adoptionDelta, commitAsActor, ensureActorWorktree, heldByAnother, worktreeFile, listActorHolds, readProposal, review, syncActorBranch,
   type ActorCommitContext, type AdoptionDelta, type Review,
 } from '../../actors/index.ts';
+import { deriveEvents } from '../../events/index.ts';
 import { proposeToForge, syncWithForge } from '../../forge/index.ts';
 import { diffText } from '../../git/index.ts';
 import { requireNoUnacceptedChange } from '../../integrity/index.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
 import { evaluateMerge, type MergeEvaluation } from '../../policy/index.ts';
-import { listSpawns } from '../../queue/index.ts';
+import { listSpawns, matchSpawns, reachedVaults, submitSpawns, type SpawnEntry } from '../../queue/index.ts';
 import { readVaultIdentity, writersOf, type RegisteredVault } from '../../registry/index.ts';
 import { newTraceId } from '../../traces/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
 import { vaultRelative } from '../locate.ts';
 import { fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Caller, Operation } from '../types.ts';
-import { actorOf, flag, forgeDeps, personOf, readingFrom, text, texts, theVault } from './common.ts';
+import { actorOf, flag, forgeDeps, personOf, queueContext, readingFrom, spawnLines, spawnMatching, text, texts, theVault } from './common.ts';
 
 const ACTOR_PARAM = { name: 'actor', kind: 'string', positional: true, description: 'The actor whose proposal it is' } as const;
 
@@ -248,7 +249,7 @@ export const commitOperation: Operation = {
     const paths = texts(params, 'paths');
     const committed = await commitAsActor(await commitContext(context, caller), vault, worktree.value.path, {
       origin: {
-        trace: newTraceId(context.ids), actor: actor.value,
+        trace: caller.trace ?? newTraceId(context.ids), actor: actor.value,
         ...(caller.session === undefined ? {} : { session: caller.session }),
         ...(caller.tainted === true ? { tainted: true } : {}),
       },
@@ -260,9 +261,32 @@ export const commitOperation: Operation = {
     });
     if (!committed.ok) return fromError(committed.error);
     const checks = committed.value.checks.map((c) => `  ${c.name}: ${c.result}`);
-    return succeeded([`Committed ${committed.value.sha} on actor/${actor.value}.`, ...checks].join('\n'), committed.value);
+    const spawned = await spawnsOfCommit(context, vault, committed.value.sha, caller.trace);
+    return succeeded([`Committed ${committed.value.sha} on actor/${actor.value}.`, ...checks, ...spawned.lines].join('\n'), { ...committed.value, spawns: spawned.entries });
   },
 };
+
+/**
+ * What a commit's own `committed` event spawns, requested now: in the
+ * committing session's tree when a session made it, else in a new one. The
+ * daemon derives the same event from the actor branch later; its identity is
+ * the commit, so it is still one spawn.
+ */
+async function spawnsOfCommit(context: OperationContext, vault: RegisteredVault, sha: string, parent: string | undefined): Promise<{ lines: string[]; entries: SpawnEntry[] }> {
+  const events = await deriveEvents(context.git, vault.path, vault.id, { kind: 'committed', from: `${sha}^`, to: sha });
+  if (!events.ok) return { lines: [`Its events could not be read (${events.error.reason}); nothing was spawned.`], entries: [] };
+  const { vaults, config } = context.installation;
+  const entries: SpawnEntry[] = [];
+  const lines: string[] = [];
+  for (const event of events.value) {
+    const matched = await matchSpawns(await spawnMatching(context), { event }, reachedVaults(vaults, config.subscriptions, vault.id), parent === undefined ? {} : { parent });
+    if (!matched.ok) return { lines: [...lines, `Its spawns could not be matched (${matched.error.reason}).`], entries };
+    const submitted = await submitSpawns(context.state, queueContext(context), matched.value.requests);
+    entries.push(...submitted);
+    lines.push(...spawnLines(submitted, matched.value));
+  }
+  return { lines, entries };
+}
 
 export const writeOperation: Operation = {
   name: 'write',
