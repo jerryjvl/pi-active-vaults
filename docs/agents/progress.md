@@ -10,8 +10,8 @@ Maintained by the implementing agent; read by the reviewer. Newest stage last.
 Kept current with every commit, so an interrupted session can resume.
 
 - **Done:** Stage 6b, approved. The Stage 6b review's changes: merge methods (`300ba63`, `4caf506`), merge results (`e6447f6`, `b39063a`), run outcomes (`497f185`, `fe35963`), smoke cleanup (`316d797`).
-- **In progress:** Stage 7 — end-to-end scenarios under `test/e2e/` (scheduled job → proposal → review → accept; adopt; an unaccepted change pausing automation; a forge-mode proposal; an MCP read-only profile).
-- **Next:** the final consolidation pass, a last read of every document against behaviour, the Stage 7 entry with everything still unverified.
+- **In progress:** the final consolidation pass. The five scenarios are in `test/e2e/` (`7223dcf`..the MCP one).
+- **Next:** a last read of every document against behaviour, then the Stage 7 entry with everything still unverified.
 
 ## Stage entries
 
