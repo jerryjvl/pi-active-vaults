@@ -6,17 +6,22 @@
 // its statuses published, when its head moves; its statuses published again
 // every few minutes otherwise, to pick up reviews made in the forge — and
 // each proposal merged in the forge is checked for its commits reaching
-// `main` (forge/merges.ts); one that did not is told to the owners once.
+// `main` (forge/merges.ts); one that did not is told to the owners once, and
+// its actor's branch — which still holds the commits `main` lacks — is reset
+// to `main` when that loses nothing, left as it is when not. A branch that
+// still holds a lost merge's head is not proposed again.
 //
 // Invariants: everything that reaches the forge goes through `forge` — only
 // actor branches and the package's notes are pushed, never `main`, and
 // proposing is refused during an unaccepted change; a failure is kept as
 // the vault's outcome for `status` and tried again on the next tick; what has
 // been proposed is remembered only while the daemon runs, so a restart
-// proposes each proposal once more (an update, not a second pull request).
+// proposes each proposal once more (an update, not a second pull request) —
+// which is why a lost merge is kept in the state store and its branch judged
+// from Git, not from what this module remembers.
 
-import { readProposal } from '../actors/index.ts';
-import { checkMerges, lostMergeText, proposeToForge, publishStatuses, syncWithForge, uncheckedMerges, type MergedProposal } from '../forge/index.ts';
+import { readProposal, resetActorBranch, type ResetOutcome } from '../actors/index.ts';
+import { checkMerges, lostMergeNotice, lostMerges, proposeToForge, publishStatuses, syncWithForge, uncheckedMerges, type MergedProposal } from '../forge/index.ts';
 import { acceptedIdentity, type AcceptedMain } from '../integrity/index.ts';
 import { forgeDeps, identityOf, type OperationContext } from '../operations/index.ts';
 import { writersOf, type RegisteredVault } from '../registry/index.ts';
@@ -52,8 +57,14 @@ export function createForgeSync(context: OperationContext): ForgeSync {
     if (!identity.ok) return { proposed: [], error: identity.error.reason };
     const proposed: string[] = [];
     let error: string | undefined;
+    // A branch that still holds what the forge merged without its commits is not a new proposal.
+    const merged = new Set((await lostMerges(context.git, context.state, vault)).map((r) => r.actor));
     for (const actor of identity.value.actors) {
       const key = `${vault.id}\0${actor}`;
+      if (merged.has(actor)) {
+        current.delete(key);
+        continue;
+      }
       const proposal = await readProposal(context.git, vault.path, accepted, actor);
       if (!proposal.ok) {
         current.delete(key);
@@ -81,16 +92,21 @@ export function createForgeSync(context: OperationContext): ForgeSync {
     return { proposed, ...(error === undefined ? {} : { error }) };
   };
 
-  /** Judges the merges asked about before fetching against the main fetched; tells the owners of those that lost their commits. */
+  /** Judges the merges asked about before fetching against the main fetched; resets the branches of those that lost their commits where that loses nothing, and tells the owners. */
   const judgeMerges = async (vault: RegisteredVault, accepted: AcceptedMain, merges: readonly MergedProposal[]): Promise<string | undefined> => {
     if (merges.length === 0) return undefined;
     const checked = await checkMerges(deps(), vault, accepted, merges);
     if (!checked.ok) return checked.error.reason;
     const lost = checked.value.filter((r) => !r.kept);
     if (lost.length > 0) {
+      const resets = new Map<number, ResetOutcome | undefined>();
+      for (const r of lost) {
+        const reset = await resetActorBranch({ git: context.git, store: context.state, alive: context.alive }, vault, accepted, r.actor, r.head);
+        resets.set(r.pull, reset.ok ? reset.value : undefined);
+      }
       await notifyOwners(context, vault, accepted, () => ({
         subject: `Vault "${vault.id}": a merged proposal lost its commits`,
-        body: `${lost.map(lostMergeText).join('\n')}\nDisable squash and rebase merges in the forge (security-setup.md).\n`,
+        body: `${lost.map((r) => lostMergeNotice(r, vault, resets.get(r.pull))).join('\n')}\nDisable squash and rebase merges in the forge (security-setup.md).\n`,
         key: `merges:${vault.id}:${lost.map((r) => r.pull).join(',')}`,
       }));
     }

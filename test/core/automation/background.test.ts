@@ -219,7 +219,9 @@ for (const { name, before, why, after } of OBSTACLES) {
     assert.equal(outboxOf(t).length, 1);
     assert.deepEqual(pullsOf(forge), [[1, 'merged'], [2, 'merged']]);
 
-    // And new work is proposed like any other.
+    // New work is proposed like any other. Pushes are never forced, so the forge's copy of the
+    // branch — which has the merged commits — must be gone, as a forge deletes it after a merge.
+    forge.remote('update-ref', '-d', BRANCH);
     await commitAsGardener(t, 'notes/d.md', '# D\n');
     await restarted.tick();
     assert.deepEqual(pullsOf(forge), [[1, 'merged'], [2, 'merged'], [3, 'open']]);

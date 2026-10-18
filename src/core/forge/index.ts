@@ -21,7 +21,8 @@ export {
 export {
   checkMerges,
   forgeSchema,
-  lostMergeText,
+  lostMergeNotice,
+  lostMergeReport,
   lostMerges,
   uncheckedMerges,
   type MergeResult,

@@ -11,12 +11,21 @@
 // condition, never a partial reset; a branch with no worktree moves by
 // compare-and-swap on the head, so a commit made meanwhile is not lost.
 
-import { listWorktrees, resetHard, resolveRevision, uncommittedPaths, updateRef, type GitError, type Sha } from '../git/index.ts';
+import { listWorktrees, resetHard, resolveRevision, uncommittedPaths, updateRef, type Git, type GitError, type Sha } from '../git/index.ts';
 import type { AcceptedMain } from '../integrity/index.ts';
+import type { ProcessLiveness } from '../process/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
 import { ok, type Result } from '../result/index.ts';
+import type { Queryable } from '../store/index.ts';
 import { heldByAnother, type ActorHold } from './holds.ts';
-import { actorBranch, type ActorCommitContext } from './worktrees.ts';
+import { actorBranch } from './worktrees.ts';
+
+/** What a reset needs: Git, and the holds that say who is writing as an actor. */
+export interface ResetContext {
+  readonly git: Git;
+  readonly store: Queryable;
+  readonly alive: ProcessLiveness;
+}
 
 export type ResetOutcome =
   | { readonly outcome: 'reset'; readonly head: Sha }
@@ -28,7 +37,7 @@ export type ResetOutcome =
 
 /** Resets the actor's branch to `accepted` if it holds exactly `approvedHead`, nobody holds the actor and its worktree is clean; otherwise says why not. */
 export async function resetActorBranch(
-  context: Pick<ActorCommitContext, 'git' | 'store' | 'alive'>, vault: RegisteredVault, accepted: AcceptedMain, actor: string, approvedHead: Sha,
+  context: ResetContext, vault: RegisteredVault, accepted: AcceptedMain, actor: string, approvedHead: Sha,
 ): Promise<Result<ResetOutcome, GitError>> {
   const { git } = context;
   const ref = `refs/heads/${actorBranch(actor)}`;
