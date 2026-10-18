@@ -14,6 +14,7 @@ import { enqueueSpawn, listSpawns, startSpawn } from '../../src/core/queue/index
 import { connectSocket, requestOver, requestOverSocket } from '../../src/core/socket/index.ts';
 import { startDaemon, type DaemonOptions } from '../../src/daemon/daemon.ts';
 import { daemonOptions, fakePi, jobDocument } from '../support/daemon.ts';
+import { INITIALIZE, post } from '../support/mcp-client.ts';
 import { withInstallation, type TestInstallation } from '../support/installation.ts';
 import { ME, OTHER, RUNNING } from '../support/session.ts';
 
@@ -109,3 +110,39 @@ test('the daemon recovers before anything else: a spawn left running is stopped 
     await daemon.value.stop();
   }
 }, { running: RUNNING }));
+
+/** A TCP port nothing listens on just now. */
+async function freePort(): Promise<number> {
+  const { createServer } = await import('node:http');
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return typeof address === 'object' && address !== null ? address.port : 0;
+}
+
+test('the daemon serves each profile with an endpoint, reports one it cannot, and stops serving when it stops', posixOnly, async () => {
+  const port = await freePort();
+  const config = [
+    'mcp:',
+    '  profiles:',
+    `    - { name: chat, listen: "127.0.0.1:${port}", token: "\${MCP_CHAT}", permissions: [status] }`,
+    `    - { name: broken, listen: "127.0.0.1:${port + 1}", token: "\${MCP_UNSET}", permissions: [status] }`,
+    '    - { name: local, permissions: [status] }',
+  ].join('\n');
+  await withInstallation(async (t) => {
+    const daemon = await startDaemon(options(t));
+    assert.ok(daemon.ok, JSON.stringify(!daemon.ok && daemon.error));
+    const url = `http://127.0.0.1:${port}/mcp`;
+    try {
+      assert.deepEqual(daemon.value.endpoints.map((e) => [e.profile, 'address' in e ? e.address : e.error.reason]), [
+        ['chat', url], ['broken', 'token'],
+      ], 'a profile without an endpoint is served only by vault mcp');
+      const init = await post(url, INITIALIZE, { authorization: 'Bearer chat-secret' });
+      assert.equal(init.status, 200, init.text);
+    } finally {
+      await daemon.value.stop();
+    }
+    await assert.rejects(post(url, INITIALIZE, { authorization: 'Bearer chat-secret' }), 'nothing listens once it stopped');
+  }, { running: RUNNING, config, env: { MCP_CHAT: 'chat-secret' } })();
+});

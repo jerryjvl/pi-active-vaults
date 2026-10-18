@@ -45,12 +45,13 @@ test('only the git module knows how to talk to git', () => {
   assert.deepEqual(offenders, []);
 });
 
-test('HTTP requests are made only by the http module, which never follows redirects', () => {
-  const offenders = sourceFiles(srcRoot)
-    .filter((file) => relative(srcRoot, file).split('\\').join('/') !== 'core/http/index.ts')
-    .filter((file) => /\bfetch\s*\(|node:https?['"]|['"]undici['"]/.test(readFileSync(file, 'utf8')))
+test('HTTP requests are made only by the http module, which never follows redirects; HTTP is served only by the socket module', () => {
+  const offenders = (pattern: RegExp, allowed: readonly string[]) => sourceFiles(srcRoot)
+    .filter((file) => !allowed.includes(relative(srcRoot, file).split('\\').join('/')))
+    .filter((file) => pattern.test(readFileSync(file, 'utf8')))
     .map((file) => relative(srcRoot, file));
-  assert.deepEqual(offenders, []);
+  assert.deepEqual(offenders(/\bfetch\s*\(|['"]undici['"]/, ['core/http/index.ts']), []);
+  assert.deepEqual(offenders(/node:https?['"]/, ['core/http/index.ts', 'core/socket/http.ts']), []);
 });
 
 test('sockets are opened only by the socket module', () => {

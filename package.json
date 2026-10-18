@@ -48,6 +48,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.3.0",
     "croner": "10.0.1",
     "nodemailer": "^10.0.14",
     "sqlite-vec": "^0.1.9",
