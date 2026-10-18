@@ -3,15 +3,15 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 6b — in progress
+**Current stage:** 6b — complete, awaiting review
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 6a review: compact traces as notes on `refs/notes/vault/traces` (tests `40d356b`, code `f8985e4`, docs `70294f0`); squash merges checked by doctor.
-- **In progress:** Stage 6b — MCP (`1fd3b14`–`e8710d3`), forge sync and outbox retry (`6ed5758`, `50fb86a`), headless launchd (`99591fc`, `7493ad0`) done; now the opt-in real-Pi smoke test.
-- **Next:** refactoring pass; progress entry.
+- **Done:** Stage 6b (MCP, forge sync and outbox retry, headless launchd, the smoke test), with the Stage 6a review's trace change; see the Stage 6b entry.
+- **In progress:** nothing.
+- **Next:** review of Stage 6b. Then, when told, Stage 7 (end to end).
 
 ## Stage entries
 
@@ -424,3 +424,55 @@ Copy this block for each stage:
   2. *Job actor:* tests first (`38829dd`, `9beb302`), then `579dbad`; `concepts.md` documents `actor` (document and contract keys, control changes, one job per actor).
   3. *builtin:notify statuses:* `4d0693c` (test), `5816f26` (code and `notifications.md`).
   4. *Stage 6a:* items 1–3 as above.
+
+### Stage 6b — Daemon and MCP, second half (L3 operations, L4 MCP and daemon)
+
+- **Commits:** `40d356b..` on `impl/v1` — the Stage 6a review's trace change (`40d356b`, `f8985e4`, `70294f0`, `234ed85`), MCP (`1fd3b14`, `aaca12e`, `e8710d3`), forge sync and outbox retry (`6ed5758`, `50fb86a`), the headless launchd daemon (`99591fc`, `7493ad0`), the smoke test (`7562420`), the refactoring pass (`bb44abe`), progress notes, and this entry as the last commit. As before, each `test(…)` commit for new behaviour fails until the commit after it; every other commit passes.
+- **Results:** `npm test`: 835 tests, 835 pass, none skipped on Linux. `npm run check`: no errors. `npm run build`: compiles; the compiled MCP adapter, daemon, CLI, automation and extension import under plain Node. `npm run smoke` without its variables exits 2 and says what to set; it was not run against any model (see Gaps). Node v24.18.0, git 2.55.0, Pi 1.3.0 (dev dependency), `@modelcontextprotocol/server` 2.3.0, Linux.
+- **Built:**
+  - Traces as notes: `traces/notes.ts` (`TRACES_REF` `refs/notes/vault/traces`, `recordRun`, `runCommits`) replaces `traces/run.ts`; compact records are one line of JSON (`checkCompactTrace`); `.vault/traces/` and `compactTracePath` are gone. The commit operation attaches the record to the commit it made; `vault trace` finds the run's commits by `Vault-Trace` (`git.commitsWithTrailer`) on the accepted main and every local branch and shows the newest record per vault and the commits. `git.appendNoteLine` is the one read-back-and-retry for attestations and traces. Forge sync fetches, merges and pushes both notes refs. Forge adapters' `squashMerges()`; `protectionProblems` reports `squash-merges` (problem) and `squash-unknown` (warning); doctor checks it.
+  - MCP core (`operations/mcp.ts`): `mcpTools` (`vault_<operation>` for exactly the permitted operations, JSON Schema from the specs), `callMcpTool` (vaults by scope, each checked; the profile as a tainted caller; notices), `bearerMatches` (constant time). `writerOf` (replaces `actorOf`): over MCP the actor is named and is one of the vault's `actors`, never an owner. `ParamSpec.required` may name surfaces (`isRequired`). `accept`'s `yes` is offered only on the CLI and Pi commands. `placeVaultPaths` reports unregistered vault-ID prefixes.
+  - Socket module: `socket/bind.ts` (one set of path rules for every listener), `socket/http.ts` (`listenHttp`: node HTTP to web `Request`/`Response`, bounded bodies, 500 without detail). The boundary test allows `node:http` only in `core/http` and `core/socket/http.ts`, `node:net` only under `core/socket`.
+  - MCP adapter (`src/mcp/`): `mcpServerFor` (the SDK's `McpServer`, schemas shown but not checked — the core checks), `startMcpEndpoint` (HTTP at `/mcp`, stateless, bearer token on an address and port, token resolved once), `serveMcpStdio`. `vault mcp --profile <name>` (`src/cli/mcp.ts`); the daemon serves each profile with an endpoint and reports any it cannot (`RunningDaemon.endpoints`, `vault daemon run`'s output).
+  - Automation: `automation/forge.ts` (`createForgeSync`): each minute tick fetches every forge-mode vault first; for hosted vaults, each of the vault's `actors` with a proposal is proposed when its head moves and its statuses republished every five minutes; outcomes in `status` (`forge`) and `vault daemon status`. Due outbox messages retried each tick (`deliverDue`).
+  - Service: `serviceFor(…, { headless })` — a launchd daemon in `/Library/LaunchDaemons` with `UserName` and `HOME`, in the `system` domain; `vault daemon print-unit --headless` prints it, `install`/`start`/`stop --headless` print the `sudo` steps; elsewhere `--headless` is a usage error, as is any other option.
+  - Smoke test: `test/smoke/run.ts`, `npm run smoke` (builds first), documented in `README.md` "Development".
+  - Test support: `mcp-client.ts` (hand-written JSON-RPC over HTTP and JSON lines), `forge-vault.ts` (bare remote behind the forge URL, stub API, merge in the forge).
+- **Tests:** fail-closed and documented behaviour:
+  - *Traces:* a run committing twice has its record on each commit as a note, documents accumulating (a deleted one dropped, another run's never); nothing in the tree, and the run's content is no control change; a record that is invalid or not the commit's run is refused before anything is written; a note with an unreadable line or another run's record is reported unreadable, never read in part; `vault trace` reads the records back — also in another installation's clone after a fetch of the branch and notes, where no full logs show; forge sync merges trace notes from the forge line by line and pushes them (a push of any other notes ref, or of traces to another name, is refused).
+  - *Squash:* each forge's setting read, and unknown where it is not given; allowed squash merges are a problem, unknown a warning.
+  - *MCP permissions (exhaustive):* no section or no permissions — nothing listed, every call refused; each of the 16 permissions alone lists exactly its own tool and every other is neither listed nor callable; operations that are no permission (sync, doctor, init, add, list, whoami) are never tools; a vault's `[]` or `+x`/`-x` entry removes or edits permissions there; a forbidden vault — named, or in a `<vault-id>:` path — is refused with the same text as an unregistered one; an operation over many covers only permitted vaults; `vault`/`vaults` by scope; an optional-scope operation must name a vault; `accept` not listed nor callable without an owner; review needs an owner.
+  - *MCP writes:* the actor is required; an owner (the profile's own too) or a stranger is refused; a held actor is refused; every MCP commit carries `Vault-Tainted: yes`; adopting shows the delta and `yes` is not an MCP parameter; notices with every response.
+  - *Endpoints:* no, wrong or non-bearer token → 401 with no token in it; the scheme name in any case, the token exactly; an unresolvable token → not started; a socket endpoint is 0600 and needs no token; another path → 404; a body over 4 MiB → 413 unread; a throwing handler → 500 without detail; one listener per socket path, a non-socket never removed; standard I/O and `vault mcp` (unknown profile or extra arguments: exit 2); the daemon serves, reports and stops serving.
+  - *Forge sync and outbox:* a merge in the forge becomes the accepted main on the next tick; a hosted vault's proposal is pushed and its pull request opened, not republished within minutes, refreshed after five, re-pushed when its head moves, never `main`; a vault not hosted is fetched but nothing is pushed; a failed sync is in the status; an outbox message failing once is retried after a minute, not before, and delivered once.
+  - *Headless launchd:* the definition (user, home, system domain, escaping), refused off macOS; the CLI never runs a service manager for it.
+- **Refactoring:** `bb44abe` — `placeVaultPaths` reports unregistered prefixes, so MCP does not walk vault paths twice; the forge test setup copied in three test files is `test/support/forge-vault.ts`; `core.md` rows. During the stage: `appendNoteLine` for attestations and traces (`f8985e4`), `socket/bind.ts` shared by the daemon's socket and HTTP endpoints, `writerOf` for write and commit, `isRequired` for every surface (`aaca12e`), one `SHARED_NOTES` list in forge sync. Considered and kept: the extension's TypeBox schemas beside the core's JSON Schema for MCP — Pi 1.3 validates a plain JSON Schema differently (it coerces values), so the Pi tools keep TypeBox. Comments, module headers, `core.md` and `AGENTS.md` checked against behaviour.
+- **Decisions:**
+  - *Trace notes:* one line per record, appended and read back (retried once); a note is read only in full. `vault trace` searches the accepted main and every local branch, and shows the newest readable record per vault. A commit whose note cannot be written stands and says so in its result.
+  - *Squash:* `unknown` (the forge does not say) is a warning, as for "where the forge's API allows".
+  - *MCP:* tools are `vault_<operation>`; one vault is `vault`, many `vaults` (default: the permitted ones); over MCP any `<vault-id>:` prefix names a vault, registered or not; served at `/mcp`, stateless (each request a fresh server); the SDK checks no schema; unknown tools are refused (`No tool …`); a socket endpoint with a token checks it too; an address-and-port endpoint without a token is never served (the config already requires one).
+  - *MCP SDK:* `@modelcontextprotocol/server` 2.3.0, the SDK's v2 server package, instead of the v1 `@modelcontextprotocol/sdk` named in the plan: its only dependencies are `zod` (already present through Pi) and its own core, where v1 brings express, hono and more. Pinned to a release more than two weeks old, its dependencies resolved as of 2026-10-04.
+  - *Forge sync:* every minute, before events are matched; every forge vault is fetched (read-only, it keeps the accepted main current), only hosted ones are pushed from; the vault's `actors` are proposed, not owners (who propose their own); statuses republished every five minutes; what was proposed is kept in memory, so a restart proposes once more (an update).
+  - *Outbox:* retried in the minute tick; the backoff is the outbox's.
+  - *Headless launchd:* the package never acts in the system domain; `HOME` is set explicitly so the login shell finds the user's Node.
+  - *Smoke:* it adopts the new vault as an owner would (`accept --adopt` with the delta's acknowledgement), triggers through the CLI, and runs the real daemon with its timers; the second job is `session-required` on the first run's commit, so the daemon must fork the session file the headless extension subscribed with.
+- **Needs owner approval:**
+  1. `e8710d3` — MCP as built: `vault_<operation>` tools, `vault`/`vaults`, `/mcp`, stateless HTTP, a forbidden vault refused like an unregistered one, no confirmation over MCP (`accept`'s `yes` is now CLI and Pi-command only).
+  2. The MCP SDK package: v2's `@modelcontextprotocol/server` rather than v1's `@modelcontextprotocol/sdk` (see Decisions).
+  3. `50fb86a` — `daemon.md` "Forge sync": the schedule, actors only, five-minute status refresh, fetching vaults the daemon does not run.
+  4. **A question:** rebase merges also replace a proposal's commits (new SHAs): their trailers survive, but attestations and trace notes on the reviewed commits do not follow them to `main`. Should `security-setup.md` and doctor require rebase merging disabled too? Not implemented.
+  5. **An observation:** a headless run whose every model request fails (an unreachable endpoint) settles and exits 0, so it is recorded `no-change` rather than stopped `error`. A rule such as "the last assistant message stopped with an error → stopped `error`" would tell them apart; the outcome rules were approved as they are, so nothing is changed.
+  6. The boundary rule now lets `core/socket/http.ts` import `node:http` (serving), with `AGENTS.md` and `core.md` saying the socket module is also the only one that serves HTTP.
+- **Gaps:**
+  - The smoke test has not been run against a model, as instructed. Its plumbing was checked once against a closed local port (no model contacted): the daemon claimed the triggered job, started `pi --mode rpc` with the built extension, which wrote its session log, and Pi reported "Connection error" for each request; the run was recorded `no-change` (observation 5). So a real commit, its trailers and record, and the fork with a real session file remain unverified.
+  - MCP is tested with the 2025-era handshake by hand (HTTP and JSON lines); 2026-07-28 clients only through the SDK's own handling. No MCP tool annotations (`readOnlyHint` and the like). Spawns requested through MCP in the daemon go to its queue, picked up within its five-second poll.
+  - HTTP endpoints check no `Origin` or `Host` header; on an address and port the bearer token is what a DNS-rebinding page cannot supply.
+  - Squash settings: GitHub's `allow_squash_merge` visibility to an executor's token and GitLab's `squash_option` are as their API references describe, unverified against real servers.
+  - Named pipes as MCP endpoints, and the launchd daemon (`UserName`, `HOME`), untested on Windows and macOS.
+  - Concurrent writers can lose a trace note; it is retried once, then the commit's result says it could not be written.
+  - As before, Node 22.18 and git 2.36 (the declared minimums) are untested.
+- **Review findings addressed:**
+  1. *`dc471f4`:* approved; nothing changed.
+  2. *Stage 6a behaviour:* approved as documented; nothing changed.
+  3. *Traces into Git notes:* tests first (`40d356b`), then `f8985e4`, docs `70294f0`: each commit carries its record as of that commit on `refs/notes/vault/traces`; `vault trace` finds the run's commits by trailer and reads their notes, including in another clone after a fetch; the notes travel and merge like attestations in forge sync; `.vault/traces/` is gone from code and docs and nothing under `.vault/` is exempt (no exemption had been implemented); `security-setup.md` requires squash merges disabled, and doctor checks it where the API says.
+
