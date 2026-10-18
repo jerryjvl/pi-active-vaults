@@ -21,7 +21,7 @@ Use a forge for any vault where a misbehaving agent or machine must not be able
 to change accepted knowledge, and for every vault shared between people. Four
 settings carry the guarantee; `vault doctor` checks each one through the forge's
 API and reports what is missing — and, where the API does not say whether squash
-merges are allowed (GitHub tells only some accounts), says so.
+merges are allowed (some forges say so only to accounts with more access), says so.
 
 | Setting | Value |
 |---|---|
