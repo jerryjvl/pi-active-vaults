@@ -85,6 +85,11 @@ test('adopting shows the concerns and the delta first, and records nothing until
   assert.match(shown.text, /control change: \.vault\/scripts\/new\.sh/);
   const ack = /--acknowledge ([0-9a-f]{64})/.exec(shown.text)?.[1];
   assert.ok(ack !== undefined, shown.text);
+  // What a surface with someone to ask shows, asks, and confirms with.
+  assert.match(shown.confirm?.shown ?? '', /control change: \.vault\/scripts\/new\.sh[^]*Commits:/);
+  assert.doesNotMatch(shown.confirm?.shown ?? '', /Not adopted yet/);
+  assert.match(shown.confirm?.question ?? '', new RegExp(`Adopt ${tip} .*acknowledging the concerns`));
+  assert.deepEqual(shown.confirm?.params, { yes: true, acknowledge: ack });
   const unacknowledged = await t.run('accept', { adopt: tip, yes: true });
   assert.equal(unacknowledged.status, 'refused');
   const adopted = await t.run('accept', { adopt: tip, acknowledge: ack, yes: true });
