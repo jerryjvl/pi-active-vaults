@@ -46,3 +46,20 @@ Pre-release. The design is complete; implementation is in progress.
 - Pi ≥ 1.3
 - Node.js ≥ 22.18
 - Git ≥ 2.36
+
+## Development
+
+`npm test` runs the test suite (no network, a fake `pi`), `npm run check` the
+type check. `npm run smoke` is an opt-in check against a real model, outside
+`npm test`: it builds the package, then runs a job headless through the
+daemon with the Pi development dependency and the built extension, and a
+second job forked from the first run's session, in temporary directories. It
+reports each run's outcome, commit, trailers and trace record.
+
+```sh
+PAV_SMOKE_BASE_URL=http://localhost:8080/v1 PAV_SMOKE_MODEL=my-model npm run smoke
+```
+
+Optional: `PAV_SMOKE_API` (Pi's API type, default `openai-completions`),
+`PAV_SMOKE_API_KEY`, `PAV_SMOKE_TIMEOUT` (seconds, default 600) and
+`PAV_SMOKE_KEEP=1` to keep the temporary directories.
