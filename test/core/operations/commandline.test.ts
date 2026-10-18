@@ -5,7 +5,8 @@
 // quoting groups words as a shell would, without running anything.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assignPositionals, operationNamed, parseLine, splitArguments, usage } from '../../../src/core/operations/index.ts';
+import { assignPositionals, commandRequest, describeCommandLineError, operationNamed, parseLine, splitArguments, usage } from '../../../src/core/operations/index.ts';
+import type { RegisteredVault } from '../../../src/core/registry/index.ts';
 
 const op = (name: string) => {
   const found = operationNamed(name);
@@ -44,4 +45,31 @@ test('positionals fill positional parameters in order; the rest is returned', ()
 test('usage names the command as its surface types it', () => {
   assert.match(usage(op('review'), 'cli'), /^vault review \[vault\] <actor>\n/);
   assert.match(usage(op('review'), 'command'), /^\/vault review \[vault\] <actor>\n/);
+});
+
+const vault = (id: string): RegisteredVault => ({ id, path: `/v/${id}`, worktrees: `/w/${id}`, host: false });
+const installation = { vaults: [vault('home'), vault('work')] };
+
+test('a command line becomes a request: a first argument naming a vault is the vault, when what remains still fills the command', () => {
+  const review = op('review');
+  const named = commandRequest(installation, review, 'command', parseLine(review, ['work', 'gardener'], 'command'));
+  assert.deepEqual(named.ok && [named.value.vaults.map((v) => v.id), named.value.params], [['work'], { actor: 'gardener' }]);
+  const here = commandRequest(installation, review, 'command', parseLine(review, ['work'], 'command'), { vault: vault('home'), path: '' });
+  assert.deepEqual(here.ok && [here.value.vaults.map((v) => v.id), here.value.params], [['home'], { actor: 'work' }], 'an actor that happens to share a vault\'s name');
+  const read = op('read');
+  const pathed = commandRequest(installation, read, 'cli', parseLine(read, ['work:a.md'], 'cli'));
+  assert.deepEqual(pathed.ok && [pathed.value.vaults.map((v) => v.id), pathed.value.params], [['work'], { path: 'a.md' }]);
+});
+
+test('a command line that does not fit says why, as its surface names the command', () => {
+  const review = op('review');
+  const extra = commandRequest(installation, review, 'cli', parseLine(review, ['home', 'gardener', 'more'], 'cli'));
+  assert.ok(!extra.ok);
+  assert.match(describeCommandLineError(extra.error, review, 'cli'), /^Too many arguments: more/);
+  const which = commandRequest(installation, review, 'command', parseLine(review, ['gardener'], 'command'));
+  assert.ok(!which.ok);
+  assert.match(describeCommandLineError(which.error, review, 'command'), /Which vault\? Name it \(\/vault review <vault> …/);
+  const unknown = commandRequest(installation, review, 'cli', parseLine(review, ['--vault', 'nowhere', 'gardener'], 'cli'));
+  assert.ok(!unknown.ok);
+  assert.equal(describeCommandLineError(unknown.error, review, 'cli'), '"nowhere" is not a registered vault.');
 });
