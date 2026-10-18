@@ -1,7 +1,7 @@
 // Public surface of the automation module: the daemon's work — which vaults
-// it runs and which are paused, Git events from cursors, timers, running
-// spawns as headless Pi sessions, the socket protocol — as one object the
-// daemon adapter drives.
+// it runs and which are paused, forge sync, Git events from cursors, timers,
+// running spawns as headless Pi sessions, the socket protocol — as one object
+// the daemon adapter drives — and the link other surfaces reach it by.
 
 export { createAutomation, type Automation, type AutomationOptions } from './automation.ts';
 export { METHODS, type Notice, type Reply } from './protocol.ts';

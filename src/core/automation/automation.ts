@@ -6,9 +6,9 @@
 //
 //  - start: start-up recovery (queue), then a first tick, which catches up on
 //    everything since the cursors — the slots missed while it was down too;
-//  - tick: forge sync first (a merge in the forge moves the accepted main),
-//    then which vaults it runs and which are paused (their owners told
-//    once), the Git events since each job's cursor, the timers that came due,
+//  - tick: forge sync first (a merge in the forge moves the accepted main,
+//    and each merged proposal is checked for its commits reaching it), then
+//    which vaults it runs and which are paused (their owners told once), the Git events since each job's cursor, the timers that came due,
 //    queued work past its queue time, the outbox's retries, and log rotation;
 //  - schedule: starts what may start — in priority order, within capacity,
 //    one job per actor, nothing for a paused vault — and tells subscribers

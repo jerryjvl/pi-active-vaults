@@ -5,7 +5,8 @@
 //    (queue), then binds its socket; if another daemon holds either, it does
 //    not run;
 //  - before anything else, start-up recovery; then catch-up (`start`);
-//  - each minute a tick (Git events, timers, integrity, queue time, logs),
+//  - each minute a tick (forge sync, integrity, Git events, timers, queue
+//    time, the outbox, logs),
 //    and every few seconds a look for work that may start; word from a
 //    vault's `reference-transaction` hook — a file named after the vault in
 //    `<state>/refs` — makes it look at that vault at once;
