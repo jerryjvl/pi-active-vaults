@@ -547,3 +547,35 @@ Copy this block for each stage:
   1. *Per-forge settings, the forge row in `security.md`, the README status line, the merge-check rules in `daemon.md`:* approved; the listing-forever rule is replaced by the reset rule above (`daemon.md`, `core.md`).
   2. *Reset after a squash or rebase merge:* tests first (`c3bf885`), then `5bee56b`, `75233e7`, docs `d19e2f0`.
   3. *Empty `skills/`:* dropped (`ac48f93`); the Stage 7 question 5 is closed.
+
+
+### Stage 7 follow-up — the forced push, and the clean-install fixes
+
+- **Commits:** `8c5dd5c..` on `impl/v1`. Each `test(…)` commit fails until the `feat` commit after it (`8c5dd5c`→`e28834b`, `9ea97ae`→`6ec94a4`, `3f64fb4`→`21eb1e1`, `6fe3418`→`a03c316`); `5f9982e`, `0057acf` and this entry follow.
+- **Results:** `npm test`: 880 tests, 880 pass, none skipped on Linux. `npm run check`: no errors. `npm run build`: compiles; the clean-install steps run by hand against the built CLI on an empty home (below). Node v24.18.0, git 2.55.0, Linux.
+- **Built:**
+  - *The forced push (decision):* `pushToForge` pushes an actor branch forced in exactly one case — the forge's copy is the head the forge reported merged (`forge/merged.ts`, `mergedHeads`), and the local branch is neither that commit nor a fast-forward of it. The push is `--force-with-lease=<ref>:<that commit>` (`git/remote.ts` `pushRefs` `lease`, `remoteRef` via `ls-remote`), so it is refused if the forge's copy is anything else. The lease must name an `refs/heads/actor/` ref among the refspecs; every other push stays unforced. `forge/merged.ts` now owns the `forge_merges` table (`merges.ts` and `sync.ts` both read it; it avoids an import cycle). `security.md`'s safeguard row and `daemon.md` say so.
+  - *The report's command:* a lost merge listed or told shows the one command — `git -C <worktree> reset --hard main` where the branch is checked out, `git -C <vault> branch -f actor/<name> main` where not (`lostMerges` finds the checkout) — with when it may be run and that it discards what the branch holds beyond `main`.
+  - *Fix 1 — bootstrap:* `vault init` and `vault add` take `--person`; with no config file they create it (private directory and file) with `installation.person` from it, by default `host.user`, checked (`checkPerson`) before anything is made. Where the config exists `--person` is refused (`person-given`), not ignored; a config without a person still refuses `init` as before.
+  - *Fix 2 — hooks:* `operations/hooks.ts` (moved out of `doctor`): `init` installs both hooks; `add` does where none of the user's are in the way and says which it left; `doctor --fix` uses the same code.
+  - *Fix 3 — service PATH:* `findServiceTools` records the first PATH directory holding `node`, `pi` and `git`, as PATH names it (links not followed); `serviceFor` writes them, ahead of the platform's usual directories, as systemd `Environment="PATH=…"`, the launchd plist's `EnvironmentVariables`, and a `set "PATH=…;%PATH%" &&` in the Task Scheduler action. The login shell is dropped (it rebuilds PATH without a version manager's directories). `daemon install` records the directories in `queue_service_tools` (queue migration 4); `doctor` warns for each that no longer holds its tool, and installing again fixes it. `print-unit` writes the same PATH and records nothing. Checked by hand on this machine: the printed unit's PATH begins with the mise `node` directory and includes `/run/current-system/sw/bin`.
+  - *Fix 4:* `vault list` and (not over MCP) `vault status` show `your worktree: <state>/worktrees/<vault>/<person>` per vault, and carry it in their data.
+  - *Fix 5:* `/vault install-cli` (`describeLauncher`) names every other `vault` on PATH and which one runs: the first on PATH, the launcher only where its directory comes first.
+- **Tests:** each decision and fix above, with the instructions an owner is shown run rather than only matched: the reset command in all four obstacle cases and the no-worktree `branch -f` form is executed and then the report clears; the forced push when the forge holds the merged head, not when it holds anything else or when nothing was reported merged; `--person` and the OS-user default, an invalid person naming `--person`, the private modes, hooks present and executable after `init`, the user's own hook left alone by `add`; each platform's service text with the PATH, unsafe directories refused, stale directories reported, the install-record-warn-reinstall cycle through the CLI and `doctor`; shadowed, first-on-PATH and off-PATH launchers, and Windows' names.
+- **Decisions:**
+  - `git` is recorded with `node` and `pi`: the daemon runs it, and a PATH set from the recorded directories alone would lose it where it is not in a usual directory (this machine: `/run/current-system/sw/bin`). The owner named `node` and `pi`; this is the addition — drop it from `SERVICE_TOOLS` to remove it. The boundary test that only `core/git` names git now allows `config/service.ts`, which lists tool names and never runs it.
+  - A recorded merged head is used by the lease whatever its merge kind (a merge-commit merge is a fast-forward anyway, so the lease is not used).
+  - `--person` with an existing config is refused rather than ignored.
+- **Needs owner approval:**
+  1. `git` among the recorded tools, as above.
+  2. Dropping the login shell from the three service definitions (systemd, launchd agent and daemon): a service that relied on a profile for something other than PATH no longer gets it.
+- **Gaps:**
+  - The new service definitions are untested on real systemd, launchd and Task Scheduler (text only); in particular `set "PATH=…" && node …` as a Task Scheduler argument and `Environment=` with `%` and quotes escaped.
+  - `--force-with-lease` against real forges (the tests push to a local bare repository, with a stub forge API): a forge that rejects non-fast-forward pushes to a head branch of an open pull request, or hides the ref, is not modelled.
+  - `vault list`/`status` show the worktree path whether or not the directory exists yet.
+  - The headless macOS daemon's PATH is the installing user's, recorded on the machine that ran `print-unit`; `print-unit` records nothing, so `doctor` cannot warn for it.
+- **Review findings addressed:**
+  1. *Pushing an actor branch after a reset:* the single lease above; `security.md` and `daemon.md` updated. The Stage 7 review question is closed.
+  2. *The reset tried once, and later work blocking re-proposal:* approved; the report gives the exact command.
+  3. *The `git branch -f` instruction:* tested, with the other forms.
+  4. *Clean-install fixes 1–5:* as listed.
