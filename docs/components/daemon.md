@@ -189,10 +189,19 @@ proposal. When the merge is first reported, the daemon resets the branch to the
 accepted `main` only if all hold: its tip is exactly the approved head, no
 session holds the actor, and its worktree has no change (untracked files
 included). Otherwise it leaves the branch, and the report says which condition
-stopped it and how to reset it. While a branch holds the approved head,
+stopped it and gives the command that resets it: `git -C <worktree> reset --hard
+main`, or `git -C <vault> branch -f actor/<name> main` where the branch has no
+worktree. While a branch holds the approved head,
 `vault status` and `vault doctor` list the merge and no pull request is opened
 for the branch, also after a restart; the listing ends by itself once the branch
 no longer holds the head, so nothing needs dismissing.
+
+The next proposal from a reset branch is not a fast-forward of the forge's
+copy, which still holds the head the forge reported merged. That is the one
+case in which an actor branch is pushed forced: the push replaces exactly that
+commit (`--force-with-lease` on it) and is refused if the forge's copy is
+anything else, someone else's later push included. Every other push is
+unforced, and `main` is never pushed.
 
 ## Socket protocol
 

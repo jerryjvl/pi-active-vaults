@@ -15,9 +15,9 @@
 
 import { err, ok, type Result } from '../result/index.ts';
 import { configValue } from './config.ts';
-import { runForSuccess, type Git, type GitError } from './exec.ts';
+import { runForSuccess, runForText, type Git, type GitError } from './exec.ts';
 import { resolveRevision, type Sha } from './refs.ts';
-import { checkRefName, checkRevision } from './validate.ts';
+import { checkRefName, checkRevision, checkSha, isSha } from './validate.ts';
 
 const PROTOCOLS = [
   '-c', 'protocol.allow=never',
@@ -67,10 +67,48 @@ export async function fetchRefs(git: Git, repo: string, remote: string, refspecs
   return runForSuccess(git, [...PROTOCOLS, 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--', remote, ...refspecs], { cwd: repo });
 }
 
-export async function pushRefs(git: Git, repo: string, remote: string, refspecs: readonly string[]): Promise<Result<void, GitError>> {
+/** A lease: the push may replace `ref` on the remote, but only while it still holds exactly `sha`. */
+export interface Lease {
+  readonly ref: string;
+  readonly sha: Sha;
+}
+
+/**
+ * Pushes the refspecs. Nothing is forced unless a `lease` is given: then the
+ * ref it names — which must be pushed by one of the refspecs — may be replaced
+ * with a commit that is not a fast-forward, and only if the remote still
+ * holds the leased commit (`--force-with-lease`, with the commit named, so
+ * what the remote held when it was last fetched does not matter).
+ */
+export async function pushRefs(
+  git: Git, repo: string, remote: string, refspecs: readonly string[], options: { readonly lease?: Lease } = {},
+): Promise<Result<void, GitError>> {
   const checked = checkAll(remote, refspecs);
   if (!checked.ok) return checked;
-  return runForSuccess(git, [...PROTOCOLS, 'push', '--quiet', '--no-verify', '--porcelain', '--', remote, ...refspecs], { cwd: repo });
+  const lease: string[] = [];
+  if (options.lease !== undefined) {
+    const { ref, sha } = options.lease;
+    const refOk = checkRefName(ref);
+    if (!refOk.ok) return refOk;
+    const shaOk = checkSha(sha);
+    if (!shaOk.ok) return shaOk;
+    if (!refspecs.some((r) => r.startsWith(`${ref}:`))) return invalid('lease');
+    lease.push(`--force-with-lease=${ref}:${sha}`);
+  }
+  return runForSuccess(git, [...PROTOCOLS, 'push', '--quiet', '--no-verify', '--porcelain', ...lease, '--', remote, ...refspecs], { cwd: repo });
+}
+
+/** The commit a ref names on the remote, or undefined when the remote has no such ref. */
+export async function remoteRef(git: Git, repo: string, remote: string, ref: string): Promise<Result<Sha | undefined, GitError>> {
+  const checkedRemote = checkRemote(remote);
+  if (!checkedRemote.ok) return checkedRemote;
+  const checkedRef = checkRefName(ref);
+  if (!checkedRef.ok) return checkedRef;
+  const listed = await runForText(git, [...PROTOCOLS, 'ls-remote', '--', remote, ref], { cwd: repo });
+  if (!listed.ok) return listed;
+  const line = listed.value.split('\n').find((l) => l.endsWith(`\t${ref}`));
+  const sha = line?.split('\t')[0];
+  return ok(sha === undefined || !isSha(sha) ? undefined : sha);
 }
 
 /** Fetches just the commit `ref` names (default: the remote's HEAD), without history, and returns its SHA. */

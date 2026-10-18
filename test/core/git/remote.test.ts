@@ -2,11 +2,13 @@
 // through the git module like everything else. Remotes are named, or given as
 // an https, ssh or local URL: transports that run commands (`ext::`) or carry
 // no integrity (`http://`, `git://`) are refused before git runs, and the
-// remote's objects are checked as they arrive. Refspecs name full refs. Tests
+// remote's objects are checked as they arrive. Refspecs name full refs. A push
+// replaces a ref that is not a fast-forward only under a lease on the commit the
+// remote must still hold. Tests
 // use local repositories as remotes; there is no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkRemote, fetchCommit, fetchRefs, pushRefs, remoteUrl, resolveRevision } from '../../../src/core/git/index.ts';
+import { checkRemote, fetchCommit, fetchRefs, pushRefs, remoteRef, remoteUrl, resolveRevision } from '../../../src/core/git/index.ts';
 import { createTempRepo, gitFor, withTempRepo } from '../../support/git-repo.ts';
 
 test('a commit is fetched shallowly from a URL, by ref or the remote\'s HEAD, and named by its SHA', withTempRepo(async (repo) => {
@@ -64,4 +66,42 @@ test('transports that run commands or lack integrity, option-like values and loo
   }
   const local = await fetchCommit(gitFor(repo), repo.path, '/nonexistent/vault.git');
   assert.equal(!local.ok && local.error.reason, 'git-failed', 'a local path is allowed through to git');
+}));
+
+test('a push is a fast-forward unless it leases the commit the remote holds, which it may then replace — and only that', withTempRepo(async (repo) => {
+  const remote = createTempRepo();
+  try {
+    repo.write('a.md', 'a');
+    const base = repo.commit('a');
+    repo.git('branch', 'actor/gardener');
+    const ref = 'refs/heads/actor/gardener';
+    const spec = [`${ref}:${ref}`];
+    const git = gitFor(repo);
+    assert.deepEqual(await remoteRef(git, repo.path, remote.path, ref), { ok: true, value: undefined }, 'no such ref yet');
+    assert.ok((await pushRefs(git, repo.path, remote.path, spec)).ok);
+    assert.deepEqual(await remoteRef(git, repo.path, remote.path, ref), { ok: true, value: base });
+
+    // History rewritten: not a fast-forward.
+    repo.git('checkout', '--quiet', '--orphan', 'other');
+    repo.write('b.md', 'b');
+    const rewritten = repo.commit('b');
+    repo.git('branch', '--force', 'actor/gardener', rewritten);
+    const plain = await pushRefs(git, repo.path, remote.path, spec);
+    assert.equal(!plain.ok && plain.error.reason, 'git-failed', 'not forced');
+    assert.equal(remote.git('rev-parse', ref), base);
+
+    const wrong = await pushRefs(git, repo.path, remote.path, spec, { lease: { ref, sha: rewritten } });
+    assert.equal(!wrong.ok && wrong.error.reason, 'git-failed', 'the remote does not hold the leased commit');
+    assert.equal(remote.git('rev-parse', ref), base);
+
+    assert.ok((await pushRefs(git, repo.path, remote.path, spec, { lease: { ref, sha: base } })).ok);
+    assert.equal(remote.git('rev-parse', ref), rewritten);
+
+    for (const lease of [{ ref: 'refs/heads/main', sha: base }, { ref, sha: 'main' }, { ref: '--force', sha: base }]) {
+      const refused = await pushRefs(git, repo.path, remote.path, spec, { lease });
+      assert.equal(!refused.ok && refused.error.reason, 'invalid-argument', JSON.stringify(lease));
+    }
+  } finally {
+    remote.cleanup();
+  }
 }));

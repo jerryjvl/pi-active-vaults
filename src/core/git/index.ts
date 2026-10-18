@@ -58,5 +58,5 @@ export {
 export { isSha } from './validate.ts';
 export { addWorktree, exportTree, listWorktrees, removeWorktree, type AddWorktreeOptions, type Worktree } from './worktrees.ts';
 export { appendNoteLine, notesAdd, notesAppend, notesList, notesMergeLines, notesRemove, notesShow, type NoteWriteOptions } from './notes.ts';
-export { checkRemote, fetchCommit, fetchRefs, pushRefs, remoteUrl } from './remote.ts';
+export { checkRemote, fetchCommit, fetchRefs, pushRefs, remoteRef, remoteUrl, type Lease } from './remote.ts';
 export { configValue, gitDirectories, listRemotes } from './config.ts';

@@ -20,14 +20,14 @@ export {
 } from './adapter.ts';
 export {
   checkMerges,
-  forgeSchema,
   lostMergeNotice,
   lostMergeReport,
   lostMerges,
   uncheckedMerges,
-  type MergeResult,
   type MergedProposal,
+  type StandingMerge,
 } from './merges.ts';
+export { forgeSchema, type MergeResult } from './merged.ts';
 export { forgeAdapter, forgeProject } from './project.ts';
 export {
   proposeToForge,

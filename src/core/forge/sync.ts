@@ -5,7 +5,9 @@
 // Invariants:
 //  - the package pushes only actor branches and its notes (attestations and
 //    traces) — each to the same name — never `main`: `pushToForge` refuses
-//    any other refspec before git runs;
+//    any other refspec before git runs. Nothing is forced but one case: an
+//    actor branch replacing the forge's copy when that is exactly the head
+//    the forge reported merged, as a lease on that commit;
 //  - proposing is a propagating action: refused while `main` has an
 //    unaccepted change, and only for a forge-mode vault;
 //  - notes meet the forge's line by line before any are pushed, so no record
@@ -27,8 +29,8 @@ import { actorBranch, readProposal, type Proposal, type ProposalError } from '..
 import type { Clock } from '../clock/index.ts';
 import type { ForgeEntry } from '../config/index.ts';
 import {
-  fastForward, fetchRefs, isAncestor, listWorktrees, notesMergeLines, pushRefs, remoteUrl, resolveRevision, updateRef,
-  type Attribution, type Git, type GitError, type Sha,
+  fastForward, fetchRefs, isAncestor, listWorktrees, notesMergeLines, pushRefs, remoteRef, remoteUrl, resolveRevision, updateRef,
+  type Attribution, type Git, type GitError, type Lease, type Sha,
 } from '../git/index.ts';
 import {
   MAIN_BRANCH, acceptedMain, mainTip, recordAccepted, requireNoUnacceptedChange,
@@ -40,6 +42,7 @@ import { err, ok, type Result } from '../result/index.ts';
 import type { Store } from '../store/index.ts';
 import { TRACES_REF } from '../traces/index.ts';
 import { POLICY_CONTEXT, type CommitStatus, type ForgeAdapter, type ForgeDepsBase, type ForgeError, type PullRequest, type StatusState } from './adapter.ts';
+import { mergedHeads } from './merged.ts';
 import { forgeAdapter, forgeProject } from './project.ts';
 
 export interface ForgeDeps extends ForgeDepsBase {
@@ -76,14 +79,40 @@ const NOTES_PREFIX = 'refs/notes/vault/';
 const FORGE_NOTES_PREFIX = 'refs/notes/vault-forge/';
 const forgeCopy = (ref: string): string => `${FORGE_NOTES_PREFIX}${ref.slice(NOTES_PREFIX.length)}`;
 
-/** Only actor branches and the package's notes, each pushed to its own name, never forced. */
-export async function pushToForge(git: Git, repo: string, refspecs: readonly string[]): Promise<Result<void, ForgeSyncError>> {
+/**
+ * Only actor branches and the package's notes, each pushed to its own name,
+ * and never forced — except by a `lease` on an actor branch among them (see
+ * `leaseOnMergedHead`), which may replace the forge's copy only while it
+ * holds exactly the commit the lease names.
+ */
+export async function pushToForge(git: Git, repo: string, refspecs: readonly string[], options: { readonly lease?: Lease } = {}): Promise<Result<void, ForgeSyncError>> {
   for (const refspec of refspecs) {
     const [source, destination, ...rest] = refspec.split(':');
     const own = source === destination && rest.length === 0;
     if (!own || source === undefined || !(source.startsWith('refs/heads/actor/') || (SHARED_NOTES as readonly string[]).includes(source))) return err({ reason: 'not-pushable', refspec });
   }
-  return pushRefs(git, repo, REMOTE, refspecs);
+  if (options.lease !== undefined && !options.lease.ref.startsWith('refs/heads/actor/')) return err({ reason: 'not-pushable', refspec: options.lease.ref });
+  return pushRefs(git, repo, REMOTE, refspecs, options);
+}
+
+/**
+ * The one case in which an actor branch is pushed forced. After a squash or
+ * rebase merge the package resets the branch to `main`, so its next head is
+ * not a fast-forward of the forge's copy, which still holds the head the
+ * forge reported merged (`merged.ts`). Replacing exactly that commit loses
+ * nothing — it is merged, and `main` is not touched — so the push leases it:
+ * it is refused if the forge's copy is anything else, someone's later push
+ * included. Undefined when a plain push does.
+ */
+async function leaseOnMergedHead(deps: ForgeDeps, vault: VaultLocation, actor: string, branchRef: string): Promise<Result<Lease | undefined, ForgeSyncError>> {
+  const forgeHead = await remoteRef(deps.git, vault.path, REMOTE, branchRef);
+  if (!forgeHead.ok) return forgeHead;
+  if (forgeHead.value === undefined || !mergedHeads(deps.store, vault.id, actor).includes(forgeHead.value)) return ok(undefined);
+  const ahead = await resolveRevision(deps.git, vault.path, branchRef);
+  if (!ahead.ok) return ahead;
+  if (ahead.value === forgeHead.value) return ok(undefined);
+  const forwards = await isAncestor(deps.git, vault.path, forgeHead.value, ahead.value);
+  return ok(forwards.ok && forwards.value ? undefined : { ref: branchRef, sha: forgeHead.value });
 }
 
 /** The adapter for the vault's forge: the one its `origin` is on. */
@@ -199,7 +228,9 @@ export async function proposeToForge(
   const branchRef = `refs/heads/${proposal.branch}`;
   const notes = await presentNotes(deps.git, vault.path);
   if (!notes.ok) return notes;
-  const pushed = await pushToForge(deps.git, vault.path, [branchRef, ...notes.value].map((ref) => `${ref}:${ref}`));
+  const lease = await leaseOnMergedHead(deps, vault, actor, branchRef);
+  if (!lease.ok) return lease;
+  const pushed = await pushToForge(deps.git, vault.path, [branchRef, ...notes.value].map((ref) => `${ref}:${ref}`), lease.value === undefined ? {} : { lease: lease.value });
   if (!pushed.ok) return pushed;
 
   const found = await adapter.findPullRequest(actorBranch(actor), MAIN_BRANCH);

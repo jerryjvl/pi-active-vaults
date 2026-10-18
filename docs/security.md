@@ -70,7 +70,7 @@ adopting locally.
 | Notice on every command until adopted | Both | Unexpected changes going unnoticed |
 | Automation pauses on unaccepted changes | Both | Triggers acting on unreviewed state |
 | Pre-push hook refusing pushes of `main` | Both | Accidental pushes of unreviewed work |
-| The package never pushes `main` | Forge | The package itself bypassing review |
+| The package never pushes `main`, and forces a push only to replace an actor branch that is exactly the head the forge reported merged | Forge | The package itself bypassing review, or overwriting work in the forge |
 | Bot credential that is not an owner | Forge | An executor approving its own proposals |
 | Protected `main` with required owner approval | Forge | Anything reaching the shared `main` unreviewed — even from a compromised machine |
 | Merge commits or fast-forwards only, and each merge checked for the proposal's commits | Forge | Attestations and trace notes left attached to commits `main` does not contain |

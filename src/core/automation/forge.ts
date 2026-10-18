@@ -104,9 +104,10 @@ export function createForgeSync(context: OperationContext): ForgeSync {
         const reset = await resetActorBranch({ git: context.git, store: context.state, alive: context.alive }, vault, accepted, r.actor, r.head);
         resets.set(r.pull, reset.ok ? reset.value : undefined);
       }
+      const standing = await lostMerges(context.git, context.state, vault);
       await notifyOwners(context, vault, accepted, () => ({
         subject: `Vault "${vault.id}": a merged proposal lost its commits`,
-        body: `${lost.map((r) => lostMergeNotice(r, vault, resets.get(r.pull))).join('\n')}\nDisable squash and rebase merges in the forge (security-setup.md).\n`,
+        body: `${lost.map((r) => lostMergeNotice(r, vault, resets.get(r.pull), standing.find((s) => s.pull === r.pull))).join('\n')}\nDisable squash and rebase merges in the forge (security-setup.md).\n`,
         key: `merges:${vault.id}:${lost.map((r) => r.pull).join(',')}`,
       }));
     }

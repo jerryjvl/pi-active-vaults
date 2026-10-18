@@ -18,52 +18,19 @@
 //  - a head that is missing here is not in `main`: fetching `main` brings
 //    every commit it contains.
 
-import { actorBranch, actorWorktreePath, type ResetOutcome } from '../actors/index.ts';
-import { isAncestor, type Git, type Sha } from '../git/index.ts';
+import { actorBranch, type ResetOutcome } from '../actors/index.ts';
+import { isAncestor, listWorktrees, type Git } from '../git/index.ts';
 import { MAIN_BRANCH, type AcceptedMain, type VaultLocation } from '../integrity/index.ts';
-import type { RegisteredVault } from '../registry/index.ts';
 import { ok, type Result } from '../result/index.ts';
-import type { ModuleSchema, Queryable, Store } from '../store/index.ts';
+import type { Queryable } from '../store/index.ts';
 import type { PullRequest } from './adapter.ts';
+import { judgedPulls, lostRows, recordMerge, type MergeResult } from './merged.ts';
 import { connectForge, type ForgeDeps, type ForgeSyncError } from './sync.ts';
-
-export const forgeSchema: ModuleSchema = {
-  module: 'forge',
-  migrations: [
-    {
-      version: 1,
-      sql: `CREATE TABLE forge_merges (
-        vault TEXT NOT NULL,
-        pull INTEGER NOT NULL,
-        url TEXT NOT NULL,
-        actor TEXT NOT NULL,
-        head TEXT NOT NULL,
-        main TEXT NOT NULL,
-        kept INTEGER NOT NULL CHECK (kept IN (0, 1)),
-        at TEXT NOT NULL,
-        PRIMARY KEY (vault, pull)
-      ) STRICT`,
-    },
-  ],
-};
 
 /** A proposal the forge says was merged: its pull request, the actor whose branch it was, and the head it was merged at. */
 export interface MergedProposal {
   readonly pull: PullRequest;
   readonly actor: string;
-}
-
-export interface MergeResult {
-  readonly vault: string;
-  readonly pull: number;
-  readonly url: string;
-  readonly actor: string;
-  readonly head: Sha;
-  /** The accepted main it was judged against. */
-  readonly main: Sha;
-  /** Whether the head is in that main: its commits, and what is attached to them, reached it. */
-  readonly kept: boolean;
-  readonly at: string;
 }
 
 /** The writers' proposals merged most recently in the forge and not judged yet. Asked before fetching `main`. */
@@ -72,7 +39,7 @@ export async function uncheckedMerges(deps: ForgeDeps, vault: VaultLocation, wri
   if (!adapter.ok) return adapter;
   const merged = await adapter.value.mergedPullRequests(MAIN_BRANCH);
   if (!merged.ok) return merged;
-  const judged = new Set(deps.store.all<{ pull: number }>('SELECT pull FROM forge_merges WHERE vault = ?', [vault.id]).map((r) => r.pull));
+  const judged = judgedPulls(deps.store, vault.id);
   const unchecked: MergedProposal[] = [];
   for (const pull of merged.value) {
     const actor = writers.find((w) => actorBranch(w) === pull.head);
@@ -95,12 +62,9 @@ export async function checkMerges(deps: ForgeDeps, vault: VaultLocation, accepte
   return ok(recorded);
 }
 
-/** Records a merge's result unless it is recorded already; whether it was recorded now. */
-function recordMerge(store: Store, r: MergeResult): boolean {
-  return store.run(
-    'INSERT INTO forge_merges (vault, pull, url, actor, head, main, kept, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING',
-    [r.vault, r.pull, r.url, r.actor, r.head, r.main, r.kept ? 1 : 0, r.at],
-  ).changes === 1;
+/** A lost merge whose actor's branch still holds the approved head, and where that branch is checked out, if anywhere. */
+export interface StandingMerge extends MergeResult {
+  readonly checkout?: string;
 }
 
 /**
@@ -110,16 +74,18 @@ function recordMerge(store: Store, r: MergeResult): boolean {
  * so nothing needs dismissing. A branch that cannot be read counts as holding
  * it: a report is not dropped on a failure.
  */
-export async function lostMerges(git: Git, store: Queryable, vault: VaultLocation): Promise<MergeResult[]> {
-  const lost = store.all<Omit<MergeResult, 'kept'> & { kept: number }>(
-    'SELECT vault, pull, url, actor, head, main, kept, at FROM forge_merges WHERE vault = ? AND kept = 0 ORDER BY pull DESC', [vault.id],
-  );
+export async function lostMerges(git: Git, store: Queryable, vault: VaultLocation): Promise<StandingMerge[]> {
   const standing: MergeResult[] = [];
-  for (const r of lost) {
+  for (const r of lostRows(store, vault.id)) {
     const holds = await isAncestor(git, vault.path, r.head, `refs/heads/${actorBranch(r.actor)}`);
-    if (holds.ok ? holds.value : holds.error.reason !== 'unknown-revision') standing.push({ ...r, kept: false });
+    if (holds.ok ? holds.value : holds.error.reason !== 'unknown-revision') standing.push(r);
   }
-  return standing;
+  if (standing.length === 0) return [];
+  const worktrees = await listWorktrees(git, vault.path);
+  return standing.map((r) => {
+    const checkout = worktrees.ok ? worktrees.value.find((w) => w.branch === actorBranch(r.actor))?.path : undefined;
+    return checkout === undefined ? r : { ...r, checkout };
+  });
 }
 
 /** What a lost merge is, in one line. */
@@ -127,21 +93,33 @@ export function lostMergeText(r: MergeResult): string {
   return `Pull request #${r.pull} from ${r.actor} (${actorBranch(r.actor)}${r.url === '' ? '' : `, ${r.url}`}) was merged without its commits: its head ${r.head} is not in main (${r.main}), so its attestations and trace notes no longer attach.`;
 }
 
-/** What ends it, for the owner to do when the package did not reset the branch (the conditions are `resetActorBranch`'s). */
-function lostMergeAdvice(r: MergeResult, vault: RegisteredVault): string {
+/** A path as one shell word: bare when it is plain, else quoted (double quotes where it has a backslash, as on Windows). */
+function shellWord(path: string): string {
+  if (/^[\w@%+=:,./\\-]+$/.test(path)) return path;
+  return path.includes('\\') ? `"${path.replaceAll('"', '\\"')}"` : `'${path.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * What ends it, for the owner to do when the package did not reset the branch:
+ * the one command — in the worktree where the branch is checked out, else on
+ * the vault — and when it may be run (the conditions of `resetActorBranch`).
+ */
+function lostMergeAdvice(r: MergeResult, vault: VaultLocation, checkout: string | undefined): string {
   const branch = actorBranch(r.actor);
-  return `While the branch holds the head it is not proposed again. To end this, reset ${branch} to main once no session holds ${r.actor} and its worktree has no uncommitted changes: \`git reset --hard main\` in ${actorWorktreePath(vault, r.actor)}, or \`git branch -f ${branch} main\` where it has no worktree.`;
+  const command = checkout === undefined ? `git -C ${shellWord(vault.path)} branch -f ${branch} main` : `git -C ${shellWord(checkout)} reset --hard main`;
+  return `While the branch holds the head it is not proposed again. To end this, reset ${branch} to main once no session holds ${r.actor} and nothing in its worktree is uncommitted: \`${command}\` — it discards everything the branch holds beyond main.`;
 }
 
 /** A lost merge as status and doctor show it: what happened, and what to do. */
-export function lostMergeReport(r: MergeResult, vault: RegisteredVault): string {
-  return `${lostMergeText(r)} ${lostMergeAdvice(r, vault)}`;
+export function lostMergeReport(r: StandingMerge, vault: VaultLocation): string {
+  return `${lostMergeText(r)} ${lostMergeAdvice(r, vault, r.checkout)}`;
 }
 
-/** A lost merge as the owners are told it, with what became of its branch. */
-export function lostMergeNotice(r: MergeResult, vault: RegisteredVault, reset: ResetOutcome | undefined): string {
+/** A lost merge as the owners are told it, with what became of its branch; `standing` is its listing if the branch still holds the head. */
+export function lostMergeNotice(r: MergeResult, vault: VaultLocation, reset: ResetOutcome | undefined, standing: StandingMerge | undefined): string {
   if (reset?.outcome === 'reset') return `${lostMergeText(r)} ${actorBranch(r.actor)} held exactly the approved head, nobody held ${r.actor} and its worktree was clean, so it was reset to main.`;
-  return `${lostMergeText(r)} ${actorBranch(r.actor)} was left as it is: ${reset === undefined ? 'it could not be reset' : whyNotReset(reset)}. ${lostMergeAdvice(r, vault)}`;
+  const why = reset === undefined ? 'it could not be reset' : whyNotReset(reset);
+  return `${lostMergeText(r)} ${actorBranch(r.actor)} was left as it is: ${why}. ${lostMergeAdvice(r, vault, standing?.checkout)}`;
 }
 
 function whyNotReset(outcome: Exclude<ResetOutcome, { outcome: 'reset' }>): string {
