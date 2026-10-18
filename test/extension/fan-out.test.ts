@@ -9,9 +9,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fauxAssistantMessage, fauxToolCall, getCurrentTools, type FauxResponseStep, type JsonObject } from '@earendil-works/pi-ai';
+import { writeFileSync } from 'node:fs';
+import { renderRunContext } from '../../src/core/sessions/index.ts';
 import { withInstallation } from '../support/installation.ts';
 import { toolResults, withPi } from '../support/pi.ts';
-import { RUNNING } from '../support/session.ts';
+import { RUNNING, runOf, startedSpawn } from '../support/session.ts';
 
 const fanOut = (args: JsonObject) => fauxAssistantMessage(fauxToolCall('vault_fan_out', args), { stopReason: 'toolUse' });
 
@@ -66,5 +68,18 @@ test('no items is a request the model should fix', withInstallation(async (t) =>
     pi.respond(fanOut({ items: [], each: 'Do it.', gather: 'Combine.' }), fauxAssistantMessage('Done.'));
     await pi.prompt('Fan out.');
     assert.equal(pi.results.find((r) => r.tool === 'vault_fan_out')?.isError, true);
+  });
+}, { running: RUNNING }));
+
+test('a headless run fans out no further once its budget is used', withInstallation(async (t) => {
+  const entry = startedSpawn(t, 'jobs/daily.md', 50);
+  const runFile = t.dir.file('run.json');
+  writeFileSync(runFile, renderRunContext(runOf(entry)));
+  await withPi(t, { flags: { 'vault-run': runFile } }, async (pi) => {
+    const asked: { prompt: string; tools: number }[] = [];
+    pi.respond(fanOut({ items: ['a', 'b', 'c'], each: 'Do it.', gather: 'Combine.' }), answer('A', asked), answer('only A', asked), fauxAssistantMessage('Done.'));
+    await pi.prompt('Run the job.');
+    const structured = pi.results.find((r) => r.tool === 'vault_fan_out')?.structured as { data: { items: { item: string; outcome: string }[] } };
+    assert.deepEqual(structured.data.items.map((i) => [i.item, i.outcome]), [['a', 'done'], ['b', 'skipped'], ['c', 'skipped']]);
   });
 }, { running: RUNNING }));
