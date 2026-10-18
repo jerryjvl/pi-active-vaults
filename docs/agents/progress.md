@@ -10,8 +10,8 @@ Maintained by the implementing agent; read by the reviewer. Newest stage last.
 Kept current with every commit, so an interrupted session can resume.
 
 - **Done:** Stage 6a review: compact traces as notes on `refs/notes/vault/traces` (tests `40d356b`, code `f8985e4`, docs `70294f0`); squash merges checked by doctor.
-- **In progress:** Stage 6b — MCP profiles (HTTP and standard I/O).
-- **Next:** forge sync scheduling and outbox retry in the daemon; the launchd daemon variant; the opt-in real-Pi smoke test; refactoring pass; progress entry.
+- **In progress:** Stage 6b — MCP done (tests `1fd3b14`, code `aaca12e`, docs `e8710d3`); now forge sync scheduling and outbox retry in the daemon.
+- **Next:** the launchd daemon variant; the opt-in real-Pi smoke test; refactoring pass; progress entry.
 
 ## Stage entries
 
