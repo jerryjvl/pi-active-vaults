@@ -4,8 +4,6 @@
 
 ## Key documents
 
-- [Implementation plan](docs/agents/implementation-plan.md) and
-  [progress log](docs/agents/progress.md) — how the work proceeds
 - [Principles](docs/principles.md) — the constraints on every decision
 - [Security model](docs/security.md) — guarantees every component preserves
 - [Concepts](docs/concepts.md) — the model and file formats

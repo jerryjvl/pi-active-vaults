@@ -24,14 +24,12 @@ Read in this order before proposing or writing code:
 If a task cannot be done without contradicting one of these documents, stop and
 say so. Do not work around a principle; propose changing it.
 
-## 2. How implementation proceeds
+## 2. How changes are made
 
-The documentation on `main` is the agreed design. Implementation follows
-[`docs/agents/implementation-plan.md`](docs/agents/implementation-plan.md):
-layered stages, each with tests written before the code they test, a
-refactoring pass, and an entry in
-[`docs/agents/progress.md`](docs/agents/progress.md). Read both before starting,
-and the progress log before resuming.
+The documentation on `main` is the agreed design. For each change: write tests
+for the documented behaviour first, then the code, then the design-hygiene
+review in §4. A change that needs the design itself to change is proposed to
+the owner before it is made.
 
 ## 3. Environment
 
@@ -39,8 +37,8 @@ and the progress log before resuming.
   package manager, or how tools are installed. If a tool is missing or the
   wrong version, report it; do not install or upgrade tools without the
   owner's agreement.
-- The required Node version is declared in `package.json` (`engines`) once
-  implementation starts. Do not rely on whatever Node happens to be global.
+- The required Node version is declared in `package.json` (`engines`). Do not
+  rely on whatever Node happens to be global.
 - The design targets **Pi ≥ 1.3**. Check `pi --version` before relying on Pi
   APIs; older versions lack APIs this package depends on (`ctx.executeTool`,
   tool exposure modes, the built-in classifier).
@@ -177,8 +175,8 @@ proposed to the owner first.
 - Human documentation (`README.md`, `docs/`) is **concise**: only what is needed
   to understand the structure, shape and details of the implementation. No
   tutorials, no speculation, no history.
-- Verbose agent guidance belongs only in this file and in files under
-  `docs/agents/` that this file links to.
+- Agent guidance belongs only in this file. The documentation describes the
+  system, never the process of building it.
 - A change in behaviour updates the relevant human document in the same commit.
 - Open questions are listed briefly at the end of the relevant document, not
   scattered through it.
@@ -191,9 +189,7 @@ proposed to the owner first.
 
 - `main` holds the agreed design and reviewed work. **Never commit to `main`
   and never merge into it**; the owner does that after review.
-- Work on the implementation branch named in the progress log (create it from
-  `main` if it does not exist). If asked to redo work, start a fresh branch from
-  `main` as instructed.
+- Work on a branch from `main`, named for the change.
 - This repository is local-only. Never push or add a remote unless the owner
   asks.
 - Commit in small, coherent steps. Commit messages: a short imperative subject;
