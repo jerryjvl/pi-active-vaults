@@ -25,9 +25,8 @@
 // refused, never written. Windows programs are named by absolute path under
 // `%SystemRoot%`.
 
-import { existsSync, realpathSync, statSync } from 'node:fs';
 import { err, ok, type Result } from '../result/index.ts';
-import { pathFor, type Host } from './platform.ts';
+import { pathEntries, pathFor, systemFiles, type FileView, type Host } from './platform.ts';
 
 /** A program and its arguments: what the service commands are. */
 export interface ServiceProgram {
@@ -227,24 +226,6 @@ export function serviceFor(
   }
 }
 
-/** How files are looked at: the file system, or a stand-in in tests of another platform's branch. */
-export interface FileView {
-  exists(path: string): boolean;
-  /** Where a path really is, through links. */
-  real(path: string): string;
-}
-
-const systemFiles: FileView = {
-  exists: (path) => {
-    try {
-      return statSync(path).isFile();
-    } catch {
-      return false;
-    }
-  },
-  real: (path) => (existsSync(path) ? realpathSync(path) : path),
-};
-
 /** The `pi` the user runs: found on PATH as the service starts; a JavaScript entry point runs with `node`. */
 export function findPi(host: Host, node: string, files: FileView = systemFiles): Result<ServiceProgram, { readonly reason: 'pi-not-found' }> {
   const path = pathFor(host.os);
@@ -269,9 +250,6 @@ function toolFiles(tool: ServiceTool['tool'], os: Host['os']): readonly string[]
   return os === 'win32' ? [`${tool}.exe`, `${tool}.cmd`, `${tool}.bat`] : [tool];
 }
 
-function pathEntries(host: Host): string[] {
-  return (host.env['PATH'] ?? host.env['Path'] ?? '').split(host.os === 'win32' ? ';' : ':').filter((e) => e !== '');
-}
 
 /**
  * Where node, pi and git are on PATH: the first directory that holds each,

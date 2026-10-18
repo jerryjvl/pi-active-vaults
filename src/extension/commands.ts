@@ -8,7 +8,7 @@
 
 import { CLI_PROGRAM } from '../cli/program.ts';
 import type { ExtensionAPI, ExtensionCommandContext } from '@earendil-works/pi-coding-agent';
-import { writeLauncher, type Host } from '../core/config/index.ts';
+import { describeLauncher, writeLauncher, type Host } from '../core/config/index.ts';
 import {
   CATALOGUE, commandRequest, describeCommandLineError, locate, outcomeData, parseLine, splitArguments, usage, type Operation,
 } from '../core/operations/index.ts';
@@ -36,8 +36,7 @@ function installCli(host: Host): string {
       : error.reason === 'unsafe-path' ? `The package's path cannot be written into a launcher safely: ${error.program}`
       : `There is no ${error.variable} to put the launcher under.`;
   }
-  const { path, onPath } = written.value;
-  return `Wrote ${path}.${onPath ? '' : ` Its directory is not on PATH yet; add it to run "vault" by name.`}`;
+  return describeLauncher(written.value);
 }
 
 export function registerCommands(pi: ExtensionAPI, holder: Holder, host: () => Host): void {

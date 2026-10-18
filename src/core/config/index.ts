@@ -7,10 +7,13 @@ export {
   currentHost,
   ensurePrivateDir,
   installationPaths,
+  pathEntries,
   pathFor,
   platformDirs,
+  systemFiles,
   landsWithin,
   realLocation,
+  type FileView,
   type Host,
   type InstallationPaths,
   type PlatformDirs,
@@ -43,9 +46,9 @@ export {
   type VaultEntry,
 } from './installation.ts';
 export { checkPerson, registerVault, type NewVaultEntry, type PersonError, type RegisterError } from './register.ts';
-export { launcherFor, writeLauncher, type Launcher, type LauncherError } from './launcher.ts';
+export { describeLauncher, launcherFor, vaultsOnPath, writeLauncher, type Launcher, type LauncherError } from './launcher.ts';
 export {
   SERVICE_TOOLS, findPi, findServiceTools, serviceFor, staleServiceTools,
-  type FileView, type ServiceDefinition, type ServiceError, type ServiceProgram, type ServiceTool,
+  type ServiceDefinition, type ServiceError, type ServiceProgram, type ServiceTool,
 } from './service.ts';
 export { packageVersion } from './package.ts';

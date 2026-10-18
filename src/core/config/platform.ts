@@ -5,7 +5,7 @@
 // Path flavour follows the host's platform, not the platform running the code.
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir, hostname, platform, userInfo } from 'node:os';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
 import { err, ok, type Result } from '../result/index.ts';
@@ -173,4 +173,27 @@ export function landsWithin(outer: string, inner: string): string | undefined {
   if (rel === '') return '';
   if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return undefined;
   return rel.split(sep).join('/');
+}
+
+/** How files are looked at: the file system, or a stand-in in tests of another platform's branch. */
+export interface FileView {
+  exists(path: string): boolean;
+  /** Where a path really is, through links. */
+  real(path: string): string;
+}
+
+export const systemFiles: FileView = {
+  exists: (path) => {
+    try {
+      return statSync(path).isFile();
+    } catch {
+      return false;
+    }
+  },
+  real: (path) => (existsSync(path) ? realpathSync(path) : path),
+};
+
+/** The directories of the host's PATH, in order, as written. */
+export function pathEntries(host: Host): string[] {
+  return (host.env['PATH'] ?? host.env['Path'] ?? '').split(host.os === 'win32' ? ';' : ':').filter((e) => e !== '');
 }
