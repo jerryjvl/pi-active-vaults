@@ -18,9 +18,84 @@ on their own branches; owners decide what reaches `main`.
 | **Daemon** | Timers, change monitoring, background jobs, forge sync and an MCP server, without Pi open |
 | **Core library** | The shared implementation behind all three |
 
-## Status
+## Requirements
 
-Pre-release: implemented and tested, not yet released.
+- Linux, macOS or Windows
+- Pi ≥ 1.3, with a model configured
+- Node.js ≥ 22.18
+- Git ≥ 2.36
+
+## Getting started
+
+**1. Install** from a checkout of this repository:
+
+```sh
+npm install && npm run build
+pi install "$PWD"
+```
+
+Then, inside Pi, put the `vault` command on your `PATH` (it reports any other
+`vault` command it finds there):
+
+```
+/vault install-cli
+```
+
+**2. Create a vault.** On first use this also creates the installation config,
+with you as its person (your OS user name, or `--person <name>`), installs the
+vault's Git hooks and makes your worktree:
+
+```sh
+vault init ~/vaults/notes
+```
+
+**3. Work in your worktree** — `vault list` shows where it is. Commit there,
+then review and accept your own proposal into `main`:
+
+```sh
+cd <your worktree>
+vault commit -m "First note"
+vault review <you>
+vault accept <you>
+```
+
+**4. Add an agent and a job.** In your worktree, name an agent in the root
+contract (`vault.actors: [librarian]`) and add a job document:
+
+```markdown
+---
+actor: librarian
+budget: { tokens: 50000, ttl: 5m }
+applies-when:
+  - { on: timer, schedule: "0 7 * * *", effect: spawn }
+---
+Summarise yesterday's new notes in digests/<date>.md and commit it.
+```
+
+Both are control changes: commit, review and accept them like any other.
+
+**5. Start the daemon**, which runs jobs while Pi is closed:
+
+```sh
+vault daemon install
+vault daemon start
+```
+
+The agent's work arrives as a proposal from `librarian`; review and accept it
+as in step 3.
+
+**Check the setup** at any time with `vault doctor` (`--fix` repairs what it
+can). Before relying on it, also:
+
+- configure model roles and the `policy` that allows them
+  ([Installation](docs/concepts.md#installation)) — without an embedding model,
+  search is keyword-only;
+- list the tools that do not taint a session in `taint.trusted-tools` — by
+  default every tool does, so `when-tainted` merge rules always apply;
+- give secrets as `!command` (a keyring lookup) rather than `${ENV}`: the
+  daemon does not see your shell's environment;
+- for vaults on several machines, or where agents must not be able to change
+  accepted knowledge, use a forge ([Security setup](docs/security-setup.md)).
 
 ## Documentation
 
@@ -39,13 +114,6 @@ Pre-release: implemented and tested, not yet released.
 | [MCP](docs/mcp.md) | The daemon's MCP server and its exposure limits |
 | [Pi API surface](docs/api.md) | Tools, commands, hooks and events registered with Pi |
 | [Pi conventions](docs/pi-conventions.md) | How the package fits Pi's framework |
-
-## Requirements
-
-- Linux, macOS or Windows
-- Pi ≥ 1.3
-- Node.js ≥ 22.18
-- Git ≥ 2.36
 
 ## Development
 
