@@ -3,11 +3,15 @@
 Vault operations are available to any MCP client — chat front-ends, other
 agents, editors — through **profiles**. A profile is a set of permitted
 operations, with optional per-vault overrides. The daemon serves each profile
-on its own endpoint; `vault mcp --profile <name>` serves one over standard
+that has a `listen` endpoint over HTTP at `/mcp` (stateless: each request
+stands alone); `vault mcp --profile <name>` serves one over standard
 input/output for local clients that start their own servers.
 
 MCP tools, Pi tools and CLI commands are generated from one catalogue of
-operations in the core, so the surfaces never drift apart.
+operations in the core, so the surfaces never drift apart. Each MCP tool is
+`vault_<operation>`; it names the vault it acts on as `vault` (or in a
+`<vault-id>:<path>`), or for an operation over many vaults as `vaults` —
+by default every vault the profile permits it for.
 
 ## Permissions
 
@@ -64,15 +68,18 @@ With no `mcp` section, or a profile with no permissions, MCP can touch nothing.
 - **Accept needs an owner.** `accept` works only on a profile that declares an
   `owner`, and the approval attestation records both the owner and the profile.
   Reviews through a profile are its owner's too.
-- **Writes name their actor.** `write` and `commit` take the actor to write as —
-  one of the vault's `actors`, never an owner — and are refused while another
-  session holds it.
+- **Writes name their actor.** `write` and `commit` require the actor to write
+  as — one of the vault's `actors`, never an owner, not even the profile's —
+  and are refused while another session holds it.
 - **MCP commits are tainted.** Every commit made through MCP carries
   `Vault-Tainted`: the package cannot know what the client read, so it fails
   closed, as unknown tools do in a Pi session.
 - **Only listed tools exist.** A client sees exactly the operations its profile
   permits for at least one vault, in a stable order; calls for a vault where
-  the operation is not permitted are refused.
+  the operation is not permitted are refused — the same way as for a vault
+  that does not exist, so a profile cannot learn of vaults it may not touch.
+- **No confirmation through MCP.** Adopting `main` shows its delta but is never
+  confirmed over MCP: confirming is the person's, at the CLI or in Pi.
 - **Same behaviour everywhere.** An operation over MCP enforces exactly what it
   enforces in Pi or the CLI — merge policy, write guards, scripts from the
   accepted `main` — and every response for a vault with an unaccepted change

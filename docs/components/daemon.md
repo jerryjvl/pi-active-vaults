@@ -19,7 +19,7 @@ Git changes, and queued spawns. One per machine, as a user service.
 | **Traces** | Issues trace IDs, writes full logs and rotates them |
 | **Outbox** | Retries undelivered notifications with backoff |
 | **Forge sync** | For `forge`-mode vaults: pushes actor branches, keeps pull requests, commit statuses and the `vault/policy` status current, fetches to detect merges; merges attestation and trace notes line by line |
-| **MCP server** | Serves each configured MCP profile on its own endpoint — see [MCP](../mcp.md) |
+| **MCP server** | Serves each MCP profile that has an endpoint on it; one that cannot be served (its token unresolved, its address in use) is reported at start and the others still are — see [MCP](../mcp.md) |
 
 ## Spawn lifecycle
 
