@@ -1,7 +1,7 @@
 // Control changes (concepts.md "Merge policy"): a change to any `_contract.md`,
-// anything under `.vault/`, or a document's `applies-when` or `budget` — what
-// decides how the vault instructs, runs and gates. Whatever the contracts say,
-// such a change needs an owner.
+// anything under `.vault/`, or a document's `applies-when`, `budget` or `actor`
+// — what decides how the vault instructs, runs and gates, and whom a job
+// writes as. Whatever the contracts say, such a change needs an owner.
 //
 // Detection errs towards flagging. Names are compared case-insensitively,
 // because a case-insensitive file system would treat `_Contract.md` as the
@@ -15,11 +15,11 @@ import type { FileChange, Git, GitError, Sha } from '../git/index.ts';
 import { ok, type Result } from '../result/index.ts';
 
 /** Document keys whose change is a control change. */
-export const CONTROL_KEYS = ['applies-when', 'budget'] as const;
+export const CONTROL_KEYS = ['applies-when', 'budget', 'actor'] as const;
 
 export interface ControlChange {
   readonly path: string;
-  readonly reason: 'contract' | 'vault-directory' | 'conditions-or-budget' | 'unreadable-frontmatter';
+  readonly reason: 'contract' | 'vault-directory' | 'control-keys' | 'unreadable-frontmatter';
 }
 
 /** Why a path is control by its name alone, if it is. */
@@ -59,7 +59,7 @@ export async function findControlChanges(
     const is = change.change === 'deleted' ? ok({}) : await controlFields(git, repo, head, change.path);
     if (!is.ok) return is;
     if (was.value === undefined || is.value === undefined) found.push({ path: change.path, reason: 'unreadable-frontmatter' });
-    else if (!isDeepStrictEqual(was.value, is.value)) found.push({ path: change.path, reason: 'conditions-or-budget' });
+    else if (!isDeepStrictEqual(was.value, is.value)) found.push({ path: change.path, reason: 'control-keys' });
   }
   return ok(found.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)));
 }

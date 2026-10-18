@@ -24,7 +24,7 @@ export function startedSpawn(t: TestInstallation, document = 'jobs/daily.md', to
   t.repo.commit(`job ${document}`);
   t.accept();
   const { entry } = enqueueSpawn(t.context.state, { ids: t.context.ids, clock: t.clock, limits: t.installation.config.budgets }, {
-    vault: t.vault.id, document, event: { kind: 'manual', id: `M-${document}` }, budget: { tokens, ttlMs: 600_000 },
+    vault: t.vault.id, document, event: { kind: 'manual', id: `M-${document}` }, budget: { tokens, ttlMs: 600_000 }, actor: 'gardener',
   });
   const started = startSpawn(t.context.state, t.clock, entry.id);
   if (!started.ok) throw new Error(JSON.stringify(started.error));

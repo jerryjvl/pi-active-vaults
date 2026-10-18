@@ -52,7 +52,7 @@ function withQueue(run: (q: Queue) => void): () => Promise<void> {
 const merged = (commit: string, vault = 'home'): GitEvent => ({ kind: 'merged', vault, commit, changes: [] });
 
 const request = (document: string, extra: Partial<SpawnRequest> = {}): SpawnRequest =>
-  ({ vault: 'home', document, condition: 0, event: merged('a'.repeat(40)), budget: BUDGET, ...extra });
+  ({ vault: 'home', document, condition: 0, event: merged('a'.repeat(40)), budget: BUDGET, actor: 'gardener', ...extra });
 
 test('a spawn is claimed once per document and event; a second claim yields the existing one', withQueue(({ store, context }) => {
   const first = enqueueSpawn(store, context, request('jobs/digest.md'));

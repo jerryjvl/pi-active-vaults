@@ -21,6 +21,7 @@ A Markdown file with optional YAML frontmatter. Standard keys:
 | `labels` | Terms from the vault's vocabulary |
 | `applies-when` | Conditions under which the document is injected into a session or spawns work |
 | `budget` | `{ tokens, ttl }` — required on any document that can spawn work; `ttl` in whole seconds, minutes or hours (`90s`, `30m`, `2h`) |
+| `actor` | The actor work it spawns writes as — one of the vault's `actors`, never an owner; else the nearest contract's `actor`. A document that can spawn work and has none does not run, and `vault jobs` and `vault doctor` say so |
 | `provenance` | Written by the runtime: trace ID and a compact causal path |
 
 Any other key is the vault's own.
@@ -114,6 +115,7 @@ Contract keys:
 | `naming` | `nearest` | Filename pattern for new documents, e.g. `"{topic}-{date}.md"` |
 | `axes` | `merge` | Judgement questions (below) |
 | `applies-when` | `list-ops` | Conditions that apply to every document in the subtree |
+| `actor` | `nearest` | The actor of jobs in the subtree that name none themselves |
 
 Any other key is the vault's own and merges `nearest`. Paths in contracts and
 conditions are relative to the vault root.
@@ -195,8 +197,8 @@ that cannot be judged — no permitted model, an error, content too large for th
 model — never passes: nothing is recorded, and its requirement stays unmet.
 
 **Control changes always need an owner.** Whatever the contracts say, a change
-to any `_contract.md`, anything under `.vault/`, or the `applies-when` or
-`budget` of any document requires `owner`. Agents may propose such changes;
+to any `_contract.md`, anything under `.vault/`, or the `applies-when`,
+`budget` or `actor` of any document requires `owner`. Agents may propose such changes;
 review flags them.
 
 ## Session tree
@@ -305,7 +307,8 @@ config). An actor is one of the root contract's `actors` or `owners`. Many jobs
 may write into one actor's branch; each actor's branch is one review lane.
 
 **One writer at a time.** At most one session writes as an actor at once. The
-daemon runs one job per actor at a time and queues the rest. A Pi session
+daemon runs one job per actor at a time — each job as its `actor` — and queues
+the rest. A Pi session
 started as an actor that is busy is told which session holds it, and can wait
 or choose another actor. A session holds its actor through a record of its
 process, so a session that has ended — however it ended — holds nothing, and

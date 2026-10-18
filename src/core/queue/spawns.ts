@@ -66,6 +66,12 @@ export const queueSchema: ModuleSchema = {
         PRIMARY KEY (vault, document, stream)
       ) STRICT`,
     },
+    {
+      // Whom each spawn writes as, fixed at the claim (the job's actor on the
+      // accepted main then), so the scheduler can run one job per actor.
+      version: 2,
+      sql: 'ALTER TABLE queue_spawns ADD COLUMN actor TEXT',
+    },
   ],
 };
 
@@ -97,6 +103,8 @@ export interface SpawnRequest {
   readonly parent?: string;
   /** The document's budget. */
   readonly budget: Budget;
+  /** The job's actor: whom the run writes as. */
+  readonly actor: string;
   readonly relevance?: number;
 }
 
@@ -107,6 +115,8 @@ export interface SpawnEntry {
   readonly condition?: number;
   readonly event: SpawnEvent;
   readonly trace: string;
+  /** Whom it writes as; absent only for claims made before spawns recorded it. */
+  readonly actor?: string;
   readonly parent?: string;
   /** Its place in the session tree; absent when the tree refused it. */
   readonly root?: string;
@@ -140,6 +150,7 @@ interface SpawnRow {
   condition: number | null;
   event: string;
   trace: string;
+  actor: string | null;
   parent: string | null;
   root: string | null;
   depth: number | null;
@@ -153,7 +164,7 @@ interface SpawnRow {
   ended: string | null;
 }
 
-const SELECT = 'SELECT id, vault, document, condition, event, trace, parent, root, depth, tokens, awaited, state, reason, commit_sha, claimed, started, ended FROM queue_spawns';
+const SELECT = 'SELECT id, vault, document, condition, event, trace, actor, parent, root, depth, tokens, awaited, state, reason, commit_sha, claimed, started, ended FROM queue_spawns';
 
 /** The identity of the event within a spawn's identity. */
 export function spawnEventKey(event: SpawnEvent): string {
@@ -180,6 +191,7 @@ function entryOf(row: SpawnRow): SpawnEntry {
     ...present('condition', row.condition),
     event: JSON.parse(row.event) as SpawnEvent,
     trace: row.trace,
+    ...present('actor', row.actor),
     ...present('parent', row.parent),
     ...present('root', row.root),
     ...present('depth', row.depth),
@@ -222,8 +234,8 @@ export function enqueueSpawn(store: Store, context: QueueContext, request: Spawn
     const now = context.clock.now().toISOString();
     const placed = allotted.ok ? allotted.value : undefined;
     const { lastInsertRowid } = tx.run(
-      `INSERT INTO queue_spawns (vault, document, event_key, condition, event, trace, parent, root, depth, tokens, state, reason, claimed, ended)
-       VALUES ($vault, $document, $key, $condition, $event, $trace, $parent, $root, $depth, $tokens, $state, $reason, $now, $ended)`,
+      `INSERT INTO queue_spawns (vault, document, event_key, condition, event, trace, actor, parent, root, depth, tokens, state, reason, claimed, ended)
+       VALUES ($vault, $document, $key, $condition, $event, $trace, $actor, $parent, $root, $depth, $tokens, $state, $reason, $now, $ended)`,
       {
         vault: request.vault,
         document: request.document,
@@ -231,6 +243,7 @@ export function enqueueSpawn(store: Store, context: QueueContext, request: Spawn
         condition: request.condition ?? null,
         event: JSON.stringify(request.event),
         trace,
+        actor: request.actor,
         parent: request.parent ?? null,
         root: placed?.root ?? null,
         depth: placed?.depth ?? null,

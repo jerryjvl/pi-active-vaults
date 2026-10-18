@@ -3,6 +3,7 @@
 
 export {
   isActor,
+  isVaultActor,
   isOwner,
   parseVaultIdentity,
   readVaultIdentity,

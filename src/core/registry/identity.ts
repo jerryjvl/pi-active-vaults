@@ -101,3 +101,8 @@ export function writersOf(identity: VaultIdentity): string[] {
 export function isActor(identity: VaultIdentity, name: string): boolean {
   return writersOf(identity).includes(name);
 }
+
+/** Whether `name` is one of the vault's `actors` — an agent role, not an owner: whom unattended work may write as. */
+export function isVaultActor(identity: VaultIdentity, name: string): boolean {
+  return identity.actors.includes(name);
+}

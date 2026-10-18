@@ -8,8 +8,8 @@
 // Checks: the config file, Git, Pi, each model role's token; per vault, its
 // identity, a `core.hooksPath` that bypasses the package's hooks, the
 // pre-push guard, a remote on a `local` vault, locks left in main's worktree,
-// forge protection in `forge` mode, hosting conflicts and search falling back
-// to keywords because no policy entry names the vault; then sessions holding
+// forge protection in `forge` mode, hosting conflicts, search falling back to
+// keywords because no policy entry names the vault, and jobs that cannot run; then sessions holding
 // actors (and those whose holder cannot be told apart from a reused process),
 // undelivered notifications, notify not being configured, and no daily token
 // ceiling.
@@ -22,9 +22,10 @@ import { forgeAdapter, forgeProject, protectionProblems } from '../../forge/inde
 import {
   configValue, gitDirectories, gitVersion, listRemotes, listWorktrees, meetsMinimumGitVersion, remoteUrl, MINIMUM_GIT_VERSION,
 } from '../../git/index.ts';
-import { MAIN_BRANCH } from '../../integrity/index.ts';
+import { MAIN_BRANCH, type AcceptedMain } from '../../integrity/index.ts';
 import { modelFor } from '../../models/index.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
+import { vaultJobs } from '../../queue/index.ts';
 import { runProcess } from '../../process/index.ts';
 import { checkRegisteredIdentity, hosting, readVaultIdentity, type RegisteredVault } from '../../registry/index.ts';
 import { scriptEnvironment, type OperationContext } from '../context.ts';
@@ -149,7 +150,17 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
   if (!embed.ok && embed.error.reason === 'not-allowed') {
     findings.push(at('warning', 'search', 'Search is keyword-only: no policy entry allows the embed role for this vault.'));
   }
+  if (accepted.ok) findings.push(...(await jobFindings(context, vault, accepted.value)));
   return findings;
+}
+
+/** Each job on the accepted main that cannot run — no readable budget, no actor that may write — with why. */
+async function jobFindings(context: OperationContext, vault: RegisteredVault, accepted: AcceptedMain): Promise<Finding[]> {
+  const jobs = await vaultJobs(context.git, vault.path, accepted);
+  if (!jobs.ok) return [{ level: 'problem', check: 'jobs', vault: vault.id, message: `Its jobs cannot be read (${jobs.error.reason}).` }];
+  return jobs.value
+    .filter((job) => job.issues.length > 0)
+    .map((job) => ({ level: 'warning', check: 'jobs', vault: vault.id, message: `${job.path} cannot run: ${job.issues.map((i) => `${i.path}: ${i.message}`).join('; ')}` }));
 }
 
 async function forgeFindings(context: OperationContext, vault: RegisteredVault, owners: readonly string[]): Promise<Finding[]> {

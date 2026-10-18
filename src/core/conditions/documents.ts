@@ -5,7 +5,8 @@
 // A document's conditions are its own `applies-when` followed by its
 // effective contract's — which applies to every document in the subtree — so
 // a document's own conditions keep their positions whatever its contracts
-// say. Everything is read from the accepted `main`, never a branch or a
+// say. The actor a job writes as is likewise its own `actor`, else its
+// nearest contract's (strategy `nearest`). Everything is read from the accepted `main`, never a branch or a
 // working tree. A condition that cannot be read applies nowhere: the document
 // is listed with no conditions and the issues that explain why, never with
 // the conditions that happened to parse.
@@ -23,6 +24,8 @@ export interface DocumentConditions {
   readonly conditions: readonly Condition[];
   /** The document's `budget` as written, for whoever spawns it to read. */
   readonly budget?: unknown;
+  /** The `actor` it runs as, as written — its own, else its nearest contract's — and the file that says so. */
+  readonly actor?: { readonly value: unknown; readonly origin: string };
   readonly issues: readonly Issue[];
 }
 
@@ -61,7 +64,16 @@ export async function documentConditions(git: Git, repo: string, accepted: Accep
     const issues = [...(own.ok ? [] : own.error), ...(governing.ok ? [] : governing.error)];
     const conditions = own.ok && governing.ok ? [...own.value, ...governing.value] : [];
     if (conditions.length === 0 && issues.length === 0) continue;
-    found.push({ path, conditions, ...(frontmatter['budget'] === undefined ? {} : { budget: frontmatter['budget'] }), issues });
+    const ownActor = frontmatter['actor'];
+    const contractActor = contract.value.values['actor'];
+    const actor = ownActor !== undefined ? { value: ownActor, origin: path }
+      : contractActor !== undefined ? { value: contractActor, origin: contract.value.origins['actor']?.at(-1) ?? ROOT_CONTRACT }
+      : undefined;
+    found.push({
+      path, conditions, issues,
+      ...(frontmatter['budget'] === undefined ? {} : { budget: frontmatter['budget'] }),
+      ...(actor === undefined ? {} : { actor }),
+    });
   }
   return ok(found);
 }

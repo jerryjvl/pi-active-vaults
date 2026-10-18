@@ -30,7 +30,7 @@ its operation's parameters (`vault <command> --help`).
 | `vault add <path>` | Register an existing vault in the installation, by the id its root contract declares; nothing in it is accepted until an owner adopts `main` |
 | `vault list` | Registered vaults and their catalog entries |
 | `vault whoami` | This installation's name, for use as a vault's `executor` |
-| `vault doctor [--fix]` | Check config, Pi, Git, model endpoints' tokens, hooks (including a `core.hooksPath` that bypasses them), daemon service, paths and forge settings; report a `local` vault with a remote, sessions holding an actor (and any whose holder cannot be told from a reused process), a leftover Git lock in `main`'s worktree, undelivered notifications, search that is keyword-only because no policy entry names the vault, and no `budgets.daily-tokens`; `--fix` installs hooks where none of the user's is in the way, corrects permissions and, when no daemon is running, runs its start-up recovery. A problem exits `1`; warnings do not |
+| `vault doctor [--fix]` | Check config, Pi, Git, model endpoints' tokens, hooks (including a `core.hooksPath` that bypasses them), daemon service, paths and forge settings; report a `local` vault with a remote, sessions holding an actor (and any whose holder cannot be told from a reused process), a leftover Git lock in `main`'s worktree, undelivered notifications, search that is keyword-only because no policy entry names the vault, jobs that cannot run (no readable budget, or no actor that may write), and no `budgets.daily-tokens`; `--fix` installs hooks where none of the user's is in the way, corrects permissions and, when no daemon is running, runs its start-up recovery. A problem exits `1`; warnings do not |
 
 ### Knowledge
 

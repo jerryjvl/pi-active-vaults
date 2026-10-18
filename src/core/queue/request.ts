@@ -11,7 +11,8 @@
 //    the caller before anything is sent — is decided before it is sent or
 //    queued, so a request the daemon claimed and that was also queued after a
 //    lost reply is one spawn: the claim is a unique insert;
-//  - only spawn conditions spawn, and a condition's script only narrows.
+//  - only spawn conditions spawn, only jobs with a budget and an actor, and
+//    a condition's script only narrows; a request writes as the job's actor.
 
 import type { Budget } from '../budgets/index.ts';
 import { isGitEvent, matchConditions, narrowByScripts, type Candidate, type MatchContext, type ScriptFilterOptions, type VaultEvent } from '../conditions/index.ts';
@@ -65,7 +66,7 @@ export async function matchSpawns(
   tree: { readonly parent?: string } = {},
 ): Promise<Result<MatchedSpawns, GitError>> {
   const candidates: Candidate[] = [];
-  const budgets = new Map<string, Budget>();
+  const runnable = new Map<string, { budget: Budget; actor: string }>();
   const paused: string[] = [];
   for (const vault of targets) {
     const accepted = await requireNoUnacceptedChange(m.git, m.store, vault);
@@ -76,9 +77,9 @@ export async function matchSpawns(
     const jobs = await vaultJobs(m.git, vault.path, accepted.value);
     if (!jobs.ok) return jobs;
     for (const job of jobs.value) {
-      if (job.budget === undefined) continue; // cannot spawn; `vault jobs` says why
+      if (job.budget === undefined || job.actor === undefined) continue; // cannot spawn; `vault jobs` says why
       candidates.push({ vault: vault.id, document: job.path, conditions: job.conditions });
-      budgets.set(`${vault.id}:${job.path}`, job.budget);
+      runnable.set(`${vault.id}:${job.path}`, { budget: job.budget, actor: job.actor });
     }
   }
   const spawning = matchConditions(given.event, candidates, m.match).filter((match) => match.condition.effect === 'spawn');
@@ -89,7 +90,7 @@ export async function matchSpawns(
   return ok({
     requests: narrowed.kept.map((match) => ({
       vault: match.vault, document: match.document, condition: match.index, event,
-      budget: budgets.get(`${match.vault}:${match.document}`) as Budget,
+      ...(runnable.get(`${match.vault}:${match.document}`) as { budget: Budget; actor: string }),
       ...(tree.parent === undefined ? {} : { parent: tree.parent }),
     })),
     dropped: narrowed.dropped.map((d) => ({ vault: d.match.vault, document: d.match.document, reason: d.reason })),

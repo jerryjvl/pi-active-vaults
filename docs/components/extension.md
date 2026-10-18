@@ -54,8 +54,8 @@ are read as words, following `cd`, `git -C` and command substitutions. Blocked
 calls return an explanation the model can act on. The guard is a safety net for
 agent mistakes, not a security boundary (see [Security model](../security.md)).
 
-Control changes (contracts, `.vault/`, conditions and budgets) are not blocked:
-they are allowed on the actor's branch and require an owner at merge.
+Control changes (contracts, `.vault/`, conditions, budgets and actors) are not
+blocked: they are allowed on the actor's branch and require an owner at merge.
 
 ### Spawns
 
@@ -90,6 +90,6 @@ is JSON with `vault`, `document`, `actor`, `trace` (the spawn's, whose
 allotment is its budget) and `event`. The run is briefed with its job document
 as on the accepted `main` and the triggering event as structured data (see
 [Concepts](../concepts.md#applies-when)). A run whose file cannot be read, or
-that has no allotment, no job on the accepted `main`, no writable actor or no
-hold, does not start; one past its budget, run time or the daily ceiling is
+that has no allotment, no job on the accepted `main`, an actor that is not one
+of the vault's `actors` or no hold, does not start; one past its budget, run time or the daily ceiling is
 stopped. A job that decides there is nothing to do ends without committing.

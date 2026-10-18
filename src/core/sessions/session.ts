@@ -15,7 +15,8 @@
 //  - the hold is a record of this process (ID and start time) and session, so
 //    a session whose own start time cannot be told cannot hold, and says so;
 //  - a headless run starts only with everything it needs — its vault, an
-//    allotment, a writable actor, its hold and worktree — or not at all;
+//    allotment, one of the vault's actors to write as, its hold and
+//    worktree — or not at all;
 //  - closing releases the hold and ends an interactive session's budget, and
 //    may happen any number of times.
 
@@ -25,7 +26,7 @@ import { eventJson, type DocumentConditions } from '../conditions/index.ts';
 import { readDocumentAt } from '../documents/index.ts';
 import { acceptedMain } from '../integrity/index.ts';
 import { locate, unacceptedNotices, type Caller, type OperationContext } from '../operations/index.ts';
-import { isActor, readVaultIdentity, type RegisteredVault } from '../registry/index.ts';
+import { isActor, isVaultActor, readVaultIdentity, type RegisteredVault } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import { newTraceId } from '../traces/index.ts';
 import type { RunContext } from './run.ts';
@@ -73,6 +74,7 @@ export type SessionRefusal =
   | { readonly reason: 'no-allotment'; readonly trace: string }
   | { readonly reason: 'no-accepted-main'; readonly vault: string }
   | { readonly reason: 'not-a-writer'; readonly vault: string; readonly actor: string }
+  | { readonly reason: 'not-a-vault-actor'; readonly vault: string; readonly actor: string }
   | { readonly reason: 'cannot-hold' }
   | HoldError
   | WorktreeError;
@@ -92,13 +94,15 @@ async function holderOf(context: OperationContext, start: SessionStart): Promise
 
 type Writer = { readonly worktree: string };
 
-/** Whether `actor` writes in `vault` (from its accepted main), with its worktree made if missing. */
-async function prepareWriter(context: OperationContext, vault: RegisteredVault, actor: string): Promise<Result<Writer, SessionRefusal>> {
+/** Whether `actor` writes in `vault` (from its accepted main) — for a headless run, only as one of its `actors` — with its worktree made if missing. */
+async function prepareWriter(context: OperationContext, vault: RegisteredVault, actor: string, headless = false): Promise<Result<Writer, SessionRefusal>> {
   const accepted = acceptedMain(context.state, vault.id);
   if (accepted === undefined) return err({ reason: 'no-accepted-main', vault: vault.id });
   const identity = await readVaultIdentity(context.git, vault.path, accepted.sha);
   if (!identity.ok) return identity;
   if (!isActor(identity.value, actor)) return err({ reason: 'not-a-writer', vault: vault.id, actor });
+  // Unattended work writes only in an agent's review lane, never as an owner (concepts.md "Document": a job's actor).
+  if (headless && !isVaultActor(identity.value, actor)) return err({ reason: 'not-a-vault-actor', vault: vault.id, actor });
   const worktree = await ensureActorWorktree(context.git, vault, accepted, actor);
   return worktree.ok ? ok({ worktree: worktree.value.path }) : worktree;
 }
@@ -142,7 +146,7 @@ async function openHeadless(context: OperationContext, start: SessionStart, run:
   if (budgetState(context.state, context.installation.config.budgets, context.clock, run.trace) === undefined) return err({ reason: 'no-allotment', trace: run.trace });
   const brief = await briefOf(context, vault, run);
   if (brief === undefined) return err({ reason: 'unknown-job', vault: vault.id, document: run.document });
-  const writer = await prepareWriter(context, vault, run.actor);
+  const writer = await prepareWriter(context, vault, run.actor, true);
   if (!writer.ok) return writer;
   const holder = await holderOf(context, start);
   if (holder === undefined) return err({ reason: 'cannot-hold' });
