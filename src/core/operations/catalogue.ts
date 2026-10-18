@@ -138,13 +138,32 @@ export function placeVaultPaths(
     if (VAULT_ID.test(prefix) && !unregistered.includes(prefix)) unregistered.push(prefix);
     return here !== undefined && (vaults.length === 0 || vaults[0] === here.vault.id) ? vaultRelative(value, here.path) ?? value : value;
   };
-  for (const spec of paramsOn(operation, surface)) {
-    const value = placed[spec.name];
-    if (spec.vaultPath !== true) continue;
-    if (typeof value === 'string') placed[spec.name] = place(value);
-    else if (Array.isArray(value)) placed[spec.name] = value.map((v) => (typeof v === 'string' ? place(v) : v));
+  for (const [name, value] of vaultPathValues(operation, surface, params)) {
+    placed[name] = typeof value === 'string' ? place(value) : value.map((v) => (typeof v === 'string' ? place(v) : v));
   }
   return { params: placed, named: vaults, unregistered };
+}
+
+/** The vault paths a call names with a registered vault's prefix — what the call touches, as a session sees it. */
+export function callVaultPaths(
+  vaults: readonly RegisteredVault[], operation: Operation, surface: ParamSurface, params: Readonly<Record<string, unknown>>,
+): { vault: string; path: string }[] {
+  const named: { vault: string; path: string }[] = [];
+  for (const [, value] of vaultPathValues(operation, surface, params)) {
+    for (const text of typeof value === 'string' ? [value] : value.filter((v): v is string => typeof v === 'string')) {
+      const split = splitVaultPath(vaults, text);
+      if (split.vault !== undefined && split.path !== '') named.push({ vault: split.vault.id, path: split.path });
+    }
+  }
+  return named;
+}
+
+/** The values given in the operation's vault-path parameters: a string, or a list of them. */
+function vaultPathValues(operation: Operation, surface: ParamSurface, params: Readonly<Record<string, unknown>>): [string, string | unknown[]][] {
+  return paramsOn(operation, surface)
+    .filter((spec) => spec.vaultPath === true)
+    .map((spec) => [spec.name, params[spec.name]] as const)
+    .filter((entry): entry is [string, string | unknown[]] => typeof entry[1] === 'string' || Array.isArray(entry[1]));
 }
 
 /** Runs the operation with checked parameters. */

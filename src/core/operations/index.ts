@@ -7,7 +7,7 @@
 
 export { INDEX_MODULES, STATE_MODULES, openIndexStore, openStateStore } from './stores.ts';
 export { loadInstallation, type Installation, type InstallationError } from './installation.ts';
-export { CATALOGUE, callRequest, checkParams, chooseVaults, isRequired, operationNamed, paramsOn, placeVaultPaths, runOperation, type VaultChoiceError } from './catalogue.ts';
+export { CATALOGUE, callRequest, callVaultPaths, checkParams, chooseVaults, isRequired, operationNamed, paramsOn, placeVaultPaths, runOperation, type VaultChoiceError } from './catalogue.ts';
 export { SCRIPT_TIMEOUT_MS, createContext, packageIdentity, scriptEnvironment, type ContextOptions, type OperationContext } from './context.ts';
 export { locate, splitVaultPath, vaultRelative, type Location } from './locate.ts';
 export {

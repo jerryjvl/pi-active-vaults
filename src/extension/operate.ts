@@ -41,7 +41,6 @@ export async function operate(
   return { outcome, notices };
 }
 
-
 /** Where a call is made from: the vault the directory is in, else the session's own. */
 export function whereOf(live: Live, cwd: string): { here?: Location; fallback?: RegisteredVault } {
   const here = locate(live.context.installation.vaults, cwd);

@@ -23,7 +23,7 @@ import type { Usage } from '@earendil-works/pi-ai';
 import { usageOf } from '../core/budgets/index.ts';
 import { packageVersion, type Host } from '../core/config/index.ts';
 import {
-  createContext, describeError, loadInstallation, locate, operationNamed, paramsOn, splitVaultPath, type ContextOptions,
+  callVaultPaths, createContext, describeError, loadInstallation, locate, operationNamed, type ContextOptions,
 } from '../core/operations/index.ts';
 import {
   catalogText, closeSession, guardToolCall, logToolResult, openSession, parseRunContext, recordTurn, renderInjections, sessionEvent, taints,
@@ -41,9 +41,6 @@ export interface HookOptions {
   readonly pid: number;
   readonly context?: ContextOptions;
 }
-
-
-
 
 /** Why the session cannot have a vault session, told to the person; a headless run then ends. */
 function fail(holder: Holder, ctx: ExtensionContext, headless: boolean, problem: string): void {
@@ -147,13 +144,7 @@ function touched(context: OperationContext, event: ToolCallEvent, cwd: string): 
     if (at !== undefined && at.path !== '') found.push({ vault: at.vault.id, path: at.path });
   }
   const operation = event.toolName.startsWith('vault_') ? operationNamed(event.toolName.slice('vault_'.length)) : undefined;
-  for (const spec of operation === undefined ? [] : paramsOn(operation, 'tool').filter((p) => p.vaultPath === true)) {
-    const value = (event.input as Readonly<Record<string, unknown>>)[spec.name];
-    for (const text of typeof value === 'string' ? [value] : Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []) {
-      const split = splitVaultPath(vaults, text);
-      if (split.vault !== undefined && split.path !== '') found.push({ vault: split.vault.id, path: split.path });
-    }
-  }
+  if (operation !== undefined) found.push(...callVaultPaths(vaults, operation, 'tool', event.input as Readonly<Record<string, unknown>>));
   return found.filter((f, i) => found.findIndex((g) => g.vault === f.vault && g.path === f.path) === i);
 }
 
