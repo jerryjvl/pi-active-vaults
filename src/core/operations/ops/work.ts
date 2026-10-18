@@ -6,13 +6,12 @@
 // Without the daemon, `run` and `trigger` claim their spawns in the state
 // database (architecture.md "Degradation"); the daemon runs them.
 
-import type { Budget } from '../../budgets/index.ts';
-import { matchConditions, narrowByScripts, type Candidate, type Match, type VaultEvent } from '../../conditions/index.ts';
+import type { Candidate, VaultEvent } from '../../conditions/index.ts';
 import { listRefs, readTextAt } from '../../git/index.ts';
 import { isTraceId } from '../../ids/index.ts';
 import { requireNoUnacceptedChange } from '../../integrity/index.ts';
 import { notifyBuiltin, sendNotification, testTransport } from '../../notify/index.ts';
-import { enqueueSpawn, listSpawns, vaultJobs, type SpawnEntry } from '../../queue/index.ts';
+import { enqueueSpawn, listSpawns, matchSpawns, reachedVaults, submitSpawns, vaultJobs, type SpawnEntry } from '../../queue/index.ts';
 import type { RegisteredVault } from '../../registry/index.ts';
 import { runScript } from '../../scripts/index.ts';
 import { compactTracePath, newTraceId, parseCompactTrace, readFullLog, type CompactTrace } from '../../traces/index.ts';
@@ -20,7 +19,7 @@ import type { OperationContext } from '../context.ts';
 import { locate } from '../locate.ts';
 import { fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Operation, OperationRequest } from '../types.ts';
-import { notifyDeps, readingFrom, text, texts, theVault } from './common.ts';
+import { notifyDeps, queueContext, readingFrom, spawnMatching, text, texts, theVault } from './common.ts';
 
 /** A condition in a line: its event and what it filters on. */
 function conditionText(condition: Candidate['conditions'][number]): string {
@@ -85,7 +84,7 @@ export const runOperation: Operation = {
     const job = jobs.value.find((j) => j.path === document);
     if (job === undefined) return refused(`${vault.id}:${document} is not a job on the accepted main: it has no spawn condition.`);
     if (job.budget === undefined) return refused(`${vault.id}:${document} cannot run:${job.issues.map((i) => `\n  ${i.path}: ${i.message}`).join('')}`);
-    const { entry } = enqueueSpawn(context.state, { ids: context.ids, clock: context.clock, limits: context.installation.config.budgets }, {
+    const { entry } = enqueueSpawn(context.state, queueContext(context), {
       vault: vault.id, document, event: { kind: 'manual', id: newTraceId(context.ids) }, budget: job.budget,
     });
     return queuedOutcome([entry]);
@@ -97,12 +96,6 @@ function queuedOutcome(entries: readonly SpawnEntry[], dropped: readonly string[
     ? `Queued ${e.vault}:${e.document} as trace ${e.trace}; the daemon runs it.`
     : `${e.vault}:${e.document} was not queued: ${e.reason ?? e.state}.`));
   return succeeded([...(lines.length === 0 ? ['Nothing matched.'] : lines), ...dropped].join('\n'), { spawns: entries });
-}
-
-/** The vaults an event in `vault` reaches: its own, and those the installation subscribes to it. */
-function reached(context: OperationContext, vault: RegisteredVault): RegisteredVault[] {
-  const subscribers = context.installation.config.subscriptions.filter((s) => s.from === vault.id).map((s) => s.to);
-  return context.installation.vaults.filter((v) => v.id === vault.id || subscribers.includes(v.id));
 }
 
 const MAX_PAYLOAD_BYTES = 64 * 1024;
@@ -129,34 +122,12 @@ export const triggerOperation: Operation = {
       }
     }
     const event: VaultEvent = { kind: 'external', vault: vault.id, name: text(request.params, 'name') ?? '', ...(payload === undefined ? {} : { payload }) };
-    const candidates: Candidate[] = [];
-    const budgets = new Map<string, Budget>(); // every candidate has one
-    const paused: string[] = [];
-    for (const target of reached(context, vault)) {
-      const accepted = await requireNoUnacceptedChange(context.git, context.state, target);
-      if (!accepted.ok) {
-        paused.push(`Vault "${target.id}" is paused (unaccepted change); its jobs were not matched.`);
-        continue;
-      }
-      const jobs = await vaultJobs(context.git, target.path, accepted.value);
-      if (!jobs.ok) return fromError(jobs.error);
-      for (const job of jobs.value) {
-        if (job.budget === undefined) continue;
-        candidates.push({ vault: target.id, document: job.path, conditions: job.conditions });
-        budgets.set(`${target.id}:${job.path}`, job.budget);
-      }
-    }
-    const matched = matchConditions(event, candidates, { subscriptions: context.installation.config.subscriptions, equivalentLabels: context.installation.config.labels.equivalent });
-    const options = await context.scriptOptions();
-    const narrowed = await narrowByScripts(
-      { git: context.git, store: context.state, locate: (id) => context.installation.vaults.find((v) => v.id === id) },
-      { ...options, builtins: [] }, event, matched.filter((m: Match) => m.condition.effect === 'spawn'),
-    );
-    const id = newTraceId(context.ids);
-    const entries = narrowed.kept.map((match) => enqueueSpawn(context.state, { ids: context.ids, clock: context.clock, limits: context.installation.config.budgets }, {
-      vault: match.vault, document: match.document, condition: match.index, event: { ...event, id }, budget: budgets.get(`${match.vault}:${match.document}`) as Budget,
-    }).entry);
-    const dropped = narrowed.dropped.map((d) => `${d.match.vault}:${d.match.document}: its script did not match (${d.reason}).`);
+    const { vaults, config } = context.installation;
+    const matched = await matchSpawns(await spawnMatching(context), { event, id: newTraceId(context.ids) }, reachedVaults(vaults, config.subscriptions, vault.id));
+    if (!matched.ok) return fromError(matched.error);
+    const entries = await submitSpawns(context.state, queueContext(context), matched.value.requests);
+    const dropped = matched.value.dropped.map((d) => `${d.vault}:${d.document}: its script did not match (${d.reason}).`);
+    const paused = matched.value.paused.map((id) => `Vault "${id}" is paused (unaccepted change); its jobs were not matched.`);
     return queuedOutcome(entries, [...dropped, ...paused]);
   },
 };

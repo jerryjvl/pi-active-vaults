@@ -13,6 +13,7 @@ export {
 } from './parse.ts';
 export {
   eventJson,
+  isGitEvent,
   matchConditions,
   type Candidate,
   type ChangedDocument,

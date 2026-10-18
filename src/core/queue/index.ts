@@ -24,3 +24,4 @@ export {
 } from './spawns.ts';
 export { vaultJobs, type Job } from './jobs.ts';
 export { advanceCursor, gitStream, readCursor, timerStream, type CursorError, type CursorKey } from './cursors.ts';
+export { matchSpawns, reachedVaults, submitSpawns, type MatchedSpawns, type SpawnMatching, type SpawnSender } from './request.ts';

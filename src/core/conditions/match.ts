@@ -47,6 +47,10 @@ export type VaultEvent =
   /** `vault trigger`: `payload` is the JSON given with it, passed to the job as data. */
   | { readonly kind: 'external'; readonly vault: string; readonly name: string; readonly payload?: unknown };
 
+export function isGitEvent(event: VaultEvent): event is GitEvent {
+  return event.kind === 'committed' || event.kind === 'merged';
+}
+
 /** A document whose conditions are candidates for an event. */
 export interface Candidate {
   readonly vault: string;
