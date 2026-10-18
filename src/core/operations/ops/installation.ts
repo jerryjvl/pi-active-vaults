@@ -1,17 +1,22 @@
 // Installation operations: the vaults on this machine and its name — list,
 // add, init, whoami, template show. They change the installation config only
-// by registering a vault (`registerVault`); a vault registered with `add` is
-// not accepted by that, so it shows an unaccepted change until an owner
-// adopts its `main`.
+// by registering a vault (`registerVault`), which also creates the config
+// file on a machine that has none, with the installation's person (`--person`,
+// by default the OS user). A vault registered with `add` is not accepted by
+// that, so it shows an unaccepted change until an owner adopts its `main`.
+// Both install the vault's hooks (`hooks.ts`), except where the user's own are
+// in the way.
 
 import { isAbsolute, basename, resolve } from 'node:path';
-import { registerVault } from '../../config/index.ts';
-import { readVaultIdentity } from '../../registry/index.ts';
+import { checkPerson, registerVault } from '../../config/index.ts';
+import { readVaultIdentity, registeredVaults } from '../../registry/index.ts';
+import { err, ok, type Result } from '../../result/index.ts';
 import { createEmptyVault, createFromTemplate, inspectTemplate, resolveTemplateSpec } from '../../templates/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
+import { hookFindings } from '../hooks.ts';
 import { fromError, succeeded } from '../messages.ts';
 import type { Caller, Operation } from '../types.ts';
-import { identityOf, personOf, readingFrom, text } from './common.ts';
+import { identityOf, ownWorktree, personOf, readingFrom, text } from './common.ts';
 
 const CLI_ONLY = { cli: true, command: false, mcp: false } as const;
 
@@ -33,26 +38,54 @@ export const listOperation: Operation = {
       const accepted = readingFrom(context, vault);
       const identity = await identityOf(context, vault);
       const entry = identity.ok ? { summary: identity.value.purpose.summary, audience: identity.value.audience, review: identity.value.review, owners: identity.value.owners } : undefined;
-      listed.push({ id: vault.id, path: vault.path, worktrees: vault.worktrees, host: vault.host, accepted: accepted.ok ? accepted.value.sha : null, ...entry });
-      lines.push(`${vault.id}  ${vault.path}${entry === undefined ? '  (its root contract cannot be read)' : `\n  ${entry.summary} — for ${entry.audience}; ${entry.review} review; owners ${entry.owners.join(', ')}`}`);
+      const worktree = ownWorktree(context, vault);
+      listed.push({ id: vault.id, path: vault.path, worktrees: vault.worktrees, ...(worktree === undefined ? {} : { worktree }), host: vault.host, accepted: accepted.ok ? accepted.value.sha : null, ...entry });
+      lines.push(`${vault.id}  ${vault.path}${entry === undefined ? '  (its root contract cannot be read)' : `\n  ${entry.summary} — for ${entry.audience}; ${entry.review} review; owners ${entry.owners.join(', ')}`}${worktree === undefined ? '' : `\n  your worktree: ${worktree}`}`);
     }
     return succeeded(lines.join('\n') || 'No vaults are registered. Create one with "vault init <path>" or register one with "vault add <path>".', { vaults: listed });
   },
 };
+
+/**
+ * The person for a config this command is about to create: `--person`, else
+ * the OS user. Undefined when the config exists, which `--person` then does
+ * not apply to — refused rather than ignored.
+ */
+function newConfigPerson(context: OperationContext, request: { readonly params: Record<string, unknown> }): Result<string | undefined, { readonly reason: string; readonly [detail: string]: unknown }> {
+  const given = text(request.params, 'person');
+  if (context.installation.configFound) {
+    return given === undefined ? ok(undefined) : err({ reason: 'person-given', file: context.installation.paths.configFile });
+  }
+  return checkPerson(given ?? context.installation.host.user, context.installation.host);
+}
+
+const PERSON_PARAM = { name: 'person', kind: 'string', description: 'The installation\'s person, when the config file is created (default: the OS user)' } as const;
+
+/** Installs the vault's hooks where none of the user's are in the way; what happened, one line each. */
+async function installHooks(context: OperationContext, id: string, path: string): Promise<string[]> {
+  const [vault] = registeredVaults({ vaults: [{ id, path, host: false }] }, context.installation.paths, context.installation.host.os);
+  return vault === undefined ? [] : (await hookFindings(context, vault, true)).map((f) => f.message);
+}
 
 export const addOperation: Operation = {
   name: 'add',
   summary: 'Register an existing vault in the installation',
   vault: 'none',
   surfaces: CLI_ONLY,
-  params: [{ name: 'path', kind: 'string', required: true, positional: true, description: 'The vault repository' }],
+  params: [{ name: 'path', kind: 'string', required: true, positional: true, description: 'The vault repository' }, PERSON_PARAM],
   async run(context, request) {
+    const person = newConfigPerson(context, request);
+    if (!person.ok) return fromError(person.error);
     const path = absolute(text(request.params, 'path') ?? '', request.caller);
     const identity = await readVaultIdentity(context.git, path, 'refs/heads/main');
     if (!identity.ok) return fromError(identity.error);
-    const registered = registerVault(context.installation.paths.configFile, context.installation.host, { id: identity.value.id, path });
+    const registered = registerVault(context.installation.paths.configFile, context.installation.host, { id: identity.value.id, path }, person.value);
     if (!registered.ok) return fromError(registered.error);
-    return succeeded(`Registered vault "${identity.value.id}" at ${path}. Nothing in it is accepted on this machine yet: an owner can look at main and adopt it with "vault accept ${identity.value.id} --adopt <sha>".`, { id: identity.value.id, path });
+    const hooks = await installHooks(context, identity.value.id, path);
+    return succeeded([
+      `Registered vault "${identity.value.id}" at ${path}${person.value === undefined ? '' : `, creating ${context.installation.paths.configFile} for person "${person.value}"`}. Nothing in it is accepted on this machine yet: an owner can look at main and adopt it with "vault accept ${identity.value.id} --adopt <sha>".`,
+      ...hooks.map((h) => `Hooks: ${h}`),
+    ].join('\n'), { id: identity.value.id, path, hooks });
   },
 };
 
@@ -73,9 +106,12 @@ export const initOperation: Operation = {
     { name: 'path', kind: 'string', required: true, positional: true, description: 'Where to create it: a new or empty directory' },
     { name: 'template', kind: 'string', description: 'A template URL or short name, optionally @ref' },
     { name: 'id', kind: 'string', description: 'The vault\'s id (default: the directory\'s name)' },
+    PERSON_PARAM,
   ],
   async run(context, request) {
-    const person = personOf(request.caller);
+    const created = newConfigPerson(context, request);
+    if (!created.ok) return fromError(created.error);
+    const person = created.value === undefined ? personOf(request.caller) : ok(created.value);
     if (!person.ok) return fromError(person.error);
     const path = absolute(text(request.params, 'path') ?? '', request.caller);
     const id = text(request.params, 'id') ?? basename(path);
@@ -92,9 +128,13 @@ export const initOperation: Operation = {
       made = await createFromTemplate(deps, { source: source.value, path, id, by: person.value });
     }
     if (!made.ok) return fromError(made.error);
-    const added = registerVault(context.installation.paths.configFile, context.installation.host, { id, path });
+    const added = registerVault(context.installation.paths.configFile, context.installation.host, { id, path }, created.value);
     if (!added.ok) return fromError(added.error, { created: made.value });
-    return succeeded(`Created vault "${id}" at ${path}, accepted at ${made.value.accepted.sha}, and registered it.`, made.value);
+    const hooks = await installHooks(context, id, path);
+    return succeeded([
+      `Created vault "${id}" at ${path}, accepted at ${made.value.accepted.sha}, and registered it${created.value === undefined ? '' : `, creating ${context.installation.paths.configFile} for person "${created.value}"`}.`,
+      ...hooks.map((h) => `Hooks: ${h}`),
+    ].join('\n'), { ...made.value, hooks });
   },
 };
 

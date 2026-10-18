@@ -17,13 +17,13 @@
 // undelivered notifications, notify not being configured, and no daily token
 // ceiling.
 
-import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { listActorHolds } from '../../actors/index.ts';
-import { ensurePrivateDir, resolveSecret, MODEL_ROLES, type PlatformKind } from '../../config/index.ts';
+import { resolveSecret, MODEL_ROLES } from '../../config/index.ts';
 import { forgeAdapter, forgeProject, lostMergeReport, lostMerges, protectionProblems } from '../../forge/index.ts';
 import {
-  configValue, gitDirectories, gitVersion, listRemotes, listWorktrees, meetsMinimumGitVersion, remoteUrl, MINIMUM_GIT_VERSION,
+  gitDirectories, gitVersion, listRemotes, listWorktrees, meetsMinimumGitVersion, remoteUrl, MINIMUM_GIT_VERSION,
 } from '../../git/index.ts';
 import { MAIN_BRANCH, type AcceptedMain } from '../../integrity/index.ts';
 import { modelFor } from '../../models/index.ts';
@@ -34,6 +34,7 @@ import { checkRegisteredIdentity, hosting, type RegisteredVault } from '../../re
 import { scriptEnvironment, type OperationContext } from '../context.ts';
 import { failed, succeeded } from '../messages.ts';
 import type { Operation } from '../types.ts';
+import { hookFindings } from '../hooks.ts';
 import { flag, identityOf, readingFrom } from './common.ts';
 
 export interface Finding {
@@ -45,56 +46,6 @@ export interface Finding {
 
 /** The Pi version this package is built for (pi-conventions.md). */
 const MINIMUM_PI: readonly [number, number] = [1, 3];
-const PRE_PUSH_MARK = 'pi-active-vaults: pre-push guard';
-
-/** Refuses any push that would update `main` on a remote: changes reach main only through review. */
-const PRE_PUSH_HOOK = `#!/bin/sh
-# ${PRE_PUSH_MARK} (installed by vault doctor --fix)
-while read -r local_ref local_sha remote_ref remote_sha; do
-  if [ "$remote_ref" = "refs/heads/${MAIN_BRANCH}" ]; then
-    echo "pi-active-vaults: pushing ${MAIN_BRANCH} is refused; changes reach ${MAIN_BRANCH} only through review." >&2
-    exit 1
-  fi
-done
-exit 0
-`;
-
-const REFS_MARK = 'pi-active-vaults: refs hook';
-const shellQuote = (text: string): string => `'${text.replaceAll("'", "'\\''")}'`;
-
-/**
- * Leaves word for the daemon that the vault's refs changed — a file named
- * after the vault in `<state>/refs` — once a ref transaction is committed, so
- * it looks at once rather than at its next minute. It reads what Git gives
- * it and never fails a transaction.
- */
-function refsHook(refs: string, vault: string, os: PlatformKind): string {
-  // Git for Windows runs hooks with its sh, which reads forward slashes.
-  const word = `${os === 'win32' ? refs.replaceAll('\\', '/') : refs}/${vault}`;
-  return `#!/bin/sh
-# ${REFS_MARK} (installed by vault doctor --fix)
-cat >/dev/null
-# true, not ":": a failed redirect of a special built-in would end the shell with a failure.
-[ "$1" = committed ] && true > ${shellQuote(word)} 2>/dev/null
-exit 0
-`;
-}
-
-/** A package hook: installed under --fix where there is none, never in place of the user's own; what doctor says of it. */
-function packageHook(hook: string, what: string, mark: string, text: string, fix: boolean): [Finding['level'], string, string] {
-  const ours = existsSync(hook) && readFileSync(hook, 'utf8').includes(mark);
-  if (ours) {
-    // Kept current: a hook of the package's may name paths that have moved.
-    if (fix && readFileSync(hook, 'utf8') !== text) writeFileSync(hook, text, { mode: 0o755 });
-    return ['ok', 'hooks', `The ${what} is installed.`];
-  }
-  const name = hook.split(/[\\/]/).at(-1) ?? hook;
-  if (existsSync(hook)) return ['warning', 'hooks', `A ${name} hook of its own is in place at ${hook}; the package's ${what} is not installed.`];
-  if (!fix) return ['warning', 'hooks', `The ${what} is not installed; "vault doctor --fix" installs it.`];
-  writeFileSync(hook, text, { mode: 0o755 });
-  return ['ok', 'hooks', `The ${what} was installed.`];
-}
-
 async function piVersion(context: OperationContext): Promise<Finding> {
   const ran = await runProcess({ program: { file: 'pi', args: ['--version'] }, env: scriptEnvironment(context.installation), timeoutMs: 20_000, maxStdoutBytes: 4096, maxStderrBytes: 4096 });
   if (!ran.ok) return { level: 'warning', check: 'pi', message: 'Pi was not found on PATH; vaults work from the CLI, but not in Pi sessions or headless runs.' };
@@ -111,7 +62,7 @@ async function installationFindings(context: OperationContext): Promise<Finding[
   const findings: Finding[] = [];
   findings.push(installation.configFound
     ? { level: 'ok', check: 'config', message: `${installation.paths.configFile} is valid` }
-    : { level: 'warning', check: 'config', message: `There is no config file at ${installation.paths.configFile}; "vault init" or "vault add" creates it.` });
+    : { level: 'warning', check: 'config', message: `There is no config file at ${installation.paths.configFile}; "vault init" or "vault add" creates it (the person is `--person`, by default the OS user).` });
   const version = await gitVersion(context.git);
   findings.push(!version.ok ? { level: 'problem', check: 'git-version', message: 'Git could not be run.' }
     : meetsMinimumGitVersion(version.value) ? { level: 'ok', check: 'git-version', message: `Git ${version.value}` }
@@ -150,17 +101,7 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
   const registered = checkRegisteredIdentity(vault, identity.value);
   if (!registered.ok) findings.push(at('problem', 'identity', `It is registered as "${vault.id}" but its root contract says "${identity.value.id}".`));
 
-  const hooksPath = await configValue(git, vault.path, 'core.hooksPath');
-  if (hooksPath.ok && hooksPath.value !== undefined) {
-    findings.push(at('warning', 'hooks', `core.hooksPath (${hooksPath.value}) bypasses the package's hooks: changes are noticed up to a minute later and the pre-push guard is lost.`));
-  }
-  const dirs = await gitDirectories(git, vault.path);
-  if (dirs.ok) {
-    const hooks = join(dirs.value.common, 'hooks');
-    findings.push(at(...packageHook(join(hooks, 'pre-push'), 'pre-push guard', PRE_PUSH_MARK, PRE_PUSH_HOOK, fix)));
-    if (fix) ensurePrivateDir(installation.paths.refs);
-    findings.push(at(...packageHook(join(hooks, 'reference-transaction'), 'refs hook', REFS_MARK, refsHook(installation.paths.refs, vault.id, installation.host.os), fix)));
-  }
+  for (const hook of await hookFindings(context, vault, fix)) findings.push(at(hook.level, 'hooks', hook.message));
 
   const remotes = await listRemotes(git, vault.path);
   if (identity.value.review === 'local' && remotes.ok && remotes.value.length > 0) {

@@ -2,7 +2,8 @@
 //
 // The file is the user's: it is edited as a YAML document, so comments,
 // ordering and layout survive, and the one change is a new entry under
-// `vaults`. Invariants:
+// `vaults` — or, when there is no file yet, the file itself, with the
+// installation's person. Invariants:
 //  - an invalid config is never edited — its problems are reported instead;
 //  - an id or path already registered is refused, never replaced;
 //  - the edited text must load as a valid config before it is written, so an
@@ -31,19 +32,33 @@ export type RegisterError =
   | { readonly reason: 'path-registered'; readonly id: string }
   | { readonly reason: 'unwritable'; readonly code: string };
 
-function currentText(file: string): Result<string, RegisterError> {
+/** The file's text, or undefined when there is no file. */
+function currentText(file: string): Result<string | undefined, RegisterError> {
   try {
     return ok(readFileSync(file, 'utf8'));
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code ?? 'UNKNOWN';
-    return code === 'ENOENT' ? ok('') : err({ reason: 'unreadable', code, path: file } as RegisterError);
+    return code === 'ENOENT' ? ok(undefined) : err({ reason: 'unreadable', code, path: file } as RegisterError);
   }
 }
 
-export function registerVault(file: string, host: Host, entry: NewVaultEntry): Result<void, RegisterError> {
-  const text = currentText(file);
-  if (!text.ok) return text;
-  const current = parseInstallationConfig(text.value, host);
+export type PersonError = { readonly reason: 'invalid-person'; readonly person: string };
+
+/** Whether `person` can be `installation.person`: the config's own rule, applied before anything is made. */
+export function checkPerson(person: string, host: Host): Result<string, PersonError> {
+  return parseInstallationConfig(stringify({ installation: { person } }), host).ok ? ok(person) : err({ reason: 'invalid-person', person });
+}
+
+/**
+ * Adds the vault to the config. When there is no config file, creates it —
+ * its directory private too — with `installation.person` as `person` says; a
+ * file that exists is never given one.
+ */
+export function registerVault(file: string, host: Host, entry: NewVaultEntry, person?: string): Result<void, RegisterError> {
+  const found = currentText(file);
+  if (!found.ok) return found;
+  const text = found.value ?? '';
+  const current = parseInstallationConfig(text, host);
   if (!current.ok) return err(current.error as RegisterError);
 
   // The entry on its own first: its problems, and its path as the config reads it.
@@ -55,7 +70,8 @@ export function registerVault(file: string, host: Host, entry: NewVaultEntry): R
   const samePath = current.value.vaults.find((v) => v.path === alone.value.vaults[0]?.path);
   if (samePath !== undefined) return err({ reason: 'path-registered', id: samePath.id });
 
-  const document = parseDocument(text.value);
+  const document = parseDocument(text);
+  if (found.value === undefined && person !== undefined) document.setIn(['installation', 'person'], person);
   if (document.hasIn(['vaults'])) document.addIn(['vaults'], document.createNode(item));
   else document.setIn(['vaults'], document.createNode([item]));
   const edited = document.toString();

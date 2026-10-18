@@ -42,7 +42,7 @@ export {
   type ModelRole,
   type VaultEntry,
 } from './installation.ts';
-export { registerVault, type NewVaultEntry, type RegisterError } from './register.ts';
+export { checkPerson, registerVault, type NewVaultEntry, type PersonError, type RegisterError } from './register.ts';
 export { launcherFor, writeLauncher, type Launcher, type LauncherError } from './launcher.ts';
 export { findPi, serviceFor, type FileView, type ServiceDefinition, type ServiceError, type ServiceProgram } from './service.ts';
 export { packageVersion } from './package.ts';

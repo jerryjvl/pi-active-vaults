@@ -172,6 +172,10 @@ export function describeError(error: ErrorValue): string {
       return `No template is named "${str(e['name'])}".`;
     case 'not-empty':
       return `${str(e['path'])} is not empty.`;
+    case 'invalid-person':
+      return `"${str(e['person'])}" cannot be installation.person (it must be one word); name the person with --person.`;
+    case 'person-given':
+      return `--person only applies when the config file is created; installation.person is set in ${str(e['file'])}.`;
     case 'already-registered':
       return `A vault with id "${str(e['id'])}" is already registered.`;
     case 'path-registered':

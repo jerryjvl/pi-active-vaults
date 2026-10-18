@@ -1,8 +1,9 @@
 // What the operations share: reading their parameters (already checked
 // against their specs by the runner), the accepted `main` a reading operation
 // works from, the actor a writing one writes as, and the dependency bundles
-// the lower modules take.
+// the lower modules take, and where the installation person works.
 
+import { actorWorktreePath } from '../../actors/index.ts';
 import type { ForgeDeps } from '../../forge/index.ts';
 import { MAIN_BRANCH, acceptedIdentity, acceptedMain, type AcceptedMain } from '../../integrity/index.ts';
 import type { NotifyDeps } from '../../notify/index.ts';
@@ -42,6 +43,12 @@ export function identityOf(context: OperationContext, vault: RegisteredVault): P
   return accepted === undefined
     ? readVaultIdentity(context.git, vault.path, `refs/heads/${MAIN_BRANCH}`)
     : acceptedIdentity(context.reads, context.git, vault.path, accepted);
+}
+
+/** Where the installation's person works in the vault: their actor worktree, which lives under the state directory unless the vault configures another. */
+export function ownWorktree(context: OperationContext, vault: RegisteredVault): string | undefined {
+  const { person } = context.installation.config;
+  return person === undefined ? undefined : actorWorktreePath(vault, person);
 }
 
 /** The person whose owner act this is. */
