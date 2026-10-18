@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { allot } from '../../src/core/budgets/index.ts';
 import { createGit } from '../../src/core/git/index.ts';
 import { createIdSource } from '../../src/core/ids/index.ts';
 import { enqueueSpawn, listSpawns, startSpawn } from '../../src/core/queue/index.ts';
@@ -66,7 +67,7 @@ test('a spawn sent over the socket runs, and its session is told when it starts 
       if (message.state === 'finished') resolve();
     }));
     const root = '01JR00T0000000000000000000';
-    t.context.state.transaction((tx) => tx.run("INSERT INTO budgets_sessions (trace, root, depth, allotted, ttl_ms) VALUES (?, ?, 0, 1000000, 0)", [root, root]));
+    t.context.state.transaction((tx) => allot(tx, t.installation.config.budgets, t.clock, { trace: root, budget: { tokens: 1_000_000, ttlMs: 0 } }));
     assert.ok((await requestOver(link.value, 'subscribe', { trace: root })).ok);
     const sent = await requestOver(link.value, 'spawn', {
       vault: 'home', document: 'jobs/a.md', condition: 0, event: { kind: 'external', vault: 'home', name: 'go', id: 'E1' }, parent: root,
