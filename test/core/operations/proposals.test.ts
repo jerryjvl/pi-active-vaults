@@ -4,11 +4,13 @@
 // concerns and the delta first and needs them acknowledged and confirmed;
 // status shows proposals and their checks; sync brings actor branches up to
 // date. mcp.md — write changes documents in an actor worktree. Refusals are
-// `refused` (exit status 2).
+// `refused` (exit status 3).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { allot } from '../../../src/core/budgets/index.ts';
+import { listSpawns } from '../../../src/core/queue/index.ts';
 import { scriptSource } from '../../support/vault.ts';
 import { withInstallation, writeFiles, type TestInstallation } from '../../support/installation.ts';
 
@@ -136,3 +138,31 @@ test('undelivered notifications, being the whole installation\'s, are shown by s
   assert.equal(remote.text.includes('Private matter'), false);
   assert.deepEqual((remote.data as { undelivered: unknown[] }).undelivered, []);
 }, { config: 'notify:\n  from: "Vault <vault@example.net>"\n  recipients: { me: me@example.net }\n  transport: { type: sendmail, command: /nonexistent/sendmail }' }));
+
+const WATCH_JOB = '---\napplies-when: [{ on: committed, actor: [gardener], effect: spawn }]\nbudget: { tokens: 1000, ttl: 10m }\n---\nTidy what gardener did.\n';
+
+test('a commit made from a session carries its trace, and requests the spawns its event matches in that session\'s tree', withInstallation(async (t) => {
+  t.repo.write('jobs/tidy.md', WATCH_JOB);
+  t.repo.commit('a job');
+  t.accept();
+  const session = '01JSESSIONTRACE0000000000A';
+  t.context.state.transaction((tx) => allot(tx, t.installation.config.budgets, t.clock, { trace: session, budget: { tokens: 100_000, ttlMs: 0 } }));
+  await t.run('write', { path: 'notes/a.md', content: 'A', actor: 'gardener' }, { surface: 'mcp' });
+  const committed = await t.run('commit', { message: 'Work' }, { caller: { surface: 'pi', actor: 'gardener', session: 'pi-1', trace: session } });
+  assert.equal(committed.status, 'ok', committed.text);
+  const sha = (committed.data as { sha: string }).sha;
+  assert.match(t.repo.git('log', '-1', '--format=%B', sha), new RegExp(`Vault-Trace: ${session}`));
+  const spawns = listSpawns(t.context.state);
+  assert.deepEqual(spawns.map((s) => [s.document, s.state, s.parent, s.root]), [['jobs/tidy.md', 'queued', session, session]]);
+  assert.equal((spawns[0]?.event as { kind: string; commit: string }).commit, sha);
+  assert.match(committed.text, /Queued home:jobs\/tidy\.md/);
+}));
+
+test('a commit outside a session starts a new tree for what it spawns', withInstallation(async (t) => {
+  t.repo.write('jobs/tidy.md', WATCH_JOB);
+  t.repo.commit('a job');
+  t.accept();
+  assert.equal((await commitAs(t, { 'notes/a.md': 'A' })).status, 'ok');
+  const spawns = listSpawns(t.context.state);
+  assert.deepEqual(spawns.map((s) => [s.document, s.state, s.parent, s.depth]), [['jobs/tidy.md', 'queued', undefined, 0]]);
+}));
