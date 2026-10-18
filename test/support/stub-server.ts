@@ -66,3 +66,13 @@ export async function startStubServer(handler: StubHandler): Promise<StubServer>
       }),
   };
 }
+
+/** Runs `run` against a stub server answering with `handler`, closing it after. */
+export async function withStubServer(handler: StubHandler, run: (url: string, requests: RecordedRequest[]) => Promise<void>): Promise<void> {
+  const server = await startStubServer(handler);
+  try {
+    await run(server.url, server.requests);
+  } finally {
+    await server.close();
+  }
+}

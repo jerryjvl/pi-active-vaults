@@ -7,7 +7,7 @@
 import type { ForgeEntry } from '../config/index.ts';
 import { isRecord, ok } from '../result/index.ts';
 import {
-  POLICY_CONTEXT, UNPROTECTED, anyAllowed, forgeCaller, headPull, isShaValue, mergedPulls, onePull, readAccount, readMergeMethods, shortDescription, standingApprovals,
+  POLICY_CONTEXT, UNPROTECTED, anyAllowed, forgeCaller, headPull, headPullWrites, isShaValue, mergedPulls, readAccount, readMergeMethods, standingApprovals,
   type ForgeAdapter, type ForgeDepsBase,
 } from './adapter.ts';
 
@@ -30,18 +30,7 @@ export function giteaAdapter(entry: ForgeEntry, project: string, deps: ForgeDeps
       }
       return ok(undefined);
     },
-    async openPullRequest(request) {
-      const made = await forge.call('POST', `${repo}/pulls`, request);
-      return made.ok ? onePull(forge, headPull, made.value.body) : made;
-    },
-    async updatePullRequest(number, request) {
-      const updated = await forge.call('PATCH', `${repo}/pulls/${number}`, request);
-      return updated.ok ? ok(undefined) : updated;
-    },
-    async setStatus(sha, status) {
-      const set = await forge.call('POST', `${repo}/statuses/${sha}`, { context: status.context, state: status.state, description: shortDescription(status.description) });
-      return set.ok ? ok(undefined) : set;
-    },
+    ...headPullWrites(forge, repo),
     async approvals(pull) {
       const listed = await forge.list(`${repo}/pulls/${pull.number}/reviews`, 'limit', PAGE);
       if (!listed.ok) return listed;

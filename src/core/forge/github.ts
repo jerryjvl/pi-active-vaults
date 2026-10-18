@@ -17,7 +17,7 @@
 import type { ForgeEntry } from '../config/index.ts';
 import { isRecord, ok, type Result } from '../result/index.ts';
 import {
-  POLICY_CONTEXT, UNPROTECTED, anyAllowed, forgeCaller, headPull, isShaValue, mergedPulls, onePull, readAccount, readMergeMethods, shortDescription, standingApprovals,
+  POLICY_CONTEXT, UNPROTECTED, anyAllowed, forgeCaller, headPull, headPullWrites, isShaValue, mergedPulls, readAccount, readMergeMethods, standingApprovals,
   type ForgeAdapter, type ForgeDepsBase, type ForgeError,
 } from './adapter.ts';
 
@@ -109,18 +109,7 @@ export function githubAdapter(entry: ForgeEntry, project: string, deps: ForgeDep
       if (pulls.some((p) => p === undefined)) return forge.bad('not a pull request');
       return ok(pulls.find((p) => p?.head === head));
     },
-    async openPullRequest(request) {
-      const made = await forge.call('POST', `${repo}/pulls`, request);
-      return made.ok ? onePull(forge, headPull, made.value.body) : made;
-    },
-    async updatePullRequest(number, request) {
-      const updated = await forge.call('PATCH', `${repo}/pulls/${number}`, request);
-      return updated.ok ? ok(undefined) : updated;
-    },
-    async setStatus(sha, status) {
-      const set = await forge.call('POST', `${repo}/statuses/${sha}`, { context: status.context, state: status.state, description: shortDescription(status.description) });
-      return set.ok ? ok(undefined) : set;
-    },
+    ...headPullWrites(forge, repo),
     async approvals(pull) {
       const listed = await forge.list(`${repo}/pulls/${pull.number}/reviews`, 'per_page', PAGE);
       if (!listed.ok) return listed;

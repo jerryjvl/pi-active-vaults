@@ -4,21 +4,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { requestJson } from '../../../src/core/http/index.ts';
-import { startStubServer, type StubHandler } from '../../support/stub-server.ts';
-
-async function withStub(handler: StubHandler, run: (url: string) => Promise<void>): Promise<void> {
-  const server = await startStubServer(handler);
-  try {
-    await run(server.url);
-  } finally {
-    await server.close();
-  }
-}
+import { withStubServer } from '../../support/stub-server.ts';
 
 const client = { fetch, timeoutMs: 5000 };
 
 test('a JSON body is sent and the JSON response returned; an empty response has no body', async () => {
-  await withStub((request) => (request.method === 'PUT' ? { status: 204 } : { status: 201, body: { echoed: JSON.parse(request.body) } }), async (url) => {
+  await withStubServer((request) => (request.method === 'PUT' ? { status: 204 } : { status: 201, body: { echoed: JSON.parse(request.body) } }), async (url) => {
     assert.deepEqual(await requestJson(client, { method: 'POST', url, headers: { authorization: 'token t' }, body: { a: 1 } }), {
       ok: true, value: { status: 201, body: { echoed: { a: 1 } } },
     });
@@ -28,8 +19,8 @@ test('a JSON body is sent and the JSON response returned; an empty response has 
 
 test('a redirect is never followed, whatever the method', async () => {
   let followed = 0;
-  await withStub(() => { followed++; return { body: {} }; }, async (target) => {
-    await withStub(() => ({ status: 307, headers: { location: target } }), async (url) => {
+  await withStubServer(() => { followed++; return { body: {} }; }, async (target) => {
+    await withStubServer(() => ({ status: 307, headers: { location: target } }), async (url) => {
       for (const method of ['GET', 'POST'] as const) {
         assert.deepEqual(await requestJson(client, { method, url, headers: { authorization: 'Bearer secret' }, body: method === 'POST' ? {} : undefined }), {
           ok: false, error: { reason: 'redirected', status: 307 },
@@ -41,15 +32,15 @@ test('a redirect is never followed, whatever the method', async () => {
 });
 
 test('an error status, a body that is not JSON and a slow response are errors without the body', async () => {
-  await withStub(() => ({ status: 404, body: 'secret echoed back' }), async (url) => {
+  await withStubServer(() => ({ status: 404, body: 'secret echoed back' }), async (url) => {
     assert.deepEqual(await requestJson(client, { method: 'GET', url, headers: {} }), { ok: false, error: { reason: 'http-error', status: 404 } });
   });
-  await withStub(() => ({ body: 'secret, not json' }), async (url) => {
+  await withStubServer(() => ({ body: 'secret, not json' }), async (url) => {
     assert.deepEqual(await requestJson(client, { method: 'GET', url, headers: {} }), { ok: false, error: { reason: 'bad-response', detail: 'not JSON' } });
   });
   let release = (): void => {};
   const held = new Promise<void>((resolve) => { release = resolve; });
-  await withStub(async () => { await held; return { body: {} }; }, async (url) => {
+  await withStubServer(async () => { await held; return { body: {} }; }, async (url) => {
     assert.deepEqual(await requestJson({ fetch, timeoutMs: 50 }, { method: 'GET', url, headers: {} }), { ok: false, error: { reason: 'timed-out' } });
     release();
   });

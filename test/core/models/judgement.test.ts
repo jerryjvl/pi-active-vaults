@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ModelEndpoint, SecretDeps } from '../../../src/core/config/index.ts';
 import { askSystemOne, modelFor, type ModelClient, type SystemOneQuestion } from '../../../src/core/models/index.ts';
-import { startStubServer, type RecordedRequest, type StubHandler } from '../../support/stub-server.ts';
+import { withStubServer } from '../../support/stub-server.ts';
 
 const TOKEN = 'judge-token';
 const secrets: SecretDeps = { env: { JUDGE_TOKEN: TOKEN }, runCommand: async () => assert.fail('no command') };
@@ -19,15 +19,6 @@ function judge(url: string) {
   const permitted = modelFor({ models: { judgement: endpoint }, policy: [{ vaults: ['home'], allowModels: ['judgement'] }] }, 'judgement', ['home']);
   assert.ok(permitted.ok);
   return permitted.value;
-}
-
-async function withStub(handler: StubHandler, run: (url: string, requests: RecordedRequest[]) => Promise<void>): Promise<void> {
-  const server = await startStubServer(handler);
-  try {
-    await run(server.url, server.requests);
-  } finally {
-    await server.close();
-  }
 }
 
 const state = { vault: 'Home things.', path: 'topics/a.md', title: 'A', labels: ['cars'], content: 'text' };
@@ -44,7 +35,7 @@ const answers = {
 };
 
 test('one request asks every question, with bool as noul on the wire, and each answer is read by its type', async () => {
-  await withStub(() => ({ body: { answers, usage: { input_tokens: 120, output_tokens: 3 } } }), async (url, requests) => {
+  await withStubServer(() => ({ body: { answers, usage: { input_tokens: 120, output_tokens: 3 } } }), async (url, requests) => {
     const asked = await askSystemOne(client, judge(url), { state, questions });
     assert.deepEqual(asked, {
       ok: true,
@@ -69,7 +60,7 @@ test('one request asks every question, with bool as noul on the wire, and each a
 });
 
 test('usage may be absent', async () => {
-  await withStub(() => ({ body: { answers } }), async (url) => {
+  await withStubServer(() => ({ body: { answers } }), async (url) => {
     const asked = await askSystemOne(client, judge(url), { state, questions });
     assert.ok(asked.ok && asked.value.usage === undefined);
   });
@@ -88,13 +79,13 @@ test('a missing answer, a wrong type or an answer outside its question fails the
     { ...answers, personal: { type: 'noul', noul: -0.1 } },
   ];
   for (const given of cases) {
-    await withStub(() => ({ body: { answers: given } }), async (url) => {
+    await withStubServer(() => ({ body: { answers: given } }), async (url) => {
       const asked = await askSystemOne(client, judge(url), { state, questions });
       assert.equal(!asked.ok && asked.error.reason, 'bad-response', JSON.stringify(given));
       assert.equal(!asked.ok && asked.error.role, 'judgement');
     });
   }
-  await withStub(() => ({ body: { result: 'yes' } }), async (url) => {
+  await withStubServer(() => ({ body: { result: 'yes' } }), async (url) => {
     const asked = await askSystemOne(client, judge(url), { state, questions });
     assert.equal(!asked.ok && asked.error.reason, 'bad-response');
   });
@@ -102,7 +93,7 @@ test('a missing answer, a wrong type or an answer outside its question fails the
 
 test('content too large for the model, a redirect and other failures are errors naming the role, never the token', async () => {
   for (const [status, reason] of [[413, 'http-error'], [400, 'http-error'], [500, 'http-error'], [308, 'redirected']] as const) {
-    await withStub(() => ({ status, headers: { location: 'http://127.0.0.1:1/' }, body: `echo ${TOKEN}` }), async (url) => {
+    await withStubServer(() => ({ status, headers: { location: 'http://127.0.0.1:1/' }, body: `echo ${TOKEN}` }), async (url) => {
       const asked = await askSystemOne(client, judge(url), { state, questions });
       assert.deepEqual(asked, { ok: false, error: { reason, role: 'judgement', status } });
       assert.ok(!JSON.stringify(asked).includes(TOKEN));

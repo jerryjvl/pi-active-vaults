@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { InstallationConfig, ModelEndpoint, SecretDeps } from '../../../src/core/config/index.ts';
 import { embed, inBatches, modelFor, rerank, type ModelClient } from '../../../src/core/models/index.ts';
-import { startStubServer, type RecordedRequest, type StubHandler } from '../../support/stub-server.ts';
+import { startStubServer, type StubHandler, withStubServer } from '../../support/stub-server.ts';
 
 const TOKEN = 's3cret-token';
 
@@ -24,15 +24,6 @@ function config(models: InstallationConfig['models'], policy: InstallationConfig
 
 const secrets: SecretDeps = { env: { MODEL_TOKEN: TOKEN }, runCommand: async () => assert.fail('no command') };
 const client = (overrides: Partial<ModelClient> = {}): ModelClient => ({ fetch, secrets, timeoutMs: 5000, ...overrides });
-
-async function withStub(handler: StubHandler, run: (url: string, requests: RecordedRequest[]) => Promise<void>): Promise<void> {
-  const server = await startStubServer(handler);
-  try {
-    await run(server.url, server.requests);
-  } finally {
-    await server.close();
-  }
-}
 
 const vector = (text: string): number[] => [text.length, text.charCodeAt(0)];
 
@@ -85,7 +76,7 @@ test('a failing batch fails the whole call, and no further batches start', async
 });
 
 test('embed posts batches to /v1/embeddings with the token and model, and returns vectors in input order', async () => {
-  await withStub(embeddings, async (url, requests) => {
+  await withStubServer(embeddings, async (url, requests) => {
     const permitted = modelFor(config({ embed: endpoint(url, { batch: 2, parallel: 2 }) }, [{ vaults: ['home'], allowModels: ['embed'] }]), 'embed', ['home']);
     assert.ok(permitted.ok);
     const texts = ['alpha', 'be', 'gamma', 'd', 'epsilon'];
@@ -109,7 +100,7 @@ test('rerank posts batches to /v1/rerank and returns each document\'s score in i
     assert.equal(top_n, documents.length);
     return { body: { results: documents.map((d, index) => ({ index, relevance_score: d.includes('router') ? 0.9 : 0.1 })).reverse() } };
   };
-  await withStub(handler, async (url, requests) => {
+  await withStubServer(handler, async (url, requests) => {
     const permitted = modelFor(config({ rerank: endpoint(url, { batch: 2 }) }, [{ vaults: ['home'], allowModels: ['rerank'] }]), 'rerank', ['home']);
     assert.ok(permitted.ok);
     const scores = await rerank(client(), permitted.value, 'router', ['the router', 'a switch', 'router config']);
@@ -127,7 +118,7 @@ test('failures are error values that name the role and never the token', async (
     [() => ({ body: 'not json' }), 'bad-response'],
   ];
   for (const [handler, reason] of cases) {
-    await withStub(handler, async (url) => {
+    await withStubServer(handler, async (url) => {
       const permitted = modelFor(config({ embed: endpoint(url, { batch: 2 }) }, [{ vaults: ['home'], allowModels: ['embed'] }]), 'embed', ['home']);
       assert.ok(permitted.ok);
       const result = await embed(client(), permitted.value, ['a', 'b']);
@@ -148,7 +139,7 @@ test('an unreachable endpoint, a slow one and an unresolvable token each fail cl
 
   let release = (): void => {};
   const held = new Promise<void>((resolve) => { release = resolve; });
-  await withStub(async () => { await held; return { body: { data: [] } }; }, async (url) => {
+  await withStubServer(async () => { await held; return { body: { data: [] } }; }, async (url) => {
     const slow = modelFor(config({ embed: endpoint(url) }, policy), 'embed', ['home']);
     assert.ok(slow.ok);
     assert.deepEqual(await embed(client({ timeoutMs: 50 }), slow.value, ['a']), { ok: false, error: { reason: 'timed-out', role: 'embed' } });
@@ -164,7 +155,7 @@ test('an unreachable endpoint, a slow one and an unresolvable token each fail cl
 test('the token is resolved once per call, not once per batch', async () => {
   let resolved = 0;
   const counting: SecretDeps = { env: {}, runCommand: async () => { resolved++; return { exitCode: 0, stdout: TOKEN }; } };
-  await withStub(embeddings, async (url) => {
+  await withStubServer(embeddings, async (url) => {
     const permitted = modelFor(config({ embed: endpoint(url, { token: { kind: 'command', command: 'lookup', where: 'models.embed.token' } }) }, [{ vaults: ['home'], allowModels: ['embed'] }]), 'embed', ['home']);
     assert.ok(permitted.ok);
     assert.ok((await embed(client({ secrets: counting }), permitted.value, ['a', 'b', 'c'])).ok);
@@ -173,7 +164,7 @@ test('the token is resolved once per call, not once per batch', async () => {
 });
 
 test('nothing is sent for no inputs', async () => {
-  await withStub(embeddings, async (url, requests) => {
+  await withStubServer(embeddings, async (url, requests) => {
     const permitted = modelFor(config({ embed: endpoint(url) }, [{ vaults: ['home'], allowModels: ['embed'] }]), 'embed', ['home']);
     assert.ok(permitted.ok);
     assert.deepEqual(await embed(client(), permitted.value, []), { ok: true, value: [] });
@@ -184,9 +175,9 @@ test('nothing is sent for no inputs', async () => {
 test('a redirect is an error naming the role, and the content never reaches the redirect\'s target', async () => {
   // core.md `models`: requests never follow redirects, so vault content goes
   // only to the configured URL — a 307 or 308 would otherwise resend the body.
-  await withStub(embeddings, async (elsewhere, received) => {
+  await withStubServer(embeddings, async (elsewhere, received) => {
     for (const status of [301, 302, 303, 307, 308]) {
-      await withStub(() => ({ status, headers: { location: `${elsewhere}/v1/embeddings` } }), async (url) => {
+      await withStubServer(() => ({ status, headers: { location: `${elsewhere}/v1/embeddings` } }), async (url) => {
         const policy = [{ vaults: ['home'], allowModels: ['embed' as const, 'rerank' as const] }];
         const embedder = modelFor(config({ embed: endpoint(url) }, policy), 'embed', ['home']);
         const reranker = modelFor(config({ rerank: endpoint(url) }, policy), 'rerank', ['home']);

@@ -200,6 +200,24 @@ export function headPull(value: unknown): PullRequest | undefined {
   return { number: value['number'], url: typeof value['html_url'] === 'string' ? value['html_url'] : '', head: ref, headSha: sha, state: merged ? 'merged' : value['state'] === 'open' ? 'open' : 'closed' };
 }
 
+/** Opening and updating a pull request and publishing a status, as Gitea and GitHub both take them. */
+export function headPullWrites(forge: ForgeCaller, repo: string): Pick<ForgeAdapter, 'openPullRequest' | 'updatePullRequest' | 'setStatus'> {
+  return {
+    async openPullRequest(request) {
+      const made = await forge.call('POST', `${repo}/pulls`, request);
+      return made.ok ? onePull(forge, headPull, made.value.body) : made;
+    },
+    async updatePullRequest(number, request) {
+      const updated = await forge.call('PATCH', `${repo}/pulls/${number}`, request);
+      return updated.ok ? ok(undefined) : updated;
+    },
+    async setStatus(sha, status) {
+      const set = await forge.call('POST', `${repo}/statuses/${sha}`, { context: status.context, state: status.state, description: shortDescription(status.description) });
+      return set.ok ? ok(undefined) : set;
+    },
+  };
+}
+
 /** The merged ones among listed pull requests read with `pullOf`, or a bad response. */
 export function mergedPulls(forge: ForgeCaller, pullOf: (value: unknown) => PullRequest | undefined, listed: readonly unknown[]): Result<PullRequest[], ForgeError> {
   const pulls = listed.map(pullOf);
