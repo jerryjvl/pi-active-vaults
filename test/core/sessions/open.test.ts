@@ -13,7 +13,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { actorHold, takeActorHold } from '../../../src/core/actors/index.ts';
 import { budgetState } from '../../../src/core/budgets/index.ts';
-import { eventJson, type VaultEvent } from '../../../src/core/conditions/index.ts';
+import { eventJson } from '../../../src/core/conditions/index.ts';
 import { closeSession, holdActor, openSession, type SessionStart } from '../../../src/core/sessions/index.ts';
 import { withInstallation, type TestInstallation } from '../../support/installation.ts';
 import { ME, OTHER, OTHER_HOLDER, RUNNING, runOf, startedSpawn } from '../../support/session.ts';
@@ -136,7 +136,7 @@ test('a headless run is briefed with its job as on the accepted main and the tri
   const brief = opened.value.session.brief ?? '';
   assert.match(brief, /<vault-job source="home:jobs\/daily\.md">\nRun the daily job\.\n<\/vault-job>/);
   assert.doesNotMatch(brief, /Unaccepted/);
-  assert.ok(brief.includes(eventJson(entry.event as VaultEvent)), brief);
+  assert.ok(brief.includes(eventJson(entry.event)), brief);
 }, { running: RUNNING }));
 
 test('a headless run whose job is not on the accepted main does not run', withInstallation(async (t) => {

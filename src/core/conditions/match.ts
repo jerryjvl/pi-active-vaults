@@ -122,9 +122,10 @@ function matches(condition: Condition, event: VaultEvent, vault: string, reached
 
 /**
  * The event as the structured data a spawned job, or a condition's script,
- * receives: canonical JSON, so the same event always gives the same text.
+ * receives: canonical JSON, so the same event always gives the same text. Any
+ * event a spawn answers — a timer's or a manual run's too — is rendered alike.
  */
-export function eventJson(event: VaultEvent): string {
+export function eventJson(event: { readonly kind: string }): string {
   return canonicalJson(event);
 }
 
