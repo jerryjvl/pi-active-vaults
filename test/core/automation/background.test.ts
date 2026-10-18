@@ -7,7 +7,6 @@
 // stub forge API and a sendmail command that can be made to fail.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,61 +14,12 @@ import type { Automation } from '../../../src/core/automation/index.ts';
 import { acceptedMain } from '../../../src/core/integrity/index.ts';
 import { sendNotification, undeliveredNotifications } from '../../../src/core/notify/index.ts';
 import { notifyDeps, scriptEnvironment } from '../../../src/core/operations/index.ts';
-import { createTempRepo } from '../../support/git-repo.ts';
 import { automationFor, fakePi } from '../../support/daemon.ts';
-import { FORGE_TOKEN, startForgeStub, type ForgeStub } from '../../support/forge-stub.ts';
-import { withInstallation, writeFiles, type InstallationOptions, type TestInstallation } from '../../support/installation.ts';
+import { mergeInForge, withForgeInstallation } from '../../support/forge-vault.ts';
+import { withInstallation, type TestInstallation } from '../../support/installation.ts';
 
 const posixOnly = { skip: process.platform === 'win32' ? 'a POSIX shell as sendmail' : false };
-const REMOTE = 'https://git.example.net/home/vault.git';
 const MINUTE = 60_000;
-
-interface Forge {
-  readonly stub: ForgeStub;
-  readonly bare: string;
-  readonly remote: (...args: string[]) => string;
-}
-
-/** A forge-mode test installation whose origin is a bare repository behind the forge's URL, with a stub forge API. */
-function withForgeVault(run: (t: TestInstallation, forge: Forge) => Promise<void>, options: InstallationOptions & { forges?: boolean } = {}) {
-  return async () => {
-    const bare = mkdtempSync(join(tmpdir(), 'pav-forge-'));
-    const remote = (...args: string[]): string => execFileSync('git', ['-C', bare, ...args], { encoding: 'utf8' }).trim();
-    const stub = await startForgeStub('gitea', (branch) => remote('rev-parse', `refs/heads/${branch}`));
-    try {
-      await withInstallation(async (t) => {
-        t.repo.git('init', '--quiet', '--bare', bare);
-        t.repo.git('remote', 'add', 'origin', REMOTE);
-        t.repo.git('config', `url.${bare}.insteadOf`, REMOTE);
-        t.repo.git('push', '--quiet', 'origin', 'main');
-        await run(t, { stub, bare, remote });
-      }, {
-        contract: { review: 'forge', extra: 'merge:\n  - { paths: ["**"], require: [checks, owner] }' },
-        ...(options.forges === false ? {} : { config: `forges:\n  - { host: git.example.net, type: gitea, token: "\${FORGE_TOKEN}", api: "${stub.api}" }` }),
-        env: { FORGE_TOKEN },
-        ...options,
-      })();
-    } finally {
-      await stub.server.close();
-      rmSync(bare, { recursive: true, force: true });
-    }
-  };
-}
-
-/** Commits `files` straight onto the forge's main, as a merge in the forge would. */
-function mergeInForge(forge: Forge, files: Record<string, string>): string {
-  const clone = createTempRepo();
-  try {
-    clone.git('fetch', '--quiet', forge.bare, 'main:refs/heads/forge-main');
-    clone.git('checkout', '--quiet', 'forge-main');
-    writeFiles(clone.path, files);
-    const sha = clone.commit('Merge pull request');
-    clone.git('push', '--quiet', forge.bare, 'HEAD:refs/heads/main');
-    return sha;
-  } finally {
-    clone.cleanup();
-  }
-}
 
 async function commitAsGardener(t: TestInstallation, path: string, content: string): Promise<string> {
   assert.equal((await t.run('write', { path, content, actor: 'gardener' }, { surface: 'mcp' })).status, 'ok');
@@ -82,7 +32,7 @@ async function forgeStatus(automation: Automation): Promise<{ vault: string; err
   return ((reply as { result: { forge: { vault: string; error?: string; proposed?: string[] }[] } }).result.forge);
 }
 
-test('each tick fetches a forge vault: a merge in the forge becomes the accepted main, and main follows it', withForgeVault(async (t, forge) => {
+test('each tick fetches a forge vault: a merge in the forge becomes the accepted main, and main follows it', withForgeInstallation(async (t, forge) => {
   const automation = automationFor(t, fakePi(t));
   await automation.start();
   const merged = mergeInForge(forge, { 'notes/merged.md': 'merged in the forge\n' });
@@ -91,7 +41,7 @@ test('each tick fetches a forge vault: a merge in the forge becomes the accepted
   assert.equal(t.repo.git('rev-parse', 'main'), merged);
 }));
 
-test('a hosted forge vault\'s actor branches are proposed when their head moves, and their statuses refreshed every few minutes', withForgeVault(async (t, forge) => {
+test('a hosted forge vault\'s actor branches are proposed when their head moves, and their statuses refreshed every few minutes', withForgeInstallation(async (t, forge) => {
   const automation = automationFor(t, fakePi(t));
   await automation.start();
   const first = await commitAsGardener(t, 'notes/a.md', '# A\n');
@@ -115,7 +65,7 @@ test('a hosted forge vault\'s actor branches are proposed when their head moves,
   assert.equal(forge.remote('rev-parse', 'refs/heads/main'), t.repo.git('rev-parse', 'refs/remotes/origin/main'), 'main is never pushed');
 }, { host: true }));
 
-test('a forge vault this installation does not run is fetched, but nothing is pushed from here', withForgeVault(async (t, forge) => {
+test('a forge vault this installation does not run is fetched, but nothing is pushed from here', withForgeInstallation(async (t, forge) => {
   const automation = automationFor(t, fakePi(t));
   await automation.start();
   await commitAsGardener(t, 'notes/a.md', '# A\n');
@@ -126,7 +76,7 @@ test('a forge vault this installation does not run is fetched, but nothing is pu
   assert.deepEqual(forge.stub.model.pulls, []);
 }));
 
-test('a sync that fails is in the daemon\'s status, and tried again on the next tick', withForgeVault(async (t) => {
+test('a sync that fails is in the daemon\'s status, and tried again on the next tick', withForgeInstallation(async (t) => {
   const automation = automationFor(t, fakePi(t));
   await automation.start();
   await automation.tick();

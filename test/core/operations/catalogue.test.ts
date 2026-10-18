@@ -78,17 +78,17 @@ test('vaults are chosen alike everywhere: those named, else where the caller is,
 test('a vault path names its vault with <vault-id>:, or is relative to where the caller is in that vault', () => {
   const read = operationNamed('read');
   assert.ok(read !== undefined);
-  assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'work:notes/a.md' }, []), { params: { path: 'notes/a.md' }, named: ['work'] });
-  assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'a.md' }, [], { vault: home, path: 'notes' }), { params: { path: 'notes/a.md' }, named: [] });
-  assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'a.md' }, ['work'], { vault: home, path: 'notes' }), { params: { path: 'a.md' }, named: ['work'] }, 'another vault named: not relative to here');
-  assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'C:notes.md' }, []), { params: { path: 'C:notes.md' }, named: [] }, 'only a registered vault\'s prefix counts');
+  assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'work:notes/a.md' }, []), { params: { path: 'notes/a.md' }, named: ['work'], unregistered: [] });
+  assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'a.md' }, [], { vault: home, path: 'notes' }), { params: { path: 'notes/a.md' }, named: [], unregistered: [] });
+  assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'a.md' }, ['work'], { vault: home, path: 'notes' }), { params: { path: 'a.md' }, named: ['work'], unregistered: [] }, 'another vault named: not relative to here');
+  assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'C:notes.md' }, []), { params: { path: 'C:notes.md' }, named: [], unregistered: ['C'] }, 'only a registered vault\'s prefix names a vault; another in a vault ID\'s form is reported');
 });
 
 test('a list of vault paths names its vault the same way, each path placed alike', () => {
   const commit = operationNamed('commit');
   assert.ok(commit !== undefined);
-  assert.deepEqual(placeVaultPaths(installation, commit, 'tool', { paths: ['home:notes/a.md', 'home:b.md'] }, []), { params: { paths: ['notes/a.md', 'b.md'] }, named: ['home'] });
-  assert.deepEqual(placeVaultPaths(installation, commit, 'cli', { paths: ['a.md'] }, [], { vault: home, path: 'notes' }), { params: { paths: ['notes/a.md'] }, named: [] });
+  assert.deepEqual(placeVaultPaths(installation, commit, 'tool', { paths: ['home:notes/a.md', 'home:b.md'] }, []), { params: { paths: ['notes/a.md', 'b.md'] }, named: ['home'], unregistered: [] });
+  assert.deepEqual(placeVaultPaths(installation, commit, 'cli', { paths: ['a.md'] }, [], { vault: home, path: 'notes' }), { params: { paths: ['notes/a.md'] }, named: [], unregistered: [] });
 });
 
 test('a call with named arguments names its vaults in paths or in vaults, else it is where the caller is, else the fallback', () => {

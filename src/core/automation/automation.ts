@@ -83,6 +83,7 @@ export function createAutomation(context: OperationContext, options: AutomationO
   const tick = async (only?: string): Promise<void> => {
     const now = context.clock.now();
     if (only === undefined) await forge.tick(await hostedVaults(context));
+    // Syncing may have moved an accepted main, and with it where the vault is run.
     const hosted = await hostedVaults(context);
     const unaccepted = await pausedVaults(context, context.installation.vaults);
     for (const vault of hosted) {

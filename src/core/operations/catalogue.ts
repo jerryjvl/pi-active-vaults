@@ -12,6 +12,7 @@
 //    surface: the ones named, else the one the caller is in, else — for an
 //    operation over many — every registered vault.
 
+import { VAULT_ID } from '../config/index.ts';
 import type { Installation } from './installation.ts';
 import { acceptOperation, commitOperation, proposeOperation, reviewOperation, statusOperation, syncOperation, writeOperation } from './ops/proposals.ts';
 import { contractOperation, readOperation, reindexOperation, searchOperation } from './ops/knowledge.ts';
@@ -116,20 +117,25 @@ export function chooseVaults(
  * Where each vault path in `params` points (api.md: paths are
  * `<vault-id>:<path>`): a registered vault's prefix names that vault, which is
  * added to the vaults named; a plain path, given from inside the vault the
- * caller is in, is relative to where the caller is.
+ * caller is in, is relative to where the caller is. A prefix in a vault ID's
+ * form that names no registered vault is kept as part of the path, and also
+ * reported as `unregistered` (MCP refuses it as it refuses a forbidden vault).
  */
 export function placeVaultPaths(
   installation: Pick<Installation, 'vaults'>, operation: Operation, surface: ParamSurface,
   params: Readonly<Record<string, unknown>>, named: readonly string[], here?: Location,
-): { params: Record<string, unknown>; named: string[] } {
+): { params: Record<string, unknown>; named: string[]; unregistered: string[] } {
   const placed = { ...params };
   const vaults = [...named];
+  const unregistered: string[] = [];
   const place = (value: string): string => {
     const split = splitVaultPath(installation.vaults, value);
     if (split.vault !== undefined) {
       if (!vaults.includes(split.vault.id)) vaults.push(split.vault.id);
       return split.path;
     }
+    const prefix = value.slice(0, Math.max(0, value.indexOf(':')));
+    if (VAULT_ID.test(prefix) && !unregistered.includes(prefix)) unregistered.push(prefix);
     return here !== undefined && (vaults.length === 0 || vaults[0] === here.vault.id) ? vaultRelative(value, here.path) ?? value : value;
   };
   for (const spec of paramsOn(operation, surface)) {
@@ -138,7 +144,7 @@ export function placeVaultPaths(
     if (typeof value === 'string') placed[spec.name] = place(value);
     else if (Array.isArray(value)) placed[spec.name] = value.map((v) => (typeof v === 'string' ? place(v) : v));
   }
-  return { params: placed, named: vaults };
+  return { params: placed, named: vaults, unregistered };
 }
 
 /** Runs the operation with checked parameters. */

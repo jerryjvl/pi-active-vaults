@@ -9,68 +9,36 @@
 // propagating action, refused during an unaccepted change.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { readAttestations, recordAttestation } from '../../../src/core/attestations/index.ts';
 import { acceptedMain, integrityStatus } from '../../../src/core/integrity/index.ts';
 import { proposeToForge, publishStatuses, pushToForge, syncWithForge, type ForgeDeps } from '../../../src/core/forge/index.ts';
 import { TEST_ATTRIBUTION, createTempRepo } from '../../support/git-repo.ts';
-import { FORGE_TOKEN, startForgeStub, type ForgeStub } from '../../support/forge-stub.ts';
+import { FORGE_TOKEN } from '../../support/forge-stub.ts';
+import { connectToForge, mergeInForge, withForge, type Forge } from '../../support/forge-vault.ts';
 import { scriptSource, withTestVault, type TestVault } from '../../support/vault.ts';
 
-const REMOTE = 'https://git.example.net/home/vault.git';
-
-interface Forge {
-  readonly stub: ForgeStub;
-  readonly bare: string;
+interface ForgeWithDeps extends Forge {
   readonly deps: ForgeDeps;
-  /** `git` in the forge's repository. */
-  readonly remote: (...args: string[]) => string;
 }
 
 /** A forge-mode vault whose origin is a local bare repository behind the forge's URL, and a stub forge API. */
-async function withForge(v: TestVault, run: (forge: Forge) => Promise<void>): Promise<void> {
-  const bare = mkdtempSync(join(tmpdir(), 'pav-forge-'));
-  const remote = (...args: string[]): string => v.repo.git('-C', bare, ...args);
-  v.repo.git('init', '--quiet', '--bare', bare);
-  v.repo.git('remote', 'add', 'origin', REMOTE);
-  v.repo.git('config', `url.${bare}.insteadOf`, REMOTE);
-  v.repo.git('push', '--quiet', 'origin', 'main');
-  const stub = await startForgeStub('gitea', (branch) => remote('rev-parse', `refs/heads/${branch}`));
-  try {
+function withForgeFor(v: TestVault, run: (forge: ForgeWithDeps) => Promise<void>): Promise<void> {
+  return withForge(async (forge) => {
+    connectToForge(v.repo, forge);
     const deps: ForgeDeps = {
       git: v.git, store: v.store, clock: v.clock, attribution: TEST_ATTRIBUTION,
-      forges: [{ host: 'git.example.net', type: 'gitea', token: { kind: 'env', name: 'T', where: 'forges[0].token' }, api: stub.api }],
+      forges: [{ host: 'git.example.net', type: 'gitea', token: { kind: 'env', name: 'T', where: 'forges[0].token' }, api: forge.stub.api }],
       client: { fetch, timeoutMs: 5000 },
       secrets: { env: { T: FORGE_TOKEN }, runCommand: async () => assert.fail('no command') },
     };
-    await run({ stub, bare, deps, remote });
-  } finally {
-    await stub.server.close();
-    rmSync(bare, { recursive: true, force: true });
-  }
-}
-
-/** Commits `files` straight onto the forge's main, as a merge in the forge would. */
-function mergeInForge(forge: Forge, files: Record<string, string>): string {
-  const clone = createTempRepo();
-  try {
-    clone.git('fetch', '--quiet', forge.bare, 'main:refs/heads/forge-main');
-    clone.git('checkout', '--quiet', 'forge-main');
-    for (const [path, content] of Object.entries(files)) clone.write(path, content);
-    const sha = clone.commit('Merge pull request');
-    clone.git('push', '--quiet', forge.bare, 'HEAD:refs/heads/main');
-    return sha;
-  } finally {
-    clone.cleanup();
-  }
+    await run({ ...forge, deps });
+  });
 }
 
 const forgeVault = { review: 'forge' as const, extra: 'merge:\n  - { paths: ["**"], require: [checks, owner] }' };
 
 test('syncing makes the forge\'s main the accepted main, fast-forwarding the local main', withTestVault(async (v) => {
-  await withForge(v, async (forge) => {
+  await withForgeFor(v, async (forge) => {
     const first = await syncWithForge(forge.deps, v.vault);
     assert.ok(first.ok, JSON.stringify(first));
     assert.deepEqual([first.value.accepted.sha, first.value.accepted.how, first.value.accepted.by], [v.initial, 'sync', 'vault-bot']);
@@ -86,7 +54,7 @@ test('syncing makes the forge\'s main the accepted main, fast-forwarding the loc
 }, forgeVault));
 
 test('a local main with commits the forge does not have stays an unaccepted change after syncing', withTestVault(async (v) => {
-  await withForge(v, async (forge) => {
+  await withForgeFor(v, async (forge) => {
     v.repo.write('stray.md', 'local only\n');
     const stray = v.repo.commit('stray');
     const synced = await syncWithForge(forge.deps, v.vault);
@@ -99,7 +67,7 @@ test('a local main with commits the forge does not have stays an unaccepted chan
 }, forgeVault));
 
 test('attestation notes from the forge merge line by line with the local ones', withTestVault(async (v) => {
-  await withForge(v, async (forge) => {
+  await withForgeFor(v, async (forge) => {
     const at = '2026-01-01T00:00:00.000Z';
     const record = (name: string) => ({ kind: 'check' as const, name, subject: v.initial, result: 'pass', by: name, version: 'v', at });
     assert.ok((await recordAttestation(v.git, v.repo.path, record('local'), TEST_ATTRIBUTION)).ok);
@@ -118,7 +86,7 @@ test('attestation notes from the forge merge line by line with the local ones', 
 }, forgeVault));
 
 test('trace notes travel like attestations: merged from the forge line by line, and pushed with a proposal', withTestVault(async (v) => {
-  await withForge(v, async (forge) => {
+  await withForgeFor(v, async (forge) => {
     assert.ok((await syncWithForge(forge.deps, v.vault)).ok);
     const head = v.propose({ 'topics/a.md': 'x\n' });
     v.repo.git('notes', '--ref=refs/notes/vault/traces', 'add', '-m', '{"local":1}', head);
@@ -140,7 +108,7 @@ test('trace notes travel like attestations: merged from the forge line by line, 
 }, forgeVault));
 
 test('proposing pushes the actor branch and notes, opens a pull request, then updates it; main is never pushed', withTestVault(async (v) => {
-  await withForge(v, async (forge) => {
+  await withForgeFor(v, async (forge) => {
     assert.ok((await syncWithForge(forge.deps, v.vault)).ok);
     const head = v.propose({ 'topics/a.md': 'first\n' });
     v.repo.write('local.md', 'not pushed\n');
@@ -161,7 +129,7 @@ test('proposing pushes the actor branch and notes, opens a pull request, then up
 }, forgeVault));
 
 test('nothing but actor branches and the package\'s notes is ever pushed', withTestVault(async (v) => {
-  await withForge(v, async (forge) => {
+  await withForgeFor(v, async (forge) => {
     for (const refspec of ['refs/heads/main:refs/heads/main', 'refs/notes/vault/other:refs/notes/vault/other', 'refs/notes/vault/traces:refs/notes/vault/attestations', 'refs/heads/actor/gardener:refs/heads/main', '+refs/heads/main:refs/heads/actor/x', 'refs/heads/actor/a:refs/tags/v1']) {
       const pushed = await pushToForge(v.git, v.repo.path, [refspec]);
       assert.deepEqual(!pushed.ok && pushed.error, { reason: 'not-pushable', refspec }, refspec);
@@ -171,7 +139,7 @@ test('nothing but actor branches and the package\'s notes is ever pushed', withT
 }, forgeVault));
 
 test('proposing is refused while main has an unaccepted change, and nothing is pushed', withTestVault(async (v) => {
-  await withForge(v, async (forge) => {
+  await withForgeFor(v, async (forge) => {
     assert.ok((await syncWithForge(forge.deps, v.vault)).ok);
     v.propose({ 'topics/a.md': 'x\n' });
     v.repo.write('stray.md', 'x');
@@ -186,7 +154,7 @@ test('proposing is refused while main has an unaccepted change, and nothing is p
 test('vault/policy carries the merge policy, counting only owners\' approvals of the exact commit; checks are published too', withTestVault(async (v) => {
   v.repo.write('.vault/checks/links.sh', scriptSource('links'));
   v.repo.commit('a check');
-  await withForge(v, async (forge) => {
+  await withForgeFor(v, async (forge) => {
     v.repo.git('push', '--quiet', 'origin', 'main');
     assert.ok((await syncWithForge(forge.deps, v.vault)).ok);
     const accepted = acceptedMain(v.store, 'home');

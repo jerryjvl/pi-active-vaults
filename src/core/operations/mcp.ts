@@ -22,7 +22,6 @@
 //    nothing.
 
 import { timingSafeEqual } from 'node:crypto';
-import { VAULT_ID } from '../config/index.ts';
 import { isRecord } from '../result/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
 import { CATALOGUE, chooseVaults, isRequired, paramsOn, placeVaultPaths, runOperation } from './catalogue.ts';
@@ -94,15 +93,6 @@ function callerOf(profile: McpProfile): Caller {
 const notPermitted = (operation: Operation, vault: string): OperationOutcome =>
   refused(`"${operation.name}" is not permitted for vault "${vault}" through this profile.`, { reason: 'not-permitted', operation: operation.name, vault });
 
-/** The vault IDs the call's vault paths are prefixed with, registered or not: over MCP a `<vault-id>:` always names a vault. */
-function prefixesOf(operation: Operation, params: Readonly<Record<string, unknown>>): string[] {
-  const values = paramsOn(operation, 'mcp').filter((s) => s.vaultPath === true).flatMap((s) => {
-    const value = params[s.name];
-    return typeof value === 'string' ? [value] : Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
-  });
-  return values.map((v) => v.slice(0, Math.max(0, v.indexOf(':')))).filter((prefix) => VAULT_ID.test(prefix));
-}
-
 /** The vaults a call acts on, each permitting the operation; or why not. */
 function vaultsOf(
   context: OperationContext, profile: McpProfile, operation: Operation, input: Readonly<Record<string, unknown>>,
@@ -113,8 +103,8 @@ function vaultsOf(
   const names = typeof given === 'string' ? [given] : Array.isArray(given) ? given.filter((n): n is string => typeof n === 'string') : [];
   if (given !== undefined && names.length !== (Array.isArray(given) ? given.length : 1)) return invalid(`${key}: must be ${key === 'vault' ? 'a vault ID' : 'a list of vault IDs'}.`);
   const placed = placeVaultPaths(installation, operation, 'mcp', rest, names);
-  // A name that is no registered vault is refused like one the profile may not touch.
-  const unknown = [...placed.named, ...prefixesOf(operation, rest)].find((name) => !installation.vaults.some((v) => v.id === name));
+  // A name, or a path's `<vault-id>:`, that is no registered vault is refused like one the profile may not touch.
+  const unknown = [...placed.named, ...placed.unregistered].find((name) => !installation.vaults.some((v) => v.id === name));
   if (unknown !== undefined) return notPermitted(operation, unknown);
   const permission = operation.name as Permission;
   if (operation.vault === 'many' && placed.named.length === 0) {
