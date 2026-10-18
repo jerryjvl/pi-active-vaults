@@ -13,6 +13,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { actorHold, takeActorHold } from '../../../src/core/actors/index.ts';
 import { budgetState } from '../../../src/core/budgets/index.ts';
+import { eventJson, type VaultEvent } from '../../../src/core/conditions/index.ts';
 import { closeSession, holdActor, openSession, type SessionStart } from '../../../src/core/sessions/index.ts';
 import { withInstallation, type TestInstallation } from '../../support/installation.ts';
 import { ME, OTHER, OTHER_HOLDER, RUNNING, runOf, startedSpawn } from '../../support/session.ts';
@@ -124,4 +125,22 @@ test('a headless session without its spawn\'s budget, or whose actor is held, do
   assert.deepEqual(!busy.ok && busy.error.reason, 'actor-busy');
   const unknown = await openSession(t.context, start(t, { run: { ...run, trace: entry.trace, vault: 'nowhere' } }));
   assert.deepEqual(!unknown.ok && unknown.error.reason, 'unknown-vault');
+}, { running: RUNNING }));
+
+test('a headless run is briefed with its job as on the accepted main and the triggering event as data', withInstallation(async (t) => {
+  const entry = startedSpawn(t);
+  t.repo.write('jobs/daily.md', '---\napplies-when: [{ on: external, name: x, effect: spawn }]\n---\nUnaccepted instructions.\n');
+  t.repo.commit('unaccepted job change');
+  const opened = await openSession(t.context, start(t, { run: runOf(entry) }));
+  assert.ok(opened.ok, JSON.stringify(!opened.ok && opened.error));
+  const brief = opened.value.session.brief ?? '';
+  assert.match(brief, /<vault-job source="home:jobs\/daily\.md">\nRun the daily job\.\n<\/vault-job>/);
+  assert.doesNotMatch(brief, /Unaccepted/);
+  assert.ok(brief.includes(eventJson(entry.event as VaultEvent)), brief);
+}, { running: RUNNING }));
+
+test('a headless run whose job is not on the accepted main does not run', withInstallation(async (t) => {
+  const entry = startedSpawn(t);
+  const opened = await openSession(t.context, start(t, { run: { ...runOf(entry), document: 'jobs/gone.md' } }));
+  assert.deepEqual(!opened.ok && opened.error.reason, 'unknown-job');
 }, { running: RUNNING }));
