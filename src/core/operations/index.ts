@@ -11,6 +11,7 @@ export { assignPositionals, parseLine, splitArguments, usage, type ParsedLine } 
 export { describeError, fromError } from './messages.ts';
 export { unacceptedNotices, type VaultNotice } from './notices.ts';
 export { doctorFindings, type Finding } from './ops/doctor.ts';
+export { queueContext, spawnLines, spawnMatching } from './ops/common.ts';
 export type {
   Caller, Operation, OperationOutcome, OperationRequest, OperationStatus, ParamKind, ParamSpec, ParamSurface, Surfaces, VaultScope,
 } from './types.ts';

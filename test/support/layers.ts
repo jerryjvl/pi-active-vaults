@@ -16,7 +16,7 @@ export const LAYERS: Readonly<Record<string, number>> = {
   traces: 2, budgets: 2, queue: 2, models: 2, search: 2, judgements: 2,
   notify: 2, templates: 2, forge: 2,
   // L3 Operations
-  operations: 3,
+  operations: 3, sessions: 3,
 };
 
 export const ADAPTERS = ['cli', 'extension', 'daemon', 'mcp'] as const;

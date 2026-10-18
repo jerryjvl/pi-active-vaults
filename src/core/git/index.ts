@@ -2,7 +2,7 @@
 // line. Functions take a `Git` (binary and environment, from `createGit`) first
 // and the repository directory second, and return results as values.
 
-export { createGit, redactUrlCredentials, type Git, type GitError, type GitOptions } from './exec.ts';
+export { createGit, isGitProgram, redactUrlCredentials, type Git, type GitError, type GitOptions } from './exec.ts';
 export {
   MINIMUM_GIT_VERSION,
   currentBranch,

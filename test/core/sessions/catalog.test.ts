@@ -24,5 +24,5 @@ test('vaults are listed by ID, and one that cannot be read is named as such', wi
   const vaults = [{ id: 'zeta', path: zeta, worktrees: zeta, host: false }, t.vault];
   const text = await catalogText({ ...t.context, installation: { ...t.installation, vaults } });
   assert.ok(text.indexOf('home:') < text.indexOf('zeta:'), text);
-  assert.match(text, /zeta: \(cannot be read\)/);
+  assert.match(text, /zeta: \(not available: nothing accepted yet\)/);
 }));

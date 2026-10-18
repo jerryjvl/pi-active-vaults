@@ -1,7 +1,7 @@
 // Public surface of the budgets module: document budgets, and allotting,
 // accounting and limiting them down a session tree.
 
-export { parseBudget, workTokens, type Budget, type RequestUsage } from './budget.ts';
+export { parseBudget, usageOf, workTokens, type Budget, type RequestUsage } from './budget.ts';
 export {
   accountUsage,
   allot,

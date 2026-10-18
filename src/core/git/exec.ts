@@ -158,3 +158,9 @@ export async function runForSuccess(git: Git, args: readonly string[], options: 
   const ran = await runChecked(git, args, options);
   return ran.ok ? ok(undefined) : ran;
 }
+
+/** Whether a command line's program is git — by name, or a path to it — as a guard reading commands must tell. */
+export function isGitProgram(program: string): boolean {
+  const base = program.split(/[\\/]/).pop()?.toLowerCase() ?? '';
+  return base === 'git' || base === 'git.exe';
+}

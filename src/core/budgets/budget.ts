@@ -41,3 +41,12 @@ export function parseBudget(value: unknown, where = 'budget'): Result<Budget, Is
 export function workTokens(usage: RequestUsage): number {
   return Math.max(0, usage.prompt - usage.cachedPrefix) + usage.generated;
 }
+
+/**
+ * A request's usage from a model API's counts: fresh input, output, prefix
+ * read from a cache, and input written to one. Every prompt token is one of
+ * input, cache read or cache write; only cache reads are not work.
+ */
+export function usageOf(counts: { readonly input: number; readonly output: number; readonly cacheRead: number; readonly cacheWrite: number }): RequestUsage {
+  return { prompt: counts.input + counts.cacheRead + counts.cacheWrite, cachedPrefix: counts.cacheRead, generated: counts.output };
+}
