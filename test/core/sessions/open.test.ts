@@ -144,3 +144,9 @@ test('a headless run whose job is not on the accepted main does not run', withIn
   const opened = await openSession(t.context, start(t, { run: { ...runOf(entry), document: 'jobs/gone.md' } }));
   assert.deepEqual(!opened.ok && opened.error.reason, 'unknown-job');
 }, { running: RUNNING }));
+
+test('a headless run writes only as one of the vault\'s actors, never as an owner', withInstallation(async (t) => {
+  const entry = startedSpawn(t);
+  const opened = await openSession(t.context, start(t, { run: runOf(entry, 'alice') }));
+  assert.deepEqual(!opened.ok && opened.error, { reason: 'not-a-vault-actor', vault: 'home', actor: 'alice' });
+}, { running: RUNNING }));

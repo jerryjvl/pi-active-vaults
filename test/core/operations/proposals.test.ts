@@ -144,7 +144,7 @@ test('undelivered notifications, being the whole installation\'s, are shown by s
   assert.deepEqual((remote.data as { undelivered: unknown[] }).undelivered, []);
 }, { config: 'notify:\n  from: "Vault <vault@example.net>"\n  recipients: { me: me@example.net }\n  transport: { type: sendmail, command: /nonexistent/sendmail }' }));
 
-const WATCH_JOB = '---\napplies-when: [{ on: committed, actor: [gardener], effect: spawn }]\nbudget: { tokens: 1000, ttl: 10m }\n---\nTidy what gardener did.\n';
+const WATCH_JOB = '---\napplies-when: [{ on: committed, actor: [gardener], effect: spawn }]\nbudget: { tokens: 1000, ttl: 10m }\nactor: gardener\n---\nTidy what gardener did.\n';
 
 test('a commit made from a session carries its trace, and requests the spawns its event matches in that session\'s tree', withInstallation(async (t) => {
   t.repo.write('jobs/tidy.md', WATCH_JOB);

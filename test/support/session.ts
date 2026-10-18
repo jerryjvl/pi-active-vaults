@@ -16,7 +16,7 @@ export const RUNNING: Readonly<Record<number, string>> = { [ME]: '2026-01-01T00:
 export const OTHER_HOLDER = { process: { pid: OTHER, started: RUNNING[OTHER] as string }, session: 'other-session' };
 
 /** The job document `startedSpawn` runs, on the accepted main. */
-export const JOB = '---\napplies-when: [{ on: external, name: daily, effect: spawn }]\nbudget: { tokens: 5000, ttl: 10m }\n---\nRun the daily job.\n';
+export const JOB = '---\napplies-when: [{ on: external, name: daily, effect: spawn }]\nbudget: { tokens: 5000, ttl: 10m }\nactor: gardener\n---\nRun the daily job.\n';
 
 /** A spawn of `document` — committed and accepted as a job first — queued and started as the daemon would before running it. */
 export function startedSpawn(t: TestInstallation, document = 'jobs/daily.md', tokens = 5000): SpawnEntry {

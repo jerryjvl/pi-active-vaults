@@ -1,6 +1,6 @@
 // Documented behaviour: concepts.md "Merge policy" — a change to any
-// `_contract.md`, anything under `.vault/`, or the `applies-when` or `budget`
-// of any document is a control change. Detection errs towards flagging: a
+// `_contract.md`, anything under `.vault/`, or the `applies-when`, `budget` or
+// `actor` of any document is a control change. Detection errs towards flagging: a
 // spelling a case-insensitive file system treats as the same name counts, and
 // so does frontmatter that cannot be read.
 import { test } from 'node:test';
@@ -49,9 +49,9 @@ test('changing, adding or removing a document\'s applies-when or budget is a con
   repo.write('notes/a.md', job('labels: [x, y]', 'new labels are content, not control'));
   const head = repo.commit('changes');
   assert.deepEqual(await flagged(repo, base, head), [
-    'jobs/budgeted.md (conditions-or-budget)',
-    'jobs/new.md (conditions-or-budget)',
-    'jobs/old.md (conditions-or-budget)',
+    'jobs/budgeted.md (control-keys)',
+    'jobs/new.md (control-keys)',
+    'jobs/old.md (control-keys)',
   ]);
 }));
 
@@ -71,4 +71,14 @@ test('frontmatter that cannot be read is treated as a control change', withTempR
   repo.write('notes/a.md', '---\napplies-when: [unclosed\n---\n');
   const head = repo.commit('broken');
   assert.deepEqual(await flagged(repo, base, head), ['notes/a.md (unreadable-frontmatter)']);
+}));
+
+test('changing a document\'s actor is a control change: it decides whom a job writes as', withTempRepo(async (repo) => {
+  repo.write('jobs/a.md', job('applies-when: [{ on: merged, effect: spawn }]\nbudget: { tokens: 1, ttl: 1m }\nactor: gardener'));
+  repo.write('jobs/b.md', job('labels: [x]'));
+  const base = repo.commit('base');
+  repo.write('jobs/a.md', job('applies-when: [{ on: merged, effect: spawn }]\nbudget: { tokens: 1, ttl: 1m }\nactor: librarian'));
+  repo.write('jobs/b.md', job('labels: [x]\nactor: gardener'));
+  const head = repo.commit('actors');
+  assert.deepEqual(await flagged(repo, base, head), ['jobs/a.md (control-keys)', 'jobs/b.md (control-keys)']);
 }));

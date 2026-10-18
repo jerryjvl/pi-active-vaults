@@ -21,7 +21,7 @@ import { withTestVault, type TestVault } from '../../support/vault.ts';
 const LIMITS: BudgetLimits = { depthDecay: 0.5, maxDepth: 4 };
 
 function job(on: string, extra = ''): string {
-  return `---\napplies-when:\n  - { on: ${on}, effect: spawn${extra} }\nbudget: { tokens: 1000, ttl: 10m }\n---\nDo the thing.\n`;
+  return `---\napplies-when:\n  - { on: ${on}, effect: spawn${extra} }\nbudget: { tokens: 1000, ttl: 10m }\nactor: gardener\n---\nDo the thing.\n`;
 }
 
 function matching(v: TestVault, vaults: readonly RegisteredVault[] = [v.vault]): SpawnMatching {
@@ -48,7 +48,7 @@ test('a matching job becomes a request with the document, condition, budget and 
   const matched = await matchSpawns(matching(v), { event: external, id: 'E1' }, [v.vault], { parent: 'PARENT' });
   assert.ok(matched.ok);
   assert.deepEqual(matched.value.requests, [{
-    vault: 'home', document: 'jobs/refresh.md', condition: 0, event: { ...external, id: 'E1' }, budget: { tokens: 1000, ttlMs: 600_000 }, parent: 'PARENT',
+    vault: 'home', document: 'jobs/refresh.md', condition: 0, event: { ...external, id: 'E1' }, budget: { tokens: 1000, ttlMs: 600_000 }, actor: 'gardener', parent: 'PARENT',
   }]);
   assert.deepEqual(matched.value.paused, []);
 }));
@@ -120,4 +120,16 @@ test('a condition\'s script can only narrow a match; a dropped match says why', 
   assert.ok(matched.ok);
   assert.deepEqual(matched.value.requests, []);
   assert.deepEqual(matched.value.dropped, [{ vault: 'home', document: 'jobs/refresh.md', reason: 'exit 1' }]);
+}));
+
+test('a request runs as the job\'s actor; a job with no actor is not matched', withTestVault(async (v) => {
+  v.repo.write('jobs/refresh.md', job('external', ', name: refresh'));
+  v.repo.write('jobs/actorless.md', '---\napplies-when: [{ on: external, name: refresh, effect: spawn }]\nbudget: { tokens: 1000, ttl: 10m }\n---\n');
+  v.repo.commit('jobs');
+  v.accept();
+  const matched = await matchSpawns(matching(v), { event: external, id: 'E1' }, [v.vault]);
+  assert.ok(matched.ok);
+  assert.deepEqual(matched.value.requests.map((r) => [r.document, r.actor]), [['jobs/refresh.md', 'gardener']]);
+  const [entry] = await submitSpawns(v.store, queueContext(v), matched.value.requests);
+  assert.equal(entry?.actor, 'gardener', 'the claim records whom it runs as');
 }));

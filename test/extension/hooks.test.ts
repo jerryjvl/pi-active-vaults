@@ -127,7 +127,7 @@ test('session.start documents are injected before the first request', withInstal
 
 test('a session event that matches a job queues it in the session\'s tree, and says so on the event bus', withInstallation(async (t) => {
   t.repo.write('notes/a.md', 'Alpha.\n');
-  t.repo.write('jobs/on-notes.md', '---\napplies-when: [{ on: session.path, paths: ["notes/**"], effect: spawn }]\nbudget: { tokens: 1000, ttl: 10m }\n---\nFollow up.\n');
+  t.repo.write('jobs/on-notes.md', '---\napplies-when: [{ on: session.path, paths: ["notes/**"], effect: spawn }]\nbudget: { tokens: 1000, ttl: 10m }\nactor: gardener\n---\nFollow up.\n');
   t.repo.commit('job');
   t.accept();
   await withPi(t, {}, async (pi) => {

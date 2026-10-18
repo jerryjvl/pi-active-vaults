@@ -70,3 +70,12 @@ test('doctor --fix installs the pre-push guard, which refuses a push of main, an
   assert.match(about((await findings(t, { fix: true })).found, 'hooks')[0]?.message ?? '', /pre-push hook of its own/);
   assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\nexit 0\n', 'a hook of the user\'s is never replaced');
 }));
+
+test('doctor reports a job that cannot run, with why', withInstallation(async (t) => {
+  t.repo.write('jobs/actorless.md', '---\napplies-when:\n  - { on: external, name: bell, effect: spawn }\nbudget: { tokens: 500, ttl: 2m }\n---\n');
+  t.repo.commit('job');
+  t.accept();
+  const jobs = about((await findings(t)).found, 'jobs');
+  assert.deepEqual(jobs.map((f) => f.level), ['warning']);
+  assert.match(jobs[0]?.message ?? '', /jobs\/actorless\.md cannot run: actor: is required/);
+}));

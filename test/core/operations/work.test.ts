@@ -15,9 +15,9 @@ import { withInstallation, type TestInstallation } from '../../support/installat
 const posixOnly = { skip: process.platform === 'win32' ? 'POSIX shell scripts' : false };
 
 function jobs(t: TestInstallation): void {
-  t.repo.write('jobs/daily.md', '---\napplies-when:\n  - { on: timer, schedule: "30 6 * * *", effect: spawn }\nbudget: { tokens: 1000, ttl: 5m }\n---\nDaily.\n');
-  t.repo.write('jobs/refresh.md', '---\napplies-when:\n  - { on: external, name: refresh, effect: spawn }\nbudget: { tokens: 500, ttl: 2m }\n---\nRefresh.\n');
-  t.repo.write('jobs/unbudgeted.md', '---\napplies-when:\n  - { on: external, name: refresh, effect: spawn }\n---\nNo budget.\n');
+  t.repo.write('jobs/daily.md', '---\napplies-when:\n  - { on: timer, schedule: "30 6 * * *", effect: spawn }\nbudget: { tokens: 1000, ttl: 5m }\nactor: gardener\n---\nDaily.\n');
+  t.repo.write('jobs/refresh.md', '---\napplies-when:\n  - { on: external, name: refresh, effect: spawn }\nbudget: { tokens: 500, ttl: 2m }\nactor: gardener\n---\nRefresh.\n');
+  t.repo.write('jobs/unbudgeted.md', '---\napplies-when:\n  - { on: external, name: refresh, effect: spawn }\nactor: gardener\n---\nNo budget.\n');
   t.repo.commit('jobs');
   t.accept();
 }
@@ -97,4 +97,16 @@ test('trace shows a compact record from the vault; an unknown trace is not found
   assert.match(shown.text, /home: manual jobs\/daily\.md[^]*session gardener: committed, 120 tokens[^]*produced digests\/today\.md/);
   assert.equal((await t.run('trace', { id: '01JABCDEFGHJKMNPQRSTVWXYZ1' })).status, 'failed');
   assert.equal((await t.run('trace', { id: 'not-a-trace' })).status, 'invalid');
+}));
+
+test('a job with no actor is listed with the problem, and neither runs nor is triggered', withInstallation(async (t) => {
+  t.repo.write('jobs/actorless.md', '---\napplies-when:\n  - { on: external, name: bell, effect: spawn }\nbudget: { tokens: 500, ttl: 2m }\n---\nNo actor.\n');
+  t.repo.commit('job');
+  t.accept();
+  assert.match((await t.run('jobs')).text, /home:jobs\/actorless\.md\n {2}on external \(name bell\)\n {2}problem: actor: is required on a document that can spawn work/);
+  const ran = await t.run('run', { document: 'jobs/actorless.md' });
+  assert.equal(ran.status, 'refused');
+  assert.match(ran.text, /actor: is required/);
+  assert.match((await t.run('trigger', { name: 'bell' })).text, /Nothing matched/);
+  assert.deepEqual(listSpawns(t.context.state, { vault: 'home' }), []);
 }));

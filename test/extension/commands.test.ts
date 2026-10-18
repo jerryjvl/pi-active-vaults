@@ -54,7 +54,7 @@ test('adopting asks the person first; nothing is recorded unless they confirm', 
 }, { running: RUNNING }));
 
 test('a command\'s arguments are read like the CLI\'s, quotes included', withInstallation(async (t) => {
-  t.repo.write('jobs/daily.md', '---\napplies-when: [{ on: external, name: daily, effect: spawn }]\nbudget: { tokens: 1000, ttl: 10m }\n---\nRun.\n');
+  t.repo.write('jobs/daily.md', '---\napplies-when: [{ on: external, name: daily, effect: spawn }]\nbudget: { tokens: 1000, ttl: 10m }\nactor: gardener\n---\nRun.\n');
   t.repo.commit('job');
   t.accept();
   await withPi(t, {}, async (pi) => {

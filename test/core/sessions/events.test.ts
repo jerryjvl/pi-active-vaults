@@ -12,7 +12,7 @@ import { withInstallation, type TestInstallation } from '../../support/installat
 import { RUNNING, openTestSession, runOf, startedSpawn } from '../../support/session.ts';
 
 function job(t: TestInstallation, path: string, on: string, extra = ''): void {
-  t.repo.write(path, `---\napplies-when:\n  - { on: ${on}, effect: spawn${extra} }\nbudget: { tokens: 1000, ttl: 10m }\n---\nRun.\n`);
+  t.repo.write(path, `---\napplies-when:\n  - { on: ${on}, effect: spawn${extra} }\nbudget: { tokens: 1000, ttl: 10m }\nactor: gardener\n---\nRun.\n`);
 }
 
 test('a session event that matches a job spawns it once, in the session\'s tree', withInstallation(async (t) => {
