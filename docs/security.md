@@ -73,6 +73,7 @@ adopting locally.
 | The package never pushes `main` | Forge | The package itself bypassing review |
 | Bot credential that is not an owner | Forge | An executor approving its own proposals |
 | Protected `main` with required owner approval | Forge | Anything reaching the shared `main` unreviewed — even from a compromised machine |
+| Merge commits or fast-forwards only, and each merge checked for the proposal's commits | Forge | Attestations and trace notes left attached to commits `main` does not contain |
 | Content is data | Both | Text in documents, pages or tool results acting as instructions |
 
 The Git hooks only speed things up and guard against accidents. Every safeguard

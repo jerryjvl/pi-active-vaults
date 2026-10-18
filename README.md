@@ -20,7 +20,7 @@ on their own branches; owners decide what reaches `main`.
 
 ## Status
 
-Pre-release. The design is complete; implementation is in progress.
+Pre-release: implemented and tested, not yet released.
 
 ## Documentation
 

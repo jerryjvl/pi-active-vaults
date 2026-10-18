@@ -97,5 +97,5 @@ allotment is its budget) and `event`. The run is briefed with its job document
 as on the accepted `main` and the triggering event as structured data (see
 [Concepts](../concepts.md#applies-when)). A run whose file cannot be read, or
 that has no allotment, no job on the accepted `main`, an actor that is not one
-of the vault's `actors` or no hold, does not start; one past its budget, run time or the daily ceiling is
-stopped. A job that decides there is nothing to do ends without committing.
+of the vault's `actors` or no hold, does not start; one past its budget, run
+time or the daily ceiling is stopped. A job that decides there is nothing to do ends without committing.

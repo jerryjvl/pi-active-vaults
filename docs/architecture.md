@@ -231,8 +231,11 @@ src/
   core/        shared library
   cli/         vault entry point and commands
   extension/   Pi extension entry point
-  daemon/      service, scheduler, socket server
+  daemon/      the daemon process: time, sockets, processes
+  mcp/         MCP servers and endpoints
 test/          unit and integration tests, mirroring src/
+  e2e/         end-to-end scenarios across components
+  smoke/       the opt-in check against a real model (npm run smoke)
 docs/
 ```
 
