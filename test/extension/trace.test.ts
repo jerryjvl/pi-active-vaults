@@ -61,3 +61,14 @@ test('an interactive session\'s commit carries its trace too, with only the path
   assert.deepEqual(record.value.trigger, { event: 'session.start' });
   assert.deepEqual(record.value.documents, ['notes/a.md']);
 }, { running: RUNNING, config: 'taint: { trusted-tools: [read, write, vault_commit] }' }));
+
+test('a commit with nothing but the trace record is no commit', withInstallation(async (t) => {
+  await withPi(t, { flags: { 'vault-actor': 'gardener' } }, async (pi) => {
+    pi.respond(toolCall('vault_commit', { message: 'Nothing done' }), DONE);
+    await pi.prompt('Commit.');
+    const result = pi.results.find((r) => r.tool === 'vault_commit');
+    assert.equal(result?.isError, true);
+    assert.match(result?.text ?? '', /nothing to commit/i);
+  });
+  assert.equal(t.repo.git('branch', '--list', 'actor/gardener') === '' || t.repo.git('rev-parse', 'actor/gardener') === t.repo.git('rev-parse', 'main'), true);
+}, { running: RUNNING, config: 'taint: { trusted-tools: [vault_commit] }' }));
