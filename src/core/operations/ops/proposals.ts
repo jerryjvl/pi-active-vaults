@@ -19,7 +19,7 @@ import { readVaultIdentity, writersOf, type RegisteredVault } from '../../regist
 import { newTraceId } from '../../traces/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
 import { vaultRelative } from '../locate.ts';
-import { fromError, refused, succeeded } from '../messages.ts';
+import { fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Caller, Operation } from '../types.ts';
 import { actorOf, flag, forgeDeps, personOf, readingFrom, text, texts, theVault } from './common.ts';
 
@@ -165,7 +165,7 @@ export const acceptOperation: Operation = {
       return adopted.ok ? succeeded(`Adopted ${adopted.value.sha} as vault "${vault.id}"'s accepted main.`, adopted.value) : fromError(adopted.error);
     }
     const actor = text(request.params, 'actor');
-    if (actor === undefined) return refused('Name the actor whose proposal to accept, or --adopt <sha>.');
+    if (actor === undefined) return invalid('Name the actor whose proposal to accept, or --adopt <sha>.');
     const accepted = await accept({ git: context.git, store: context.state, clock: context.clock }, vault, actor, {
       approver: person.value,
       identity: packageIdentity(context.installation, person.value),

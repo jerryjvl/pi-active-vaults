@@ -1,7 +1,8 @@
 // Outcomes and messages: the one place an error value becomes the text a
 // person or model reads, and a status. A refusal — a merge policy, a guard, a
-// check, a hold, the unaccepted-change pause — is `refused` (exit status 2);
-// anything else that went wrong is `failed` (1).
+// check, a hold, the unaccepted-change pause — is `refused` (exit status 3); a
+// request that does not fit the operation is `invalid` (2); anything else that
+// went wrong is `failed` (1).
 //
 // Messages say what to do next and name no secret: error values never carry
 // one, and nothing here adds a value an error did not give.
@@ -15,6 +16,10 @@ export function succeeded(text: string, data?: unknown): OperationOutcome {
 
 export function refused(text: string, data?: unknown): OperationOutcome {
   return { status: 'refused', text, ...(data === undefined ? {} : { data }) };
+}
+
+export function invalid(text: string, data?: unknown): OperationOutcome {
+  return { status: 'invalid', text, ...(data === undefined ? {} : { data }) };
 }
 
 export function failed(text: string, data?: unknown): OperationOutcome {

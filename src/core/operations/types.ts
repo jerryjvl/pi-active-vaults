@@ -3,7 +3,7 @@
 // and its implementation. Every surface is generated from these: the CLI's
 // commands and flags, Pi's tools and commands, MCP's tools. An operation's
 // outcome is data plus a text rendering, and a status every surface maps the
-// same way (the CLI's exit status: 0, 1, 2).
+// same way (the CLI's exit status: 0, 1, 2, 3).
 
 import type { Holder } from '../actors/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
@@ -76,8 +76,12 @@ export interface OperationRequest {
   readonly caller: Caller;
 }
 
-/** `refused`: a policy or a guard said no (the CLI's exit status 2); `failed`: anything else that went wrong (1). */
-export type OperationStatus = 'ok' | 'failed' | 'refused';
+/**
+ * `invalid`: the request does not fit the operation (a usage error, the CLI's
+ * exit status 2); `refused`: a policy or a guard said no (3); `failed`:
+ * anything else that went wrong (1).
+ */
+export type OperationStatus = 'ok' | 'failed' | 'invalid' | 'refused';
 
 export interface OperationOutcome {
   readonly status: OperationStatus;

@@ -18,7 +18,7 @@ import { runScript } from '../../scripts/index.ts';
 import { compactTracePath, newTraceId, parseCompactTrace, readFullLog, type CompactTrace } from '../../traces/index.ts';
 import type { OperationContext } from '../context.ts';
 import { locate } from '../locate.ts';
-import { fromError, refused, succeeded } from '../messages.ts';
+import { fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Operation, OperationRequest } from '../types.ts';
 import { notifyDeps, readingFrom, text, texts, theVault } from './common.ts';
 
@@ -125,7 +125,7 @@ export const triggerOperation: Operation = {
       try {
         payload = JSON.parse(raw);
       } catch {
-        return refused('The payload is not JSON.');
+        return invalid('The payload is not JSON.');
       }
     }
     const event: VaultEvent = { kind: 'external', vault: vault.id, name: text(request.params, 'name') ?? '', ...(payload === undefined ? {} : { payload }) };
@@ -216,7 +216,7 @@ export const notifyOperation: Operation = {
       return tested.ok ? succeeded(`A test message was delivered to "${to}".`) : fromError(tested.error);
     }
     const subject = text(request.params, 'subject');
-    if (subject === undefined) return refused('A subject is needed (--subject).');
+    if (subject === undefined) return invalid('A subject is needed (--subject).');
     const key = text(request.params, 'key');
     const sent = await sendNotification(deps, { to, subject, body: text(request.params, 'body') ?? '', trace: newTraceId(context.ids), ...(key === undefined ? {} : { key }) });
     return sent.ok ? succeeded(`${sent.value.outcome} ${sent.value.messageId}`, sent.value) : fromError(sent.error);
@@ -245,7 +245,7 @@ export const traceOperation: Operation = {
   params: [{ name: 'id', kind: 'string', required: true, positional: true, description: 'The trace ID' }],
   async run(context, request) {
     const id = text(request.params, 'id') ?? '';
-    if (!isTraceId(id)) return refused(`"${id}" is not a trace ID.`);
+    if (!isTraceId(id)) return invalid(`"${id}" is not a trace ID.`);
     const records = [];
     for (const vault of request.vaults) {
       const record = await findCompactTrace(context, vault, id);

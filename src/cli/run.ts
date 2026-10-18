@@ -9,8 +9,8 @@
 //    the current directory is in (its checkout, or an actor's worktree, which
 //    also makes that actor the one commits are made as);
 //  - output is the operation's text, or with `--json` its data; the exit
-//    status is 0 for success, 1 for a failure, 2 for a refusal or a usage
-//    error;
+//    status is 0 for success, 1 for a failure, 2 for a usage error and 3 for
+//    a refusal by policy or a guard;
 //  - adopting asks for confirmation when there is someone to ask; otherwise
 //    it shows the delta and how to confirm it.
 
@@ -35,8 +35,7 @@ export interface CliIo {
   readonly context?: ContextOptions;
 }
 
-const EXIT = { ok: 0, failed: 1, refused: 2 } as const;
-const USAGE_ERROR = 2;
+const EXIT = { ok: 0, failed: 1, invalid: 2, refused: 3 } as const;
 const DAEMON_COMMANDS = ['daemon', 'mcp'];
 
 const onCli = CATALOGUE.filter((o) => o.surfaces.cli);
@@ -85,7 +84,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
   const found = findOperation(argv);
   if (found === undefined) {
     io.write('stderr', `vault: "${command}" is not a command.\n\n${overview()}\n`);
-    return USAGE_ERROR;
+    return EXIT.invalid;
   }
   const { operation } = found;
   const line = parseLine(operation, found.rest);
@@ -95,7 +94,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
   }
   if (line.problems.length > 0) {
     io.write('stderr', `${line.problems.join('\n')}\n\n${usage(operation)}\n`);
-    return USAGE_ERROR;
+    return EXIT.invalid;
   }
 
   const installation = loadInstallation(io.host);
@@ -125,7 +124,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     const extra = assignPositionals(operation, params, positionals);
     if (extra.length > 0) {
       io.write('stderr', `Too many arguments: ${extra.join(' ')}\n\n${usage(operation)}\n`);
-      return USAGE_ERROR;
+      return EXIT.invalid;
     }
     const placed = placeVaultPaths(installation.value, operation, 'cli', params, named, here);
     Object.assign(params, placed.params);
@@ -137,7 +136,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
           params[spec.name] = readFileSync(isAbsolute(value) ? value : resolve(io.cwd, value), 'utf8');
         } catch {
           io.write('stderr', `--${spec.name}: ${value} cannot be read.\n`);
-          return USAGE_ERROR;
+          return EXIT.invalid;
         }
       }
       if (spec.stdin === true && value === undefined) {
@@ -151,7 +150,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       io.write('stderr', chosen.error.reason === 'unknown-vault'
         ? `"${chosen.error.vault}" is not a registered vault.\n`
         : `Which vault? Name it (vault ${operation.command ?? operation.name} <vault> …, or --vault), or run this inside one.\n`);
-      return USAGE_ERROR;
+      return EXIT.invalid;
     }
     const { person } = installation.value.config;
     const caller = { surface: 'cli' as const, cwd: io.cwd, ...(person === undefined ? {} : { person }), ...(here?.actor === undefined ? {} : { actor: here.actor }) };

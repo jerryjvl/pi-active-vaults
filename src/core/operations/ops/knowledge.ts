@@ -6,8 +6,8 @@ import { effectiveContract } from '../../contracts/index.ts';
 import { mainTip } from '../../integrity/index.ts';
 import { readTextAt } from '../../git/index.ts';
 import { search, updateIndex, type IndexReport, type SearchNote } from '../../search/index.ts';
-import { fromError, refused, succeeded } from '../messages.ts';
-import type { Operation } from '../types.ts';
+import { fromError, invalid, succeeded } from '../messages.ts';
+import type { Operation, OperationStatus } from '../types.ts';
 import { integer, lineRange, readingFrom, searchContext, text, theVault } from './common.ts';
 
 const READING = { cli: true, command: false, mcp: true } as const;
@@ -46,7 +46,7 @@ export const searchOperation: Operation = {
       ...(scope === undefined ? {} : { scope }),
       ...(limit === undefined ? {} : { limit }),
     });
-    if (!found.ok) return found.error.reason === 'empty-query' ? refused('The query has no words to search for.') : fromError(found.error);
+    if (!found.ok) return found.error.reason === 'empty-query' ? invalid('The query has no words to search for.') : fromError(found.error);
     const lines = found.value.hits.map((hit) =>
       `${hit.vault}:${hit.path}${hit.heading.length === 0 ? '' : ` — ${hit.heading.join(' › ')}`} [${hit.freshness}${hit.movedTo === undefined ? '' : ` → ${hit.movedTo}`}]\n  ${hit.excerpt}`);
     const notes = found.value.notes.map(noteText);
@@ -121,7 +121,7 @@ export const reindexOperation: Operation = {
     if (!index.ok) return fromError({ reason: 'not-configured', what: 'The search index' });
     const reports: IndexReport[] = [];
     const lines: string[] = [];
-    let worst: 'ok' | 'refused' | 'failed' = 'ok';
+    let worst: OperationStatus = 'ok';
     for (const vault of request.vaults) {
       const updated = await updateIndex(searchContext(context, index.value), vault);
       if (updated.ok) {

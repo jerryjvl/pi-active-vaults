@@ -13,8 +13,8 @@ its operation's parameters (`vault <command> --help`).
   which also makes that actor the current actor. Paths are relative to the
   current directory when it is inside the vault.
 - `--json` on every command gives machine-readable output.
-- Exit status: `0` success, `1` failure, `2` refused — by policy (for example
-  an unmet merge requirement), by a guard, or as a usage error.
+- Exit status: `0` success, `1` failure, `2` usage error, `3` refused — by
+  policy (for example an unmet merge requirement) or by a guard.
 - Works without the daemon. Commands that need it say so and exit `1`.
 - Every command first reports any vault with an unaccepted change to `main`, on
   standard error, until it is adopted or discarded.
@@ -48,7 +48,7 @@ its operation's parameters (`vault <command> --help`).
 | `vault status` | Pending proposals, failing checks, queued work |
 | `vault review <actor>` | Commits, diff, checks and control-change flags; records the reviewed SHA |
 | `vault accept <actor>` | Merge the SHA you last reviewed if the merge policy is satisfied |
-| `vault accept --adopt <sha>` | Show failed checks and control changes in the delta from the accepted `main` to `<sha>` first, and require them to be acknowledged; then show the delta and, once confirmed, accept it. With neither, it goes straight to the delta. Without a terminal to confirm at, it shows the delta and exits `2`; `--acknowledge <digest> --yes` confirms what was shown |
+| `vault accept --adopt <sha>` | Show failed checks and control changes in the delta from the accepted `main` to `<sha>` first, and require them to be acknowledged; then show the delta and, once confirmed, accept it. With neither, it goes straight to the delta. Without a terminal to confirm at, it shows the delta and exits `3`; `--acknowledge <digest> --yes` confirms what was shown |
 | `vault sync [actor]` | Bring actor branches up to date with the accepted `main` — forward, or with a merge that the checks assess; in `forge` mode, fetch first |
 | `vault propose <actor>` | In `forge` mode: push the actor branch and open or update its pull request |
 | `vault commit -m <msg> [paths] [--actor <name>]` | Commit the actor's worktree as the current actor (else `--actor`, else the installation's `person`), with trailers, if every check passes |

@@ -137,7 +137,7 @@ export function placeVaultPaths(
 export async function runOperation(context: OperationContext, operation: Operation, surface: ParamSurface, request: OperationRequest): Promise<OperationOutcome> {
   const params = checkParams(operation, surface, request.params);
   if (!params.ok) {
-    return { status: 'refused', text: `Invalid parameters:${params.error.map((i) => `\n  ${i.path}: ${i.message}`).join('')}`, data: { issues: params.error } };
+    return { status: 'invalid', text: `Invalid parameters:${params.error.map((i) => `\n  ${i.path}: ${i.message}`).join('')}`, data: { issues: params.error } };
   }
   return operation.run(context, { ...request, params: params.value });
 }
