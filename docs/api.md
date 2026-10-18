@@ -84,7 +84,7 @@ Published on `pi.events`, namespaced `pav:v1:`.
 |---|---|
 | `pav:v1:ready` | Extension `version`, `capabilities` (the request methods) and the session's `trace`, after `session_start` |
 | `pav:v1:event` | A session or Git event, as matched against conditions |
-| `pav:v1:spawn` | Spawn requested, started, finished or stopped (`state`), with `trace`, `vault`, `document` and, when stopped, `reason` |
+| `pav:v1:spawn` | Spawn requested, started, finished or stopped (`state`), with `trace`, `vault`, `document` and, when stopped, `reason`; `started` and `finished` come from the daemon, for the session's own tree |
 | `pav:v1:request` / `pav:v1:reply:<id>` | Request `{ id, method, params }` and reply for `ping`, `search`, `contract`, `status`: `{ ok, status, data, text, notices }`, or `{ ok: false, error }`. Nothing that writes or acts as an owner is offered |
 
 A change that breaks a payload creates a `pav:v2:` channel; `v1` is kept until

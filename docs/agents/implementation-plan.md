@@ -23,10 +23,10 @@ progress log.
 
 ```mermaid
 flowchart BT
-  L0[L0 Foundations<br/>result types, clock and IDs, processes, HTTP requests, platform paths, config, store, git, documents]
+  L0[L0 Foundations<br/>result types, clock and IDs, processes, HTTP requests, the daemon socket, platform paths, config, store, git, documents]
   L1[L1 Vault model<br/>registry, contracts, conditions, events, attestations, policy, integrity, actors, scripts]
   L2[L2 Work machinery<br/>traces, budgets, queue, models, search and judgements, notify, templates, forge]
-  L3[L3 Operations<br/>the catalogue and permission sets]
+  L3[L3 Operations<br/>the catalogue and permission sets, sessions, automation]
   L4[L4 Adapters<br/>CLI, Pi extension, daemon and MCP]
   L0 --> L1 --> L2 --> L3 --> L4
 ```

@@ -75,6 +75,9 @@ and the progress log before resuming.
   module that imports `node:child_process`; it owns argument arrays versus an
   explicit shell, the environment, time limits, bounded output and killing a
   process group.
+- **Sockets are opened only through `src/core/socket`.** It is the only
+  module that imports `node:net`: the daemon's socket and its JSON-lines
+  framing, on every platform.
 - **SQLite is touched only through `src/core/store`.** It owns connections,
   pragmas, transactions and migrations. Every multi-step write is one
   `BEGIN IMMEDIATE` transaction. `node:sqlite` is still a release-candidate API

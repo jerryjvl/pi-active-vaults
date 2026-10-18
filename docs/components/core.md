@@ -23,14 +23,15 @@ it; no vault logic lives anywhere else.
 
 | Module | Responsibility |
 |---|---|
-| `process` | Start a process: a program with an argument array, or an explicit shell command line; exactly the environment given; standard input closed unless input is given; bounded output; a time limit, past which the process is killed — with its process group on POSIX |
+| `process` | Start a process: a program with an argument array, or an explicit shell command line; exactly the environment given; standard input closed unless input is given; bounded output; a time limit, past which the process is killed — with its process group on POSIX; a long-lived one read line by line (the daemon's headless sessions); end a recorded process only when its start time is the one recorded |
 | `http` | Make a JSON request to a configured endpoint (a model role or a forge): never follows redirects, so a body or credential goes only to the URL given; a time limit; errors carry a status, never the response body |
-| `config` | Load and validate the installation config; register a vault in it, keeping the file as written; resolve `${ENV}` and `!command` secrets; resolve the platform's config and state directories; say where a path really lands, through links; write the `vault` launcher |
+| `socket` | The daemon's local socket — a Unix domain socket, or a named pipe on Windows — accessible only to the user: listen (refused where another listener answers, taking over a socket nothing answers at), connect, and JSON-lines requests answered by their ID |
+| `config` | Load and validate the installation config; register a vault in it, keeping the file as written; resolve `${ENV}` and `!command` secrets; resolve the platform's config and state directories; say where a path really lands, through links; write the `vault` launcher; the daemon's service definition per platform, and finding the user's `pi` |
 | `registry` | The vaults on this machine: their paths, root contracts and catalog entries |
 | `git` | Wrapper around the `git` command line: refs, notes, worktrees, diffs, merges, trailers |
 | `documents` | Parse and write Markdown with frontmatter, preserving formatting of untouched content |
 | `contracts` | Find `_contract.md` files, merge them into an effective contract with per-key strategies, report the origin of each key |
-| `conditions` | Parse `applies-when`; list the documents on the accepted `main` with their conditions (their own, then their contracts'); match Git and session events against conditions; the path globs merge rules share |
+| `conditions` | Parse `applies-when`; list the documents on the accepted `main` with their conditions (their own, then their contracts'); match Git and session events against conditions; the path globs merge rules share; timer schedules, and which slots — local date and time — a tick runs |
 | `events` | Derive Git events from a ref range (paths, change kinds, renames, labels, the actor and run that made each change) |
 | `policy` | Evaluate merge rules against changed paths and attestations |
 | `attestations` | Read and write attestation records in Git notes |
@@ -43,12 +44,13 @@ it; no vault logic lives anywhere else.
 | `budgets` | Allot budgets down a session tree; account for tokens; enforce limits |
 | `traces` | Issue trace IDs; write compact records and provenance; write and rotate full logs |
 | `store` | The only access to `state.sqlite` and `index.sqlite`: connections, pragmas, transactions, loading `sqlite-vec` into the index, and applying the schema migrations each module supplies for its own tables |
-| `queue` | The jobs a vault's accepted `main` declares; matching an event to the spawns it requests, with their identity fixed, and sending or queueing them; spawn queue, claims and cursors, on top of `store` |
+| `queue` | The jobs a vault's accepted `main` declares; matching an event to the spawns it requests, with their identity fixed, and sending or queueing them; spawn queue, claims and cursors, on top of `store`; scheduling (priority order, capacity, one job per actor); the daemon's own record and its runs' processes; start-up recovery |
 | `search` | Index documents per vault; keyword, vector and hybrid search; rerank; check each hit against the current content |
 | `models` | Clients for configured model roles: embeddings, rerank, judgement. Splits work into batches of the role's `batch` size and sends up to `parallel` requests at a time. Never follows redirects, so content goes only to the configured URL |
 | `forge` | Forge adapters (Gitea, GitHub, GitLab): push actor branches, open or update pull requests, publish commit statuses and `vault/policy`, read approvals and merges, check branch protection |
 | `sessions` | What a Pi session — interactive, or a headless run from the daemon's run file — is to the vaults: its actor, hold, trace and budget; the write guard; taint; injecting contracts and `inject` documents; session events and the spawns they request; per-turn budget records; the vault catalog for its prompt |
 | `operations` | The catalogue of operations — name (also its permission), parameters, implementation, and which surfaces expose it (Pi tool, Pi command, CLI, MCP) — from which every surface is generated; checking parameters and choosing vaults alike for every surface; reading a command line or a call's named arguments into a request, alike for every surface; the messages and statuses every surface shows, what a model gets back, and the unaccepted-change notices; requesting spawns for an event, alike for every surface; permission sets and their evaluation; loading the installation with the sections other modules own; the complete list of module schemas each local store is opened with |
+| `automation` | The daemon's work, as one object the daemon adapter drives: which vaults it runs and which are paused (owners told once), Git events from each job's cursor, timers, running spawns as `pi --mode rpc`, the socket protocol, and the link other surfaces use to reach a running daemon |
 
 ## Key interfaces
 

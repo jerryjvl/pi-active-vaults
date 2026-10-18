@@ -66,7 +66,9 @@ sent there; otherwise it is queued in the state database. Its identity — the
 document, and the session with what happened — is fixed before either, so a
 request that reached the daemon and was also queued after a lost reply is still
 one spawn. A commit requests what its `committed` event matches the same way.
-The session receives a short notice when spawned work starts and finishes.
+The session subscribes to the daemon's notices for its tree, giving its
+session file so its spawns can fork it, and receives a short notice when
+spawned work starts and finishes (also published as `pav:v1:spawn`).
 
 ### Commits
 

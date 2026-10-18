@@ -225,7 +225,8 @@ Sessions start from a trigger and branch as they spawn work. Budgets flow down:
   the trailer. So a job whose own commits match its condition does not fire
   again. Commits without the trailer, such as a person's edits, start new trees.
   A merge's changes are attributed to the commits that made them, so one merge
-  can continue several trees.
+  can continue several trees: each run's part of it is matched, and spawns,
+  on its own.
 
 **Fan-out and gather** is the built-in multi-session shape: a list of items, an
 instruction for each, an instruction to combine the results. The list can come
@@ -406,6 +407,7 @@ budgets: { daily-tokens: 2000000, cascade-pool: 300000, depth-decay: 0.5, max-de
 taint:
   trusted-tools: [read, edit, write, vault_search, vault_read]   # all other tools taint a session
 logs: { keep-days: 7 }
+daemon: { queue-time: 24h, parallel: 1 }   # see daemon.md "Scheduling"
 notify: { … }                  # see notifications.md
 templates:                     # short names for template repositories
   research-digests: https://git.example.net/templates/research-digests.git
