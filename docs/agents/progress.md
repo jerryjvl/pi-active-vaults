@@ -3,15 +3,15 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 5 — in progress
+**Current stage:** 5 — complete, awaiting review
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 4 review findings — exit statuses 0/1/2/3 (`0679c8e`–`32ade84`), MCP writes documented (`5751368`); command-line reading in `operations` (`efc4f83`); `config.landsWithin` (`065aaf5`); `queue.matchSpawns`/`submitSpawns` (`ff53847`); commits request their spawns (`442f4b6`); core `sessions` module (`42f9b6b`).
-- **In progress:** documentation of Stage 5 (extension.md, api.md, core.md, cli.md); the extension adapter is done (`e0f96b3`).
-- **Next:** refactoring pass; Stage 5 entry.
+- **Done:** Stage 5, with the Stage 4 review findings; see the Stage 5 entry.
+- **In progress:** nothing.
+- **Next:** review of Stage 5. Then, when told, Stage 6 (daemon and MCP).
 
 ## Stage entries
 
@@ -315,3 +315,54 @@ Copy this block for each stage:
   2. *Commit while held:* tests first (`6cb57ef`), then `8c16254`: `commitAsActor` refuses while another standing hold exists; it checks and never takes one.
   3. *concepts.md judgements:* `d7cdd07` — `judgement:<axis>`, each axis recorded on its own, an axis that cannot be judged records nothing.
   4. *GitHub adapter:* verified against GitHub's REST description; tests first (`7c0b59d`), then `09f0dd1`: rulesets read, so a ruleset-protected main is not reported unprotected; reviews read across pages (already so, now tested); a deleted account's review counts for nothing.
+
+### Stage 5 — Pi extension (L3 sessions, L4 extension)
+
+- **Commits:** `0679c8e..` on `impl/v1` — the Stage 4 review findings (`0679c8e`–`5751368`), then tests-first and implementation commits for Stage 5 (`1289514`–`7a405c2`), the documentation (`d88183f`), the refactoring pass (`2e73090`, with `efc4f83`, `065aaf5`, `deed9e3` and `a725fa3` during the stage), and this entry as the last commit. As before, each `test(…)` commit for new behaviour fails until the commit after it; every other commit passes.
+- **Results:** `npm test`: 698 tests, 698 pass, none skipped on Linux. `npm run check`: no errors. `npm run build`: compiles; the compiled extension (`dist/extension/index.js`) imports under plain Node with its default factory and `createExtension`. Node v24.18.0, git 2.55.0, Pi 1.3.0 (the dev dependency; the global `pi` was not used), Linux.
+- **Built:**
+  - Review findings: an `invalid` outcome status for a request that does not fit (parameters failing their specs, a query with no words, a payload that is not JSON, a malformed trace ID, no actor to accept); the CLI exits 0 / 1 / 2 (`invalid`) / 3 (`refused`); `cli.md` says so. `mcp.md` and `concepts.md`: MCP writes only as one of the vault's `actors`, and every MCP commit carries `Vault-Tainted`.
+  - `sessions` (new, L3): the run file (`parseRunContext`, `renderRunContext`); `openSession` / `holdActor` / `closeSession` / `callerOf` — actor (worktree, `--vault-actor`, else the person), hold, trace and budget, a headless run's brief (its job as on the accepted main, the event as canonical JSON); `guardToolCall`; `taints`; `injectionsFor` / `renderInjections`; `sessionEvent`; `recordTurn`, `workLeft`; `catalogText`.
+  - Below the adapter: `operations` — `commandline.ts` (`parseLine`, `splitArguments`, `commandRequest`, `describeCommandLineError`, moved from the CLI), `callRequest`, `results.ts` (`modelResult`, `outcomeData`), `spawning.ts` (`requestSpawns`, `spawnLines`, `queueContext`), `OperationOutcome.confirm`, `Caller.trace`; a commit requests what its own `committed` event spawns; commit's `paths` are vault paths. `queue` — `matchSpawns`, `submitSpawns`, `reachedVaults` (from `trigger`). `config` — `realLocation`, `landsWithin`, `launcherFor`, `writeLauncher`. `budgets.usageOf`; `git.isGitProgram`; `conditions.isGitEvent`; `eventJson` for any spawn event.
+  - The extension (`src/extension/`): `index.ts` (`createExtension`, flags), `tools.ts` (tools from the catalogue), `fan-out.ts`, `commands.ts` (`/vault`, `install-cli`), `hooks.ts`, `bus.ts`, `operate.ts`, `paths.ts`, `live.ts`.
+  - Test support: `test/support/pi.ts` (in-memory SDK sessions with a faux model, a recording UI, the event bus and tool results observed), `test/support/session.ts`.
+- **Tests:** the core `sessions` module on its own, and the extension end to end through Pi 1.3.0's SDK. Fail-closed cases:
+  - *Holds:* a busy actor is reported with its holder and writes to its worktree are blocked until it is free; a session whose own process cannot be told holds nothing; the hold is released at shutdown.
+  - *Headless runs:* an unreadable or invalid run file, an unknown vault, no allotment, no job on the accepted main, an actor that is no writer or is held — each refuses the run, which shuts down; a run past its budget, run time or the daily ceiling is stopped (`pav:v1:spawn` with the reason); it writes nothing outside its worktree; it fans out no further than its budget.
+  - *Write guard:* the checkout (with where to write instead), another actor's worktree, `.git` in any case, a link out of the worktree, and — headless — anywhere outside it, are blocked; `git push` anywhere, `git -C <checkout> commit`, `cd <checkout> && git merge`, reset/commit/pull in the checkout, `update-ref`/`branch -f`/`checkout -B` on main are blocked; `echo "git push"` and Git work in the worktree are not.
+  - *Taint:* an untrusted tool, no trusted list, and a read outside the vaults (a sibling directory too) taint; the commit then carries `Vault-Tainted`.
+  - *Accepted main only:* injected contracts and documents, a run's brief and the catalog come from the accepted main, never an unaccepted change; a vault with an unaccepted change spawns nothing and says it is paused.
+  - *Spawn identity:* a request the daemon claimed with a lost reply is still one spawn; a session event spawns once; a commit's spawns join its session's tree, or a new one outside a session.
+  - *Surfaces:* tool declarations carry no runtime values and offer no `actor`; a confirmation never reaches a model; nothing that writes or acts as an owner is offered on the event bus; adopting via `/vault` is recorded only when the person confirms; the launcher never replaces a `vault` that is not its own, and quotes its path.
+- **Refactoring:** `efc4f83` command-line reading moved to `operations` for the CLI and `/vault`; `065aaf5` one place says where a path lands (`locate`, `worktreeFile` and the worktree comparison each had a copy; `locate` also took `..foo` for outside); `ff53847` matching spawns moved out of `trigger`; `deed9e3` an outcome awaiting confirmation says so (the CLI cut the outcome's text to find what to show); `a725fa3` and `e194aa0` one way to turn a command line or named arguments into a request; `2e73090` one `requestSpawns` for trigger, commits and session events, the seen-key is `spawnEventKey`, shared extension test helpers, stale headers. Comments, module headers and `core.md` checked against behaviour.
+- **Decisions:**
+  - *Exit statuses:* adopting without a terminal, and declining at one, exit 3 (refused: not confirmed). A request that does not fit the operation is `invalid` (exit 2), on every surface.
+  - *Actor:* the worktree's actor wins over `--vault-actor`; outside every vault a session writes as no actor; an actor that is not a writer, or a vault with nothing accepted, leaves the session without a worktree, with a notice. The worktree is made at session start (so Pi's own `write` lands in a Git worktree, never a plain directory).
+  - *Interactive budget:* the session is the root of its own tree with an allotment of `Number.MAX_SAFE_INTEGER` tokens (capped by the daily ceiling) and no run time; its turns count towards the day; it is never stopped. Without a budget today, a notice says its spawns cannot run.
+  - *Usage:* Pi's `input` + `cacheRead` + `cacheWrite` are the prompt, `cacheRead` the cached prefix, `output` generated (Pi's `totalTokens` is their sum); a turn's record is the assistant message's usage plus its tool results' (nested calls, such as fan-out's), as one transaction; compaction is recorded the same way.
+  - *Session events:* the start, each tool and each vault path are counted once per session; their IDs are the session ID, `<session>/<tool>` and `<session>/<path>`; session-wide events reach every vault. Pi's file tools' paths (read, edit, write, grep, find, ls) and vault tools' vault paths are touched paths.
+  - *Injection:* appended to the result of the call that touched the path (`tool_result`), as `<vault-context source="…">` blocks; start documents, notices and a run's brief go into one hidden custom message (`pav:context`) before the next request. The catalog is the system-prompt section `vault-catalog`, read from accepted mains; a vault with nothing accepted, or unreadable, is listed as not available.
+  - *Guard:* applies to Pi's `write`, `edit`, `bash` and `powershell`; paths read as Pi 1.3's `resolveToCwd` reads them (it is not exported, so `paths.ts` mirrors it).
+  - *Commits:* a session's commits carry its trace; a commit requests what its `committed` event spawns right away, on every surface.
+  - *Commands:* output is a displayed `pav:vault` custom message (not sent on its own); owner acts are the installation's person's.
+  - *Fan-out:* item and gather sessions are single model requests with no tools through `ctx.modelRegistry.complete`; a failed item is reported and the rest gathered; usage is reported with the tool result.
+  - *Bus:* replies are `{ ok, status, data, text, notices }` or `{ ok: false, error }`; `ready` also carries the session's trace.
+  - *Launcher:* `%LOCALAPPDATA%\Microsoft\WindowsApps\vault.cmd` on Windows (a per-user directory on PATH by default); it runs `node` from PATH.
+- **Needs owner approval:**
+  1. `d88183f` — documentation of the extension as built (the decisions above that change what a reader would expect: injection with the call's result, the guard's scope, session events counted once, the run file's keys, `vault_jobs` taking `vaults`, command output, bus payloads, the Windows launcher).
+  2. *Which actor a job runs as* is not documented: the run file carries it, and the daemon (Stage 6) must choose it. A proposal is needed before Stage 6 — for example an `actor` key in a job document's frontmatter, defaulting to the first of the vault's `actors`.
+  3. *`builtin:notify` exit statuses* (`notifications.md`): a refusal exits 1 and a usage error 2, while the CLI now refuses with 3. Say whether it should follow.
+  4. Approved in the Stage 4 review and recorded: commits wait during an unaccepted change; the check protocol; `<name>@<host>` identity; an empty vault needing checks and an owner; doctor not contacting endpoints.
+- **Gaps:**
+  - Stage 6: the daemon link — sending spawn requests (`SpawnSender`), "connects to the daemon if one is running", and the start/finish notices of spawned work; running headless sessions as `pi --mode rpc` (here only through the SDK, with RPC-mode bindings); choosing a job's actor; MCP `write` and `commit` only as one of the vault's `actors`, every MCP commit tainted, `modelResult` for MCP tools, and `optional`-scope operations needing a vault; `croner` (or another cron library) only in a release at least two weeks old.
+  - Trace capture: the extension does not yet record results for full logs or write the compact trace at shutdown (the design keeps both; the full-log and compact-trace writers exist in `traces`).
+  - Session events match a vault's jobs afresh from Git for each new event (injection caches documents per session; spawn matching does not); untested at scale.
+  - The guard reads shell commands as words: it does not follow `--git-dir`/`--work-tree`, scripts a command starts, or aliases; PowerShell is read with the same separators and `cd`/`Set-Location`. Only Pi's built-in file tools are guarded and taint-checked by path.
+  - `paths.ts` mirrors Pi 1.3's path reading; its Windows branch is untested, as are the launcher's Windows write (tested as a pure function), Windows file modes and macOS generally.
+  - The global `pi` on this machine is 0.82.1, the owner's to upgrade; tests use the 1.3.0 dev dependency.
+  - As before, Node 22.18 and git 2.36 (the declared minimums) are untested.
+- **Review findings addressed:**
+  1. *Exit statuses:* tests first (`0679c8e`, `c200baf`), then `32ade84`: 0 success, 1 failure, 2 usage error, 3 refused by policy or a guard, in the CLI and `cli.md`.
+  2. *MCP writes:* `5751368` — `mcp.md` says `write` and `commit` write only as one of the vault's `actors`, never an owner, and that every MCP commit carries `Vault-Tainted`; `concepts.md` "Actor" too. Both are listed under Gaps for Stage 6.
+  3. *Notes:* the global Pi is left alone and Stage 5 tests use the 1.3.0 dev dependency; the cron-library age rule is recorded for Stage 6.
+  4. *Stage 5 gaps:* holds taken at session start and released at shutdown; a headless job handed the triggering event as data (`eventJson`, in its brief); spawn identity fixed before sending or queueing (`submitSpawns`); per-turn budget records (`recordTurn`).
