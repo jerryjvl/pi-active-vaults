@@ -68,13 +68,13 @@ test('run runs the daemon until it is stopped; meanwhile status reports it and a
   let stop = (): void => {};
   const stopped = new Promise<void>((resolve) => { stop = resolve; });
   const pi = fakePi(t);
-  const { run } = cli(t, { until: stopped, pid: ME, pi: pi.options.pi });
+  const { run } = cli(t, { until: stopped, daemon: { pid: ME, pi: pi.options.pi } });
   const running = run('daemon', 'run');
   for (let i = 0; i < 200 && !(await requestOverSocket(t.installation.paths.socket, 'ping', {})).ok; i++) await new Promise((r) => setTimeout(r, 10));
   const status = await run('daemon', 'status');
   assert.equal(status.code, 0, status.stderr);
   assert.match(status.stdout, /The daemon runs: 0 queued, 0 running/);
-  const second = await cli(t, { until: Promise.resolve(), pid: OTHER, pi: pi.options.pi }).run('daemon', 'run');
+  const second = await cli(t, { until: Promise.resolve(), daemon: { pid: OTHER, pi: pi.options.pi } }).run('daemon', 'run');
   assert.equal(second.code, 0);
   assert.match(second.stderr, /already runs \(process 4242\)/);
   stop();
