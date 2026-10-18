@@ -1,8 +1,10 @@
 // `vault doctor` (cli.md, security-setup.md): checks the installation and each
 // vault, and reports what is wrong — `problem` — or worth knowing —
 // `warning` — with what to do. It changes nothing unless asked to fix:
-// `--fix` installs the package's hooks where none is in the way and makes the
-// state and config directories private to the user. A problem makes the
+// `--fix` installs the package's hooks (the pre-push guard, and the refs hook
+// that tells the daemon of ref changes) where none is in the way, makes the
+// state and config directories private to the user and, with no daemon
+// running, runs its start-up recovery. A problem makes the
 // command fail; warnings do not.
 //
 // Checks: the config file, Git, Pi, each model role's token; per vault, its
@@ -17,7 +19,7 @@
 import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { listActorHolds } from '../../actors/index.ts';
-import { resolveSecret, MODEL_ROLES } from '../../config/index.ts';
+import { ensurePrivateDir, resolveSecret, MODEL_ROLES, type PlatformKind } from '../../config/index.ts';
 import { forgeAdapter, forgeProject, protectionProblems } from '../../forge/index.ts';
 import {
   configValue, gitDirectories, gitVersion, listRemotes, listWorktrees, meetsMinimumGitVersion, remoteUrl, MINIMUM_GIT_VERSION,
@@ -25,7 +27,7 @@ import {
 import { MAIN_BRANCH, type AcceptedMain } from '../../integrity/index.ts';
 import { modelFor } from '../../models/index.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
-import { vaultJobs } from '../../queue/index.ts';
+import { daemonRecord, recoverRuns, vaultJobs } from '../../queue/index.ts';
 import { runProcess } from '../../process/index.ts';
 import { checkRegisteredIdentity, hosting, type RegisteredVault } from '../../registry/index.ts';
 import { scriptEnvironment, type OperationContext } from '../context.ts';
@@ -55,6 +57,42 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 done
 exit 0
 `;
+
+const REFS_MARK = 'pi-active-vaults: refs hook';
+const shellQuote = (text: string): string => `'${text.replaceAll("'", "'\\''")}'`;
+
+/**
+ * Leaves word for the daemon that the vault's refs changed — a file named
+ * after the vault in `<state>/refs` — once a ref transaction is committed, so
+ * it looks at once rather than at its next minute. It reads what Git gives
+ * it and never fails a transaction.
+ */
+function refsHook(refs: string, vault: string, os: PlatformKind): string {
+  // Git for Windows runs hooks with its sh, which reads forward slashes.
+  const word = `${os === 'win32' ? refs.replaceAll('\\', '/') : refs}/${vault}`;
+  return `#!/bin/sh
+# ${REFS_MARK} (installed by vault doctor --fix)
+cat >/dev/null
+# true, not ":": a failed redirect of a special built-in would end the shell with a failure.
+[ "$1" = committed ] && true > ${shellQuote(word)} 2>/dev/null
+exit 0
+`;
+}
+
+/** A package hook: installed under --fix where there is none, never in place of the user's own; what doctor says of it. */
+function packageHook(hook: string, what: string, mark: string, text: string, fix: boolean): [Finding['level'], string, string] {
+  const ours = existsSync(hook) && readFileSync(hook, 'utf8').includes(mark);
+  if (ours) {
+    // Kept current: a hook of the package's may name paths that have moved.
+    if (fix && readFileSync(hook, 'utf8') !== text) writeFileSync(hook, text, { mode: 0o755 });
+    return ['ok', 'hooks', `The ${what} is installed.`];
+  }
+  const name = hook.split(/[\\/]/).at(-1) ?? hook;
+  if (existsSync(hook)) return ['warning', 'hooks', `A ${name} hook of its own is in place at ${hook}; the package's ${what} is not installed.`];
+  if (!fix) return ['warning', 'hooks', `The ${what} is not installed; "vault doctor --fix" installs it.`];
+  writeFileSync(hook, text, { mode: 0o755 });
+  return ['ok', 'hooks', `The ${what} was installed.`];
+}
 
 async function piVersion(context: OperationContext): Promise<Finding> {
   const ran = await runProcess({ program: { file: 'pi', args: ['--version'] }, env: scriptEnvironment(context.installation), timeoutMs: 20_000, maxStdoutBytes: 4096, maxStderrBytes: 4096 });
@@ -117,14 +155,10 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
   }
   const dirs = await gitDirectories(git, vault.path);
   if (dirs.ok) {
-    const hook = join(dirs.value.common, 'hooks', 'pre-push');
-    const ours = existsSync(hook) && readFileSync(hook, 'utf8').includes(PRE_PUSH_MARK);
-    if (ours) findings.push(at('ok', 'hooks', 'The pre-push guard is installed.'));
-    else if (existsSync(hook)) findings.push(at('warning', 'hooks', `A pre-push hook of its own is in place at ${hook}; the package's guard is not installed.`));
-    else if (fix) {
-      writeFileSync(hook, PRE_PUSH_HOOK, { mode: 0o755 });
-      findings.push(at('ok', 'hooks', 'The pre-push guard was installed.'));
-    } else findings.push(at('warning', 'hooks', 'The pre-push guard is not installed; "vault doctor --fix" installs it.'));
+    const hooks = join(dirs.value.common, 'hooks');
+    findings.push(at(...packageHook(join(hooks, 'pre-push'), 'pre-push guard', PRE_PUSH_MARK, PRE_PUSH_HOOK, fix)));
+    if (fix) ensurePrivateDir(installation.paths.refs);
+    findings.push(at(...packageHook(join(hooks, 'reference-transaction'), 'refs hook', REFS_MARK, refsHook(installation.paths.refs, vault.id, installation.host.os), fix)));
   }
 
   const remotes = await listRemotes(git, vault.path);
@@ -204,8 +238,23 @@ async function machineFindings(context: OperationContext): Promise<Finding[]> {
   const { config } = context.installation;
   if (context.installation.notify === undefined) findings.push({ level: 'warning', check: 'notify', message: 'notify is not configured, so owners are not told of unaccepted changes.' });
   if (config.budgets.dailyTokens === undefined) findings.push({ level: 'warning', check: 'budgets', message: 'budgets.daily-tokens is not set: nothing caps the tokens all work may use in a day.' });
-  findings.push({ level: 'warning', check: 'daemon', message: 'The daemon is not part of this version: timers, Git-event jobs and queued spawns do not run yet.' });
+  const daemon = await daemonRecord(context.state, context.alive);
+  findings.push(daemon === undefined
+    ? { level: 'warning', check: 'daemon', message: 'No daemon is running: timers, Git-event jobs and queued spawns wait for one ("vault daemon start").' }
+    : { level: 'ok', check: 'daemon', message: `The daemon runs (process ${daemon.pid}) since ${daemon.since}.` });
   return findings;
+}
+
+/** With no daemon running, start-up recovery for what one left (daemon.md): a running daemon owns its runs. */
+async function recoveryFindings(context: OperationContext): Promise<Finding[]> {
+  if ((await daemonRecord(context.state, context.alive)) !== undefined) return [];
+  const report = await recoverRuns({
+    git: context.git, store: context.state, alive: context.alive, clock: context.clock, logs: context.installation.paths.logs, vaults: context.installation.vaults,
+  });
+  return [
+    ...(report.stopped.length === 0 ? [] : [{ level: 'ok' as const, check: 'recovery', message: `Recovered ${report.stopped.length} run(s) a daemon left running: stopped as restarted${report.reset.length === 0 ? '' : `, ${report.reset.length} worktree(s) reset (their changes are in the runs' logs)`}.` }]),
+    ...report.problems.map((message) => ({ level: 'warning' as const, check: 'recovery', message })),
+  ];
 }
 
 export const doctorOperation: Operation = {
@@ -230,6 +279,7 @@ export async function doctorFindings(context: OperationContext, fix: boolean): P
     if (found !== undefined) findings.push(found);
   }
   for (const vault of context.installation.vaults) findings.push(...await vaultFindings(context, vault, fix));
+  if (fix) findings.push(...await recoveryFindings(context));
   findings.push(...await machineFindings(context));
   return findings;
 }
