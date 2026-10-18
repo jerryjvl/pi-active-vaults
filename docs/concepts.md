@@ -66,8 +66,8 @@ conditions does. There is deliberately no richer expression language:
 - **The job's own instructions refine the match.** A spawned session receives
   the triggering event as structured data — kind, commits, changed paths with
   their change kinds, labels and actor — so a job can say "do nothing unless at
-  least three files were modified". A run that ends without changes is recorded
-  as `no-change`.
+  least three files were modified". A run that ends normally without changes is
+  recorded as `no-change`.
 - **`script` is the precise escape hatch.** It runs only after every other field
   has matched and can only narrow the match, so what a condition can match is
   still known from its other fields.

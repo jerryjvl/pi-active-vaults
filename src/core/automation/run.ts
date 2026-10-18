@@ -17,8 +17,11 @@
 //  - how it ended is decided from what is recorded, never from what the
 //    model says: commits on the actor's branch carrying the run's trace make
 //    it `committed`; otherwise its budget record (used up, past its run
-//    time), a kill, a stop on request or a failed process stop it; a run that
-//    settled and committed nothing is `no-change`;
+//    time), a kill, a stop on request, a failed process, or a last model
+//    request that ended in an error (Pi's last assistant `message_end` says
+//    `stopReason: error`) stop it; a run that settled normally and committed
+//    nothing is `no-change`. A model error after commits leaves the run
+//    `committed`, and is recorded with its end in the full log;
 //  - each step is in the run's full log (`daemon`; Pi's events in `pi`, its
 //    streaming deltas left out), and the run file is removed at the end.
 
@@ -135,6 +138,8 @@ export async function startRun(
 
   let stoppedFor: StopReason | undefined;
   let settled = false;
+  // The last model request's error, if it ended in one: a later answer clears it.
+  let modelError: string | undefined;
   child.onLine((line) => {
     let record: unknown;
     try {
@@ -145,6 +150,8 @@ export async function startRun(
     const type = typeof record === 'object' && record !== null ? (record as { type?: unknown }).type : undefined;
     if (typeof type === 'string' && LOGGED_EVENT_SKIPPED.has(type)) return;
     log(context, spawn.trace, 'pi', { record });
+    const answer = type === 'message_end' ? assistantMessage(record) : undefined;
+    if (answer !== undefined) modelError = modelErrorOf(answer);
     if (type === 'agent_settled' && !settled) {
       settled = true;
       child.endInput();
@@ -168,14 +175,15 @@ export async function startRun(
     const state = budgetState(context.state, context.installation.config.budgets, context.clock, spawn.trace);
     const reason: StopReason | undefined = stoppedFor
       ?? (state?.exhausted === true || state?.dailyExhausted === true ? 'budget' : state?.overTime === true ? 'ttl' : undefined)
-      ?? (exit.exitCode !== 0 || !settled ? 'error' : undefined);
+      ?? (exit.exitCode !== 0 || !settled || modelError !== undefined ? 'error' : undefined);
     const outcome = commit !== undefined ? commitSpawn(context.state, context.clock, spawn.id, commit)
       : reason !== undefined ? stopSpawn(context.state, context.clock, spawn.id, reason)
       : noChangeSpawn(context.state, context.clock, spawn.id);
     forgetRunProcess(context.state, spawn.id);
     log(context, spawn.trace, 'daemon', {
       event: 'ended', outcome: outcome.ok ? outcome.value.state : 'unrecorded', ...(commit === undefined ? {} : { commit }),
-      ...(commit === undefined && reason !== undefined ? { reason } : {}), exitCode: exit.exitCode, signal: exit.signal, stderr: child.stderr(),
+      ...(commit === undefined && reason !== undefined ? { reason } : {}), ...(modelError === undefined ? {} : { modelError }),
+      exitCode: exit.exitCode, signal: exit.signal, stderr: child.stderr(),
     });
     const recorded = outcome.ok ? recordSpawn(context.state, spawn.id) : outcome;
     const final = recorded.ok ? recorded.value : running.value;
@@ -183,5 +191,17 @@ export async function startRun(
     return final;
   });
   return { spawn: running.value, stop: kill, ended };
+}
+
+/** The completed assistant message a `message_end` carries, if it carries one. */
+function assistantMessage(record: unknown): { stopReason?: unknown; errorMessage?: unknown } | undefined {
+  const message = typeof record === 'object' && record !== null ? (record as { message?: unknown }).message : undefined;
+  return typeof message === 'object' && message !== null && (message as { role?: unknown }).role === 'assistant' ? message : undefined;
+}
+
+/** Why the model request behind `answer` failed, or undefined when it ended normally. */
+function modelErrorOf(answer: { stopReason?: unknown; errorMessage?: unknown }): string | undefined {
+  if (answer.stopReason !== 'error') return undefined;
+  return typeof answer.errorMessage === 'string' && answer.errorMessage !== '' ? answer.errorMessage : 'the model request failed';
 }
 

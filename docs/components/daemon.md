@@ -31,7 +31,7 @@ stateDiagram-v2
   claimed --> queued
   queued --> running
   running --> committed
-  running --> no_change: ended without changes
+  running --> no_change: ended normally without changes
   committed --> recorded
   no_change --> recorded
   queued --> stopped: budget or ttl
@@ -103,10 +103,13 @@ input. A run still going at its budget's `ttl` plus a minute is killed.
 
 How it ended is read from what is recorded: commits on the actor's branch
 carrying the run's trace make it `committed`; otherwise a used-up budget
-(`budget`), its run time (`ttl`), a stop on request or a failed process
-(`error`) stop it; a run that settled and committed nothing is `no-change`.
-Each step goes to the run's full log (`daemon`; Pi's events in `pi`, without
-streaming deltas).
+(`budget`), its run time (`ttl`), a stop on request, a failed process, or a
+last model request that ended in an error — Pi's last assistant message
+stopped with `error`, such as an unreachable endpoint — (`error`) stop it; a
+run that settled normally and committed nothing is `no-change`. A model error
+after commits leaves the run `committed`, with the error recorded at its end.
+Each step goes to the run's full log (`daemon`, its end with any `modelError`;
+Pi's events in `pi`, without streaming deltas).
 
 ## Start-up recovery
 
