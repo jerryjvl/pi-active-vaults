@@ -83,3 +83,10 @@ test('a vault path names its vault with <vault-id>:, or is relative to where the
   assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'a.md' }, ['work'], { vault: home, path: 'notes' }), { params: { path: 'a.md' }, named: ['work'] }, 'another vault named: not relative to here');
   assert.deepEqual(placeVaultPaths(installation, read, 'cli', { path: 'C:notes.md' }, []), { params: { path: 'C:notes.md' }, named: [] }, 'only a registered vault\'s prefix counts');
 });
+
+test('a list of vault paths names its vault the same way, each path placed alike', () => {
+  const commit = operationNamed('commit');
+  assert.ok(commit !== undefined);
+  assert.deepEqual(placeVaultPaths(installation, commit, 'tool', { paths: ['home:notes/a.md', 'home:b.md'] }, []), { params: { paths: ['notes/a.md', 'b.md'] }, named: ['home'] });
+  assert.deepEqual(placeVaultPaths(installation, commit, 'cli', { paths: ['a.md'] }, [], { vault: home, path: 'notes' }), { params: { paths: ['notes/a.md'] }, named: [] });
+});
