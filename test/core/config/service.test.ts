@@ -1,6 +1,7 @@
 // Documented behaviour: daemon.md "Service installation" — `vault daemon
 // install` writes a definition for the platform: a systemd user unit on
-// Linux, a launchd agent on macOS, a Task Scheduler task at logon on Windows;
+// Linux, a launchd agent on macOS (a launchd daemon run as the user on a
+// headless Mac), a Task Scheduler task at logon on Windows;
 // the service runs a launcher that resolves the current Node and `pi` at
 // start, so upgrades do not break it. architecture.md "Process model" — the
 // daemon runs the user's own Pi.
@@ -45,6 +46,22 @@ test('macOS: a launchd agent, kept alive, its output in the state directory', ()
   assert.match(text, /<key>StandardErrorPath<\/key>\s*<string>\/s\/logs\/daemon\.err<\/string>/);
   assert.deepEqual(commands.install, [{ file: '/bin/launchctl', args: ['bootstrap', 'gui/501', file] }]);
   assert.deepEqual(commands.stop, [{ file: '/bin/launchctl', args: ['kill', 'SIGTERM', 'gui/501/pi-active-vaults.daemon'] }]);
+});
+
+test('macOS, headless: a launchd daemon in /Library/LaunchDaemons, run as the user with their home, in the system domain', () => {
+  const service = serviceFor(testHost({ os: 'darwin', home: '/Users/alice', user: 'alice' }), '/opt/a&b/main.js', { state: '/s', uid: 501, headless: true });
+  assert.ok(service.ok);
+  const { file, text, commands } = service.value;
+  assert.equal(file, '/Library/LaunchDaemons/pi-active-vaults.daemon.plist');
+  assert.match(text, /<key>UserName<\/key>\s*<string>alice<\/string>/);
+  assert.match(text, /<key>EnvironmentVariables<\/key>\s*<dict>\s*<key>HOME<\/key>\s*<string>\/Users\/alice<\/string>/);
+  assert.match(text, /<string>exec node "\$0" daemon run<\/string>\s*<string>\/opt\/a&amp;b\/main\.js<\/string>/);
+  assert.deepEqual(commands.install, [{ file: '/bin/launchctl', args: ['bootstrap', 'system', file] }]);
+  assert.deepEqual(commands.start, [{ file: '/bin/launchctl', args: ['kickstart', 'system/pi-active-vaults.daemon'] }]);
+  assert.deepEqual(serviceFor(testHost({ os: 'darwin', home: '/Users/a<b', user: 'a<b' }), PROGRAM, { state: '/s', headless: true }).ok, true, 'escaped like any value');
+  for (const os of ['linux', 'win32'] as const) {
+    assert.deepEqual(serviceFor(testHost({ os, env: { SystemRoot: 'C:\\Windows' } }), PROGRAM, { state: '/s', headless: true }), { ok: false, error: { reason: 'not-supported', os } }, os);
+  }
 });
 
 test('Windows: a Task Scheduler task at logon, registered with schtasks by its absolute path', () => {

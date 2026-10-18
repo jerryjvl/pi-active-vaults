@@ -50,6 +50,22 @@ test('print-unit prints the platform\'s service definition, which runs this CLI'
   assert.ok(printed.stdout.includes(CLI_PROGRAM.replaceAll('$', '$$$$')), printed.stdout);
 }));
 
+test('on a headless Mac, print-unit --headless prints the launchd daemon, which is installed with privileges; elsewhere --headless is a usage error', withInstallation(async (t) => {
+  const mac = cli(t, { host: { ...t.host, os: 'darwin', user: 'alice' } });
+  const printed = await mac.run('daemon', 'print-unit', '--headless');
+  assert.equal(printed.code, 0, printed.stderr);
+  assert.match(printed.stdout, /<key>UserName<\/key>\s*<string>alice<\/string>/);
+  const install = await mac.run('daemon', 'install', '--headless');
+  assert.equal(install.code, 2, 'the package never installs into the system domain itself');
+  assert.match(install.stderr, /sudo tee \/Library\/LaunchDaemons\/pi-active-vaults\.daemon\.plist/);
+  assert.match(install.stderr, /sudo \/bin\/launchctl bootstrap system \/Library\/LaunchDaemons\/pi-active-vaults\.daemon\.plist/);
+  assert.deepEqual(mac.ran, []);
+  const linux = await cli(t, { host: { ...t.host, os: 'linux' } }).run('daemon', 'print-unit', '--headless');
+  assert.equal(linux.code, 2);
+  assert.match(linux.stderr, /--headless is for macOS/);
+  assert.equal((await cli(t).run('daemon', 'start', '--frobnicate')).code, 2);
+}));
+
 test('install writes the definition and registers it; start and stop run the service manager', linuxOnly, withInstallation(async (t) => {
   const { run, ran } = cli(t);
   const installed = await run('daemon', 'install');
