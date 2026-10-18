@@ -157,8 +157,17 @@ export const acceptOperation: Operation = {
       const delta = await adoptionDelta(context.git, context.state, vault, sha);
       if (!delta.ok) return fromError(delta.error);
       if (!flag(request.params, 'yes')) {
-        const ack = delta.value.acknowledgement === undefined ? '' : ` --acknowledge ${delta.value.acknowledgement}`;
-        return refused(`${deltaText(delta.value)}\n\nNot adopted yet. To adopt it: vault accept ${vault.id} --adopt ${delta.value.to}${ack} --yes`, { delta: delta.value });
+        const { acknowledgement, to } = delta.value;
+        const shown = deltaText(delta.value);
+        const ack = acknowledgement === undefined ? '' : ` --acknowledge ${acknowledgement}`;
+        return {
+          ...refused(`${shown}\n\nNot adopted yet. To adopt it: vault accept ${vault.id} --adopt ${to}${ack} --yes`, { delta: delta.value }),
+          confirm: {
+            shown,
+            question: `Adopt ${to} as the accepted main${acknowledgement === undefined ? '' : ', acknowledging the concerns above'}?`,
+            params: { yes: true, ...(acknowledgement === undefined ? {} : { acknowledge: acknowledgement }) },
+          },
+        };
       }
       const adopted = await adopt(context.git, context.state, vault, {
         sha: delta.value.to, approver: person.value, clock: context.clock, acknowledged: text(request.params, 'acknowledge'),

@@ -155,17 +155,15 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     const caller = { surface: 'cli' as const, cwd: io.cwd, ...(person === undefined ? {} : { person }), ...(here?.actor === undefined ? {} : { actor: here.actor }) };
     let outcome = await runOperation(context, operation, 'cli', { vaults: chosen.value, params, caller });
 
-    // Adopting: the delta is shown first; the person confirms what they saw.
-    const delta = (outcome.data as { delta?: { to: string; acknowledgement?: string } } | undefined)?.delta;
-    if (operation.name === 'accept' && outcome.status === 'refused' && delta !== undefined && io.confirm !== undefined) {
-      io.write('stderr', `${outcome.text.slice(0, outcome.text.lastIndexOf('\n\nNot adopted yet.'))}\n\n`);
-      if (!(await io.confirm(`Adopt ${delta.to} as the accepted main${delta.acknowledgement === undefined ? '' : ', acknowledging the concerns above'}?`))) {
-        io.write('stderr', 'Not adopted.\n');
+    // An operation awaiting confirmation (adopting) shows what it would do; the person confirms what they saw.
+    const { confirm } = outcome;
+    if (confirm !== undefined && io.confirm !== undefined) {
+      io.write('stderr', `${confirm.shown}\n\n`);
+      if (!(await io.confirm(confirm.question))) {
+        io.write('stderr', 'Not confirmed; nothing was done.\n');
         return EXIT.refused;
       }
-      outcome = await runOperation(context, operation, 'cli', {
-        vaults: chosen.value, caller, params: { ...params, yes: true, ...(delta.acknowledgement === undefined ? {} : { acknowledge: delta.acknowledgement }) },
-      });
+      outcome = await runOperation(context, operation, 'cli', { vaults: chosen.value, caller, params: { ...params, ...confirm.params } });
     }
     return print(io, outcome, line.json, notices);
   } finally {

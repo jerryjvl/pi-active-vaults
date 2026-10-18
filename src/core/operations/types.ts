@@ -91,6 +91,12 @@ export interface OperationOutcome {
   readonly text: string;
   /** For programs (`--json`, structured tool results). */
   readonly data?: unknown;
+  /**
+   * The operation waits for the person to confirm what it showed (adopting
+   * `main`): a surface with someone to ask shows `shown`, asks `question`,
+   * and on a yes runs it again with `params` added. Never offered to a model.
+   */
+  readonly confirm?: { readonly shown: string; readonly question: string; readonly params: Readonly<Record<string, unknown>> };
 }
 
 export interface Operation {
