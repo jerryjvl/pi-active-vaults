@@ -62,3 +62,10 @@ test('reindex builds the index from the accepted main, search finds it keyword-o
   assert.match(paused.text, /unaccepted change/);
   assert.equal((await t.run('search', { query: 'stray' })).text.startsWith('No hits.'), true, 'unaccepted content is never searchable');
 }));
+
+test('a request that does not fit the operation is invalid, not refused: parameters that fail their specs, a query with no words', withInstallation(async (t) => {
+  const missing = await t.run('read', {});
+  assert.equal(missing.status, 'invalid');
+  assert.match(missing.text, /path: is required/);
+  assert.equal((await t.run('search', { query: '"" *' })).status, 'invalid');
+}));

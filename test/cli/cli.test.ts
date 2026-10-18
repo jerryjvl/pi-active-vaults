@@ -95,11 +95,12 @@ test('exit statuses: 0 done, 1 failed, 3 refused by policy or a guard; --json gi
   assert.equal((await vault('read', 'nowhere.md')).code, 1);
   const refused = await vault('accept', 'gardener');
   assert.equal(refused.code, 3, 'nothing reviewed: refused, not a usage error');
+  assert.equal((await vault('trace', 'not-a-trace')).code, 2, 'a malformed request is a usage error');
+  const json = await vault('whoami', '--json');
+  assert.deepEqual(JSON.parse(json.stdout), { status: 'ok', data: { name: 'alice@homeserver', person: 'alice' }, text: 'alice@homeserver', notices: [] });
   t.repo.write('stray.md', 'x');
   t.repo.commit('stray');
   assert.equal((await vault('reindex')).code, 3, 'the unaccepted-change guard');
-  const json = await vault('whoami', '--json');
-  assert.deepEqual(JSON.parse(json.stdout), { status: 'ok', data: { name: 'alice@homeserver', person: 'alice' }, text: 'alice@homeserver', notices: [] });
 }));
 
 test('inside an actor\'s worktree, commits are made as that actor', withInstallation(async (t) => {

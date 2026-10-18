@@ -48,7 +48,7 @@ test('trigger queues every job whose external condition names the event, with it
   const spawns = listSpawns(t.context.state, { vault: 'home' });
   assert.deepEqual(spawns.map((s) => s.document), ['jobs/refresh.md'], 'an unbudgeted job cannot spawn');
   assert.deepEqual(spawns[0]?.event, { kind: 'external', vault: 'home', name: 'refresh', payload: { reason: 'manual' }, id: (spawns[0]?.event as { id: string }).id });
-  assert.equal((await t.run('trigger', { name: 'refresh', payload: 'not json' })).status, 'refused');
+  assert.equal((await t.run('trigger', { name: 'refresh', payload: 'not json' })).status, 'invalid', 'a malformed request, not a refusal');
   assert.match((await t.run('trigger', { name: 'nothing-listens' })).text, /Nothing matched/);
 }));
 
@@ -96,5 +96,5 @@ test('trace shows a compact record from the vault; an unknown trace is not found
   assert.equal(shown.status, 'ok', shown.text);
   assert.match(shown.text, /home: manual jobs\/daily\.md[^]*session gardener: committed, 120 tokens[^]*produced digests\/today\.md/);
   assert.equal((await t.run('trace', { id: '01JABCDEFGHJKMNPQRSTVWXYZ1' })).status, 'failed');
-  assert.equal((await t.run('trace', { id: 'not-a-trace' })).status, 'refused');
+  assert.equal((await t.run('trace', { id: 'not-a-trace' })).status, 'invalid');
 }));
