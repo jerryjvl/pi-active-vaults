@@ -6,14 +6,24 @@
 // user — a Task Scheduler task at logon on Windows — with the commands that
 // register, start, stop and query it, as programs and arguments. Each runs
 // the package's CLI (`vault daemon run`) through the platform's shell, which
-// finds `node` on PATH when the service starts, so upgrading Node does not
-// break it; the daemon finds `pi` the same way when it starts (`findPi`).
+// finds `node` on the service's PATH when it starts, so upgrading Node does
+// not break it; the daemon finds `pi` the same way when it starts (`findPi`).
 //
-// Invariants: the CLI's path is written so each format reads it as one path
-// and nothing more — escaped for systemd (`\`, `"`, `%`, `$`), XML-escaped
-// for launchd and Task Scheduler — and a path a format cannot carry safely (a
-// line break; for `cmd.exe`, a quote or `%`) is refused, never written.
-// Windows programs are named by absolute path under `%SystemRoot%`.
+// That PATH is the one the tools were found on when the service was
+// installed: the directory of `node`, `pi` and `git` on the installing PATH,
+// as found — links are not followed, so a version manager's `latest` or shim
+// directory keeps working across upgrades — ahead of the platform's usual
+// directories. A login shell would not do: it rebuilds PATH from profiles
+// that a version manager's setup, in an interactive shell's rc file, never
+// reaches. `staleServiceTools` says which recorded directory no longer holds
+// its tool.
+//
+// Invariants: the CLI's path and each directory are written so each format
+// reads them as one path and nothing more — escaped for systemd (`\`, `"`,
+// `%`, `$`), XML-escaped for launchd and Task Scheduler — and one a format
+// cannot carry safely (a line break; for `cmd.exe`, a quote or `%`) is
+// refused, never written. Windows programs are named by absolute path under
+// `%SystemRoot%`.
 
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { err, ok, type Result } from '../result/index.ts';
@@ -41,6 +51,15 @@ export interface ServiceDefinition {
   };
 }
 
+/** The tools the service needs on its PATH. */
+export const SERVICE_TOOLS = ['node', 'pi', 'git'] as const;
+
+/** A tool and the directory it was found in on PATH, as the PATH named it. */
+export interface ServiceTool {
+  readonly tool: (typeof SERVICE_TOOLS)[number];
+  readonly dir: string;
+}
+
 export type ServiceError =
   | { readonly reason: 'unsafe-path'; readonly program: string }
   | { readonly reason: 'not-supported'; readonly os: Host['os'] }
@@ -54,7 +73,19 @@ const xml = (text: string): string => text.replaceAll('&', '&amp;').replaceAll('
 /** One systemd argument, double-quoted: backslashes and quotes escaped, `%` specifiers and `$` variables made literal. */
 const systemdQuoted = (text: string): string => `"${text.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('%', '%%').replaceAll('$', '$$$$')}"`;
 
-function linux(host: Host, program: string): ServiceDefinition {
+/** The directories the service's PATH ends with: where the platform looks when nothing else says. */
+const USUAL_PATH: Readonly<Record<'linux' | 'darwin', readonly string[]>> = {
+  linux: ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin'],
+  darwin: ['/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'],
+};
+
+/** The recorded directories in order, each once. */
+const toolDirs = (tools: readonly ServiceTool[]): string[] => [...new Set(tools.map((t) => t.dir))];
+
+/** One systemd assignment, double-quoted: backslashes and quotes escaped, `%` specifiers made literal (`$` is not expanded here). */
+const systemdAssignment = (name: string, value: string): string => `${name}="${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('%', '%%')}"`;
+
+function linux(host: Host, program: string, dirs: readonly string[]): ServiceDefinition {
   const config = host.env['XDG_CONFIG_HOME'] !== undefined && host.env['XDG_CONFIG_HOME'] !== '' ? host.env['XDG_CONFIG_HOME'] : `${host.home}/.config`;
   const unit = `${NAME}.service`;
   const systemctl = (...args: string[]): ServiceProgram => ({ file: 'systemctl', args: ['--user', ...args] });
@@ -68,8 +99,9 @@ function linux(host: Host, program: string): ServiceDefinition {
       '',
       '[Service]',
       'Type=simple',
-      // A login shell finds node on the user's PATH as it is when the service starts.
-      `ExecStart=/bin/sh -lc 'exec node "$$0" daemon run' ${systemdQuoted(program)}`,
+      systemdAssignment('Environment', `PATH=${[...dirs, ...USUAL_PATH.linux].join(':')}`),
+      // Not a login shell: it would rebuild PATH without the directories recorded above.
+      `ExecStart=/bin/sh -c 'exec node "$$0" daemon run' ${systemdQuoted(program)}`,
       'Restart=on-failure',
       'RestartSec=10',
       '',
@@ -91,7 +123,7 @@ function linux(host: Host, program: string): ServiceDefinition {
  * daemon in the system domain, run as the user with their home, for a Mac
  * nobody logs in to (installing it needs administrator rights).
  */
-function macos(host: Host, program: string, logs: string, uid: number | undefined, headless: boolean): ServiceDefinition {
+function macos(host: Host, program: string, logs: string, uid: number | undefined, headless: boolean, dirs: readonly string[]): ServiceDefinition {
   const file = headless ? `/Library/LaunchDaemons/${LAUNCHD_LABEL}.plist` : `${host.home}/Library/LaunchAgents/${LAUNCHD_LABEL}.plist`;
   const domain = headless ? 'system' : `gui/${uid ?? 0}`;
   const launchctl = (...args: string[]): ServiceProgram => ({ file: '/bin/launchctl', args });
@@ -104,13 +136,14 @@ function macos(host: Host, program: string, logs: string, uid: number | undefine
       '<plist version="1.0">',
       '<dict>',
       `  <key>Label</key>\n  <string>${LAUNCHD_LABEL}</string>`,
-      ...(headless ? [
-        `  <key>UserName</key>\n  <string>${xml(host.user)}</string>`,
-        `  <key>EnvironmentVariables</key>\n  <dict>\n    <key>HOME</key>\n    <string>${xml(host.home)}</string>\n  </dict>`,
-      ] : []),
+      ...(headless ? [`  <key>UserName</key>\n  <string>${xml(host.user)}</string>`] : []),
+      '  <key>EnvironmentVariables</key>\n  <dict>',
+      ...(headless ? [`    <key>HOME</key>\n    <string>${xml(host.home)}</string>`] : []),
+      `    <key>PATH</key>\n    <string>${xml([...dirs, ...USUAL_PATH.darwin].join(':'))}</string>`,
+      '  </dict>',
       '  <key>ProgramArguments</key>',
       '  <array>',
-      ...['/bin/sh', '-lc', 'exec node "$0" daemon run', program].map((a) => `    <string>${xml(a)}</string>`),
+      ...['/bin/sh', '-c', 'exec node "$0" daemon run', program].map((a) => `    <string>${xml(a)}</string>`),
       '  </array>',
       '  <key>RunAtLoad</key>\n  <true/>',
       '  <key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>',
@@ -129,7 +162,7 @@ function macos(host: Host, program: string, logs: string, uid: number | undefine
   };
 }
 
-function windows(host: Host, program: string, state: string): Result<ServiceDefinition, ServiceError> {
+function windows(host: Host, program: string, state: string, dirs: readonly string[]): Result<ServiceDefinition, ServiceError> {
   const root = host.env['SystemRoot'];
   if (root === undefined || root === '') return err({ reason: 'no-directory', variable: 'SystemRoot' });
   const path = pathFor('win32');
@@ -155,8 +188,8 @@ function windows(host: Host, program: string, state: string): Result<ServiceDefi
       '  <Actions Context="Author">',
       '    <Exec>',
       '      <Command>cmd.exe</Command>',
-      // cmd.exe finds node on PATH when the task starts.
-      `      <Arguments>${xml(`/d /c node "${program}" daemon run`)}</Arguments>`,
+      // cmd.exe finds node on PATH when the task starts: the recorded directories ahead of the user's own, which %PATH% is then.
+      `      <Arguments>${xml(`/d /c ${dirs.length === 0 ? '' : `set "PATH=${dirs.join(';')};%PATH%" && `}node "${program}" daemon run`)}</Arguments>`,
       '    </Exec>',
       '  </Actions>',
       '</Task>',
@@ -173,19 +206,24 @@ function windows(host: Host, program: string, state: string): Result<ServiceDefi
 
 /** The service definition for running `program` (the CLI's entry point) as the daemon on `host`. */
 export function serviceFor(
-  host: Host, program: string, where: { readonly state: string; readonly uid?: number; readonly headless?: boolean },
+  host: Host, program: string,
+  where: { readonly state: string; readonly uid?: number; readonly headless?: boolean; readonly tools?: readonly ServiceTool[] },
 ): Result<ServiceDefinition, ServiceError> {
   if (/[\r\n\0]/.test(program)) return err({ reason: 'unsafe-path', program });
+  const dirs = toolDirs(where.tools ?? []);
+  // A line break ends a line in every format; for cmd.exe a quote or % would end its quoting or expand.
+  const unsafe = dirs.find((dir) => /[\r\n\0]/.test(dir) || (host.os === 'win32' && /["%;]/.test(dir)));
+  if (unsafe !== undefined) return err({ reason: 'unsafe-path', program: unsafe });
   const headless = where.headless === true;
   if (headless && host.os !== 'darwin') return err({ reason: 'not-supported', os: host.os });
   const logs = pathFor(host.os).join(where.state, 'logs');
   switch (host.os) {
     case 'win32':
-      return /["%]/.test(program) ? err({ reason: 'unsafe-path', program }) : windows(host, program, where.state);
+      return /["%]/.test(program) ? err({ reason: 'unsafe-path', program }) : windows(host, program, where.state, dirs);
     case 'darwin':
-      return ok(macos(host, program, logs, where.uid, headless));
+      return ok(macos(host, program, logs, where.uid, headless, dirs));
     default:
-      return ok(linux(host, program));
+      return ok(linux(host, program, dirs));
   }
 }
 
@@ -210,8 +248,7 @@ const systemFiles: FileView = {
 /** The `pi` the user runs: found on PATH as the service starts; a JavaScript entry point runs with `node`. */
 export function findPi(host: Host, node: string, files: FileView = systemFiles): Result<ServiceProgram, { readonly reason: 'pi-not-found' }> {
   const path = pathFor(host.os);
-  const entries = (host.env['PATH'] ?? host.env['Path'] ?? '').split(host.os === 'win32' ? ';' : ':').filter((e) => e !== '');
-  for (const dir of entries) {
+  for (const dir of pathEntries(host)) {
     if (host.os === 'win32') {
       // npm's pi.cmd only starts node on the package's entry point, which sits beside it.
       if (!files.exists(path.join(dir, 'pi.cmd'))) continue;
@@ -225,4 +262,34 @@ export function findPi(host: Host, node: string, files: FileView = systemFiles):
     return ok(/\.[cm]?js$/.test(real) ? { file: node, args: [real] } : { file: real, args: [] });
   }
   return err({ reason: 'pi-not-found' });
+}
+
+/** The file names a tool has on a platform. */
+function toolFiles(tool: ServiceTool['tool'], os: Host['os']): readonly string[] {
+  return os === 'win32' ? [`${tool}.exe`, `${tool}.cmd`, `${tool}.bat`] : [tool];
+}
+
+function pathEntries(host: Host): string[] {
+  return (host.env['PATH'] ?? host.env['Path'] ?? '').split(host.os === 'win32' ? ';' : ':').filter((e) => e !== '');
+}
+
+/**
+ * Where node, pi and git are on PATH: the first directory that holds each,
+ * as PATH names it (so a `latest` link is kept as written). A tool that is
+ * on no directory has no entry.
+ */
+export function findServiceTools(host: Host, files: FileView = systemFiles): ServiceTool[] {
+  const path = pathFor(host.os);
+  const found: ServiceTool[] = [];
+  for (const tool of SERVICE_TOOLS) {
+    const dir = pathEntries(host).find((entry) => toolFiles(tool, host.os).some((file) => files.exists(path.join(entry, file))));
+    if (dir !== undefined) found.push({ tool, dir });
+  }
+  return found;
+}
+
+/** The recorded tools whose directory no longer holds them: what a service installed earlier can no longer find. */
+export function staleServiceTools(recorded: readonly ServiceTool[], host: Host, files: FileView = systemFiles): ServiceTool[] {
+  const path = pathFor(host.os);
+  return recorded.filter((r) => !toolFiles(r.tool, host.os).some((file) => files.exists(path.join(r.dir, file))));
 }

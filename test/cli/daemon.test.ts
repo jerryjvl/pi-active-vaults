@@ -105,7 +105,7 @@ test('install records where node, pi and git are on PATH and gives the unit that
   const warned = await serviceLines();
   assert.equal(warned.length, 1);
   assert.match(warned[0] ?? '', /^warning service: .*\bpi\b.* no longer /);
-  assert.ok((warned[0] ?? '').includes(join(tools, 'pi', 'bin')) && (warned[0] ?? '').includes('"vault daemon install"'), warned[0]);
+  assert.ok((warned[0] ?? '').includes(join(tools, 'pi', 'bin')) && (warned[0] ?? '').includes('"vault daemon install"'), warned[0] ?? '');
 
   makeTool(join(tools, 'pi', 'v2', 'bin'), 'pi');
   const moved = { ...host, env: { ...host.env, PATH: path.replace(join(tools, 'pi', 'bin'), join(tools, 'pi', 'v2', 'bin')) } };

@@ -12,8 +12,13 @@
 //
 // Each headless session the daemon starts is recorded with its exact process
 // before it runs, so recovery can end it by that identity and nothing else.
+//
+// Installing the daemon as a service records the directories in which its
+// tools were found (config/service.ts): the machine's own state, which
+// `vault doctor` reads to say when one has gone.
 
 import type { Clock } from '../clock/index.ts';
+import type { ServiceTool } from '../config/index.ts';
 import type { ProcessLiveness } from '../process/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import type { Queryable, Store } from '../store/index.ts';
@@ -84,4 +89,18 @@ export function forgetRunProcess(store: Store, spawn: number): void {
 /** The processes of runs the daemon started and has not forgotten, by spawn. */
 export function runProcesses(store: Queryable): { readonly spawn: number; readonly pid: number; readonly started: string }[] {
   return store.all<{ spawn: number; pid: number; started: string }>('SELECT spawn, pid, started FROM queue_runs ORDER BY spawn');
+}
+
+/** Records where the service's tools were found, replacing what an earlier install recorded. */
+export function recordServiceTools(store: Store, tools: readonly ServiceTool[], clock: Clock): void {
+  const recorded = clock.now().toISOString();
+  store.transaction((tx) => {
+    tx.run('DELETE FROM queue_service_tools');
+    for (const { tool, dir } of tools) tx.run('INSERT INTO queue_service_tools (tool, dir, recorded) VALUES (?, ?, ?)', [tool, dir, recorded]);
+  });
+}
+
+/** The tools the installed service was given, by name. */
+export function recordedServiceTools(store: Queryable): ServiceTool[] {
+  return store.all<ServiceTool>('SELECT tool, dir FROM queue_service_tools ORDER BY tool');
 }

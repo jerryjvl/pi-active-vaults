@@ -38,8 +38,11 @@ test('cron expressions are evaluated only by the timers of the conditions module
 });
 
 test('only the git module knows how to talk to git', () => {
+  // The service definition names git among the tools the daemon needs on its PATH; it never runs it.
+  const names = ['core/config/service.ts'];
   const offenders = sourceFiles(srcRoot)
     .filter((file) => !relative(srcRoot, file).split('\\').join('/').startsWith('core/git/'))
+    .filter((file) => !names.includes(relative(srcRoot, file).split('\\').join('/')))
     .filter((file) => /['"`]git['"`]/.test(readFileSync(file, 'utf8')))
     .map((file) => relative(srcRoot, file));
   assert.deepEqual(offenders, []);

@@ -235,9 +235,20 @@ reason?, commit? }`, with `state` `started` or `finished`.
 | macOS | launchd agent, `~/Library/LaunchAgents/pi-active-vaults.daemon.plist`; on a Mac nobody logs in to, `--headless`: a launchd daemon, `/Library/LaunchDaemons/pi-active-vaults.daemon.plist`, run as the user with their `HOME`, installed by the person with `sudo` |
 | Windows | Task Scheduler task at logon, `pi-active-vaults`, registered with `schtasks` |
 
-The service runs `vault daemon run` through the platform's shell (a login
-shell on Linux and macOS), which resolves the current Node at start; the
-daemon finds `pi` on `PATH` as it starts. So upgrades do not break it.
+The service runs `vault daemon run` through the platform's shell, which
+resolves the current Node on the service's `PATH` at start; the daemon finds
+`pi` there too. That `PATH` is the one the tools were found on when the
+service was installed: the directory holding `node`, `pi` and `git` on the
+installing `PATH`, as found (links are not followed, so a version manager's
+`latest` or shim directory keeps working across upgrades), ahead of the
+platform's usual directories — `Environment=` in the systemd unit, the launchd
+plist's `EnvironmentVariables`, a `set "PATH=…"` in the Task Scheduler action. A
+login shell is not used: it rebuilds `PATH` from profiles a version manager's
+setup, which lives in an interactive shell's rc file, does not reach.
+
+`install` records those directories in the state database, and `vault doctor`
+warns when one no longer holds its tool; installing again records where they
+are now. `print-unit` prints the same definition and records nothing.
 
 ## Log rotation
 

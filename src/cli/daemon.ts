@@ -15,8 +15,10 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { serviceFor, type ServiceDefinition, type ServiceProgram } from '../core/config/index.ts';
-import { loadInstallation, describeError } from '../core/operations/index.ts';
+import { findServiceTools, serviceFor, type ServiceDefinition, type ServiceProgram } from '../core/config/index.ts';
+import { loadInstallation, describeError, openStateStore } from '../core/operations/index.ts';
+import { recordServiceTools } from '../core/queue/index.ts';
+import { systemClock } from '../core/clock/index.ts';
 import { runProcess } from '../core/process/index.ts';
 import { isRecord } from '../core/result/index.ts';
 import { requestOverSocket } from '../core/socket/index.ts';
@@ -116,8 +118,10 @@ export async function runDaemonCommand(argv: readonly string[], io: CliIo): Prom
     return EXIT.ok;
   }
 
+  // Where node, pi and git are now: the service is given that PATH, and `install` records it.
+  const tools = findServiceTools(io.host);
   const service = serviceFor(io.host, CLI_PROGRAM, {
-    state: dirname(paths.stateDb), headless, ...(typeof process.getuid === 'function' ? { uid: process.getuid() } : {}),
+    state: dirname(paths.stateDb), headless, tools, ...(typeof process.getuid === 'function' ? { uid: process.getuid() } : {}),
   });
   if (!service.ok && service.error.reason === 'not-supported') {
     io.write('stderr', 'vault daemon: --headless is for macOS, where a launchd daemon runs the daemon on a Mac nobody logs in to.\n');
@@ -144,7 +148,18 @@ export async function runDaemonCommand(argv: readonly string[], io: CliIo): Prom
       mkdirSync(dirname(definition.file), { recursive: true });
       writeFileSync(definition.file, definition.encoding === 'utf16le' ? `﻿${definition.text}` : definition.text, { encoding: definition.encoding });
       const code = await runAll(io, definition.commands.install);
-      if (code === EXIT.ok) io.write('stdout', `Installed ${definition.file}; "vault daemon start" starts it, and it starts at login.\n`);
+      if (code !== EXIT.ok) return code;
+      const state = openStateStore(paths);
+      if (!state.ok) {
+        io.write('stderr', `vault daemon: installed, but the state database cannot be opened to record the service's PATH (${state.error.reason}); "vault doctor" cannot warn when it goes stale.\n`);
+        return EXIT.failed;
+      }
+      try {
+        recordServiceTools(state.value, tools, io.context?.clock ?? systemClock);
+      } finally {
+        state.value.close();
+      }
+      io.write('stdout', `Installed ${definition.file}; "vault daemon start" starts it, and it starts at login. Its PATH begins with ${tools.map((t) => `${t.dir} (${t.tool})`).join(', ') || 'nothing found: node, pi and git are on no PATH directory'}.\n`);
       return code;
     }
     case 'start':

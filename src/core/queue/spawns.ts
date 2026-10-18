@@ -88,6 +88,16 @@ export const queueSchema: ModuleSchema = {
         started TEXT NOT NULL
       ) STRICT`,
     },
+    {
+      // Where the installed service's tools were found on PATH, one row per
+      // tool, for doctor to say when one has gone (runs.ts).
+      version: 4,
+      sql: `CREATE TABLE queue_service_tools (
+        tool TEXT PRIMARY KEY,
+        dir TEXT NOT NULL,
+        recorded TEXT NOT NULL
+      ) STRICT`,
+    },
   ],
 };
 

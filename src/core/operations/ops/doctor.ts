@@ -15,12 +15,13 @@
 // keywords because no policy entry names the vault, and jobs that cannot run; then sessions holding
 // actors (and those whose holder cannot be told apart from a reused process),
 // undelivered notifications, notify not being configured, and no daily token
-// ceiling.
+// ceiling, and a directory the installed daemon service was given for its PATH
+// that no longer holds its tool.
 
 import { chmodSync, existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { listActorHolds } from '../../actors/index.ts';
-import { resolveSecret, MODEL_ROLES } from '../../config/index.ts';
+import { resolveSecret, staleServiceTools, MODEL_ROLES } from '../../config/index.ts';
 import { forgeAdapter, forgeProject, lostMergeReport, lostMerges, protectionProblems } from '../../forge/index.ts';
 import {
   gitDirectories, gitVersion, listRemotes, listWorktrees, meetsMinimumGitVersion, remoteUrl, MINIMUM_GIT_VERSION,
@@ -28,7 +29,7 @@ import {
 import { MAIN_BRANCH, type AcceptedMain } from '../../integrity/index.ts';
 import { modelFor } from '../../models/index.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
-import { daemonRecord, recoverRuns, vaultJobs } from '../../queue/index.ts';
+import { daemonRecord, recordedServiceTools, recoverRuns, vaultJobs } from '../../queue/index.ts';
 import { runProcess } from '../../process/index.ts';
 import { checkRegisteredIdentity, hosting, type RegisteredVault } from '../../registry/index.ts';
 import { scriptEnvironment, type OperationContext } from '../context.ts';
@@ -193,6 +194,10 @@ async function machineFindings(context: OperationContext): Promise<Finding[]> {
   const { config } = context.installation;
   if (context.installation.notify === undefined) findings.push({ level: 'warning', check: 'notify', message: 'notify is not configured, so owners are not told of unaccepted changes.' });
   if (config.budgets.dailyTokens === undefined) findings.push({ level: 'warning', check: 'budgets', message: 'budgets.daily-tokens is not set: nothing caps the tokens all work may use in a day.' });
+  // The directories the installed service was given for its PATH: each must still hold its tool.
+  for (const { tool, dir } of staleServiceTools(recordedServiceTools(context.state), context.installation.host)) {
+    findings.push({ level: 'warning', check: 'service', message: `The daemon service looks for ${tool} in ${dir}, which no longer holds it; "vault daemon install" gives the service the directories where it is now.` });
+  }
   const daemon = await daemonRecord(context.state, context.alive);
   findings.push(daemon === undefined
     ? { level: 'warning', check: 'daemon', message: 'No daemon is running: timers, Git-event jobs and queued spawns wait for one ("vault daemon start").' }

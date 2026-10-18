@@ -44,5 +44,8 @@ export {
 } from './installation.ts';
 export { checkPerson, registerVault, type NewVaultEntry, type PersonError, type RegisterError } from './register.ts';
 export { launcherFor, writeLauncher, type Launcher, type LauncherError } from './launcher.ts';
-export { findPi, serviceFor, type FileView, type ServiceDefinition, type ServiceError, type ServiceProgram } from './service.ts';
+export {
+  SERVICE_TOOLS, findPi, findServiceTools, serviceFor, staleServiceTools,
+  type FileView, type ServiceDefinition, type ServiceError, type ServiceProgram, type ServiceTool,
+} from './service.ts';
 export { packageVersion } from './package.ts';
