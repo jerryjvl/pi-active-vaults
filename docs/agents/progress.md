@@ -3,23 +3,15 @@
 Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 **Branch:** `impl/v1`
-**Current stage:** 4 — operations and CLI, in progress
+**Current stage:** 4 — complete, awaiting review
 
 ## Current stage status
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 3b review findings 1–4 (`767159c`..`09f0dd1`). Stage 4
-  core: permission sets and the mcp section; loading the installation whole
-  (notify and mcp validated); registering vaults; prepared commits; the check
-  runner and blocking checks on commit; documents' conditions; actor sync;
-  notify test; empty vaults; the operations catalogue with every operation
-  (`001080c`).
-- **In progress:** the CLI adapter generated from the catalogue.
-- **Next:** CLI (argument parsing, notices on every command, exit statuses,
-  --json, interactive adopt), daemon and mcp commands saying they need the
-  daemon; docs (cli.md, core.md, concepts.md checks protocol); refactoring
-  pass; progress entry.
+- **Done:** Stage 4, with the Stage 3b review findings; see the Stage 4 entry.
+- **In progress:** nothing.
+- **Next:** review of Stage 4. Then, when told, Stage 5 (Pi extension).
 
 ## Stage entries
 
@@ -270,3 +262,56 @@ Copy this block for each stage:
   5. *Alignment with `ce1c0ce`:* conditions (`fb446aa`), events (`fb446aa`), attestations (`937c114`), adopt (`a5edf3d`), holds (`1631db0`), queue (`e9577f0`), each with its tests first; daemon-side pieces listed under Gaps.
   6. *Stage 3b:* as above.
 
+
+### Stage 4 — Operations and CLI (L3, L4 CLI)
+
+- **Commits:** `767159c..` on `impl/v1` — the Stage 3b review findings (`767159c`–`09f0dd1`), then tests-first and implementation commits for Stage 4 (`8fce09c`–`f54d1a2`), the documentation changes (`4e36c47`), the refactoring pass (`9349956`, with `34a0190`, `e158cb6` and `c27cfb8` during the stage), a fix found in it (`3023d1a`, `6e2af75`), further operation tests (`60284be`, `858295a`), and this entry as the last commit. As before, each `test(…)` commit for new behaviour fails until the commit after it; every other commit passes.
+- **Results:** `npm test`: 594 tests, 594 pass, none skipped on Linux. `npm run check`: no errors. `npm run build`: compiles; all 28 compiled core modules and the CLI import under plain Node, and `node dist/cli/main.js` runs (`--help` exits 0, an unknown command 2). Node v24.18.0, git 2.55.0, Linux.
+- **Built:**
+  - Review findings: `process` — existence first (`systemProcessProbe.exists`, signal 0), Windows PowerShell by absolute path with its variables; `actors` — `listActorHolds` says whether a hold stands because its holder runs or cannot be told; `commitAsActor` refuses while another hold stands; `forge` — GitHub protection from branch protection and ruleset rules; `POLICY_CONTEXT` in `adapter.ts`.
+  - L0–L2 additions: `config.registerVault`; `git` — `prepareCommit`, `landCommit` (`createCommit` is the two), `exportTree`, `configValue`, `listRemotes`, `gitDirectories`; `scripts.runChecks`, `recordCheckResults`; `actors` — blocking checks in `commitAsActor`, `syncActorBranch`, `heldByAnother`, `worktreeFile`; `registry.writersOf`; `conditions.documentConditions`; `queue.vaultJobs`; `notify.testTransport`; `templates.createEmptyVault`; the external event's `payload`.
+  - `operations` (L3): `permissions.ts` (`PERMISSIONS`, groups, `parseMcpConfig`, `effectivePermissions`, `mayCall`, `permittedOperations`); `installation.ts` (`loadInstallation`); `context.ts`; `types.ts`; `catalogue.ts` (`CATALOGUE`, `checkParams`, `chooseVaults`, `placeVaultPaths`, `runOperation`); `messages.ts`; `notices.ts`; `locate.ts`; the operations in `ops/` — search, read, contract, reindex; status, review, accept (and adopt), sync, propose, commit, write; jobs, run, trigger, script, notify, trace; list, add, init, whoami, template show, doctor.
+  - CLI (L4): `src/cli/args.ts` (flags and positionals from the specs), `run.ts` (`runCli`), `main.ts`.
+- **Tests:** each operation against a temporary installation (own config and state directories, a temporary vault), the CLI in-process and once as a real process, a forge-mode propose and sync against a stub forge and a bare repository. Fail-closed cases:
+  - *Holds:* a vanished holder never stands on any platform, even where its start time cannot be asked; `cannot-tell` only for an existing process, which doctor reports with process and session; a commit, a sync and a write are refused while another session holds the actor, and a commit never takes a hold.
+  - *Checks:* only the accepted main's checks run, at their accepted version (a check added or loosened on a branch does not count); refused during an unaccepted change with nothing run; a time-out, an interpreter that cannot start or an invalid check is `error`, never a pass; a failing check leaves nothing landed and the changes in place; a commit during an unaccepted change is refused.
+  - *Permissions:* no permission implies another; nothing without an `mcp` section or permissions; unknown operations, groups and vaults, mixed list edits and literal tokens refused at load without repeating values; `accept` needs an owner; an HTTP endpoint needs a token; a model is offered no parameter choosing whom it writes as; judgements and acceptance are no tools.
+  - *Operations:* parameters checked strictly (unknown, kind, required, choices); adopt records nothing until the concerns are acknowledged and confirmed; accept refuses a non-owner and an unreviewed proposal; write refuses `..`, absolute paths, `.git` in any case, and a path through a link out of the worktree, with nothing made outside; run and trigger queue nothing for a vault with an unaccepted change; reindex refused then, and unaccepted content never searchable; status over MCP shows no outbox, trace over MCP no full logs; scripts get no secret from the environment; notify refuses raw addresses and unknown aliases.
+  - *Doctor:* `core.hooksPath`, a remote on a local vault, an index lock in main's worktree, keyword-only search, no daily ceiling, notify unconfigured, permissions; `--fix` installs a pre-push guard that refuses a push of main (run as a real hook) and never replaces the user's own hook.
+- **Refactoring:** `34a0190` one alias lookup in notify; `e158cb6` one home for making a new vault (`newVault`, `checkNewVault`); `c27cfb8` `remoteUrl` through `configValue`; `09f0dd1` one home for `vault/policy`; `9349956` one home each for the hold check (three copies), the writers list, the worktree file guard (moved from operations to actors, for the extension), what a job is (moved to queue, for the daemon) and vault paths (moved from the CLI to operations, for Pi and MCP); an unused helper removed. Comments, module headers and `core.md` checked against behaviour.
+- **Decisions:**
+  - *Holds:* signal 0 decides existence (ESRCH ended, EPERM exists); any other answer still asks for the start time. PowerShell gets `SystemRoot`, `windir`, `SystemDrive`, `TEMP`, `TMP`, `USERPROFILE`, `LOCALAPPDATA`, `APPDATA`, `ProgramData`; without `SystemRoot`, `cannot-tell`.
+  - *GitHub:* every request and response shape was checked against GitHub's REST description (github/rest-api-description); they were as documented. Rules from `GET /repos/{o}/{r}/rules/branches/{branch}` (active rulesets only, any level): `deletion`, `non_fast_forward`, `pull_request` and `required_status_checks` count; other rule types do not bear on who can change main. Reviews were already paged (`per_page` 100, `page`); a review by a deleted account (user null) counts for nothing. The 140-character status cap is not documented by GitHub.
+  - *Checks:* run as specified in `concepts.md` (`4e36c47`); every check on the accepted main is blocking; a check's time limit is the script limit, 5 minutes; evidence is the first output line, up to 500 characters. A commit is prepared on no branch, assessed, and landed by compare-and-swap; only a landed commit's verdicts are recorded. Checks are a script run, so they are refused during an unaccepted change, and so is a commit.
+  - *Sync:* moves a branch without work forward; otherwise merges the accepted main in the actor's worktree with the package's trailers and records the checks' verdicts, failing ones too (the merge exists). Uncommitted changes leave the branch alone.
+  - *Conditions:* a document's conditions are its own, then its contract's (union, so its own keep their positions); a contract that cannot be read leaves its documents with none, and says why.
+  - *Installation:* no config file is an installation with no vaults. `mcp`: `listen` optional (standard I/O only), `host:port` needs a token, an absolute path is a socket or pipe; each profile holds every registered vault's effective set.
+  - *Catalogue:* every operation the CLI offers is in the catalogue (installation ones too, CLI-only), except `daemon …` and `mcp`, which control processes and arrive with the daemon; `template show` is the operation `template-show`. Pi tools and commands are those in `api.md`.
+  - *Callers:* owner acts are the caller's person (CLI: `installation.person`; MCP: the profile's `owner`); writes are made as the caller's actor (the actor worktree the CLI runs in, else `--actor`, else the person); over MCP, `write` and `commit` take the actor (`mcp.md`, `4e36c47`).
+  - *Read:* content as on the accepted main; freshness against main itself (`current`, `changed`, `gone`). `search` only reads the index; `reindex` updates it.
+  - *Run and trigger:* claim spawns for the daemon; a manual run's event ID is a new trace ID; an external event reaches its vault and those the installation subscribes to it; a payload is JSON of at most 64 KiB; a job without a readable budget cannot spawn.
+  - *Scripts:* the environment is only what interpreters need (`PATH`, `HOME`, locale, temporary directories; on Windows the system variables); a script works in the caller's place in the vault, else the vault's checkout.
+  - *Identity:* package commits and notes are made as `<name>@<host of the installation name>`.
+  - *Init:* an empty vault's root contract names its id, the person as owner and audience, `purpose.summary: The <id> vault.`, no actors, and `merge: [{ paths: ["**"], require: [checks, owner] }]`. `add` takes the id from the root contract at main's tip and accepts nothing.
+  - *Doctor:* model roles' tokens are resolved; endpoints are not contacted (that would spend tokens). The pre-push guard refuses any push updating `refs/heads/main`; `--fix` installs it only where no hook is. A problem exits 1. The daemon's absence is a warning.
+  - *CLI:* a first positional naming a registered vault is the vault when what remains still fills the command; a passthrough list (script arguments) takes options as given; usage errors exit 2; success output to standard output, everything else to standard error; `--json` prints `{ status, data, text, notices }`. Adopting asks at a terminal (`confirm`), and otherwise exits 2 with how to confirm.
+  - *Notify test:* `--to` is required; one fixed message is delivered directly, not queued.
+  - *Jobs:* "next run" is not shown yet: timers, their library and their local-date-and-slot identity belong to Stage 6 (the newest `croner` was published a day ago; choosing a version and checking its daylight-saving behaviour against `daemon.md` is that stage's work).
+- **Needs owner approval:**
+  1. `4e36c47` — documentation of behaviour built here: the check protocol and the Git identity of package commits (`concepts.md`); checks pause with automation, so commits wait during an unaccepted change (`security.md` — a narrowing of "interactive work continues"); `cli.md` as built (init's empty vault, `add` unaccepted, doctor's added checks and exit status, adopt without a terminal, `--actor`, script options passing through, `notify test --to`, exit 2 for usage errors, `--json` on every command); `mcp.md` (reviews are the profile owner's; `write` and `commit` name their actor); `notifications.md` (`notify test`).
+  2. `d7cdd07` — review finding 3, as asked.
+  3. Doctor resolving model tokens without contacting endpoints (cli.md now says "model endpoints' tokens").
+- **Gaps:**
+  - Stage 6: `vault daemon …` and `vault mcp` say they need the daemon and exit 1; `run` and `trigger` only claim spawns; `jobs` shows no next run; doctor's start-up recovery under `--fix`, the `reference-transaction` hook and the daemon-service check; the MCP adapter must require a vault for `optional`-scope operations (`notify`) when it checks `mayCall`.
+  - GitHub ruleset bypass actors are not read: an executor on a ruleset's bypass list would pass doctor (`current_user_can_bypass` on `GET /repos/{o}/{r}/rulesets/{id}` could tell).
+  - `exportTree` uses `checkout-index`, so a repository-configured smudge filter would run when checks export a commit.
+  - Registering a vault keeps comments and order, but the YAML library normalises the spacing before an inline comment.
+  - The installed `pi` here reports 0.82.1, below the 1.3 the design targets; doctor would report it. To look at before Stage 5.
+  - Windows: signal-0 existence through Node, PowerShell's start, check scripts, the pre-push hook and file modes are untested on a real machine; macOS likewise. The terminal prompt is tested through an injected `confirm` only.
+  - Real-time waits added: a 200 ms check time-out; a 300 ms SMTP time-out in the transport test.
+  - As before, Node 22.18 and git 2.36 (the declared minimums) are untested.
+- **Review findings addressed:**
+  1. *Holds on Windows:* tests first (`767159c`), then `396f92a`: existence by `process.kill(pid, 0)` first (ESRCH: the hold is void, nothing asked; EPERM: it exists); only then the start time, on Windows by `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe` with the variables it needs. Through the probe on all three platforms, a vanished process never leaves a standing hold; `cannot-tell` describes only an existing process, and `vault doctor` reports such holds with process ID and session.
+  2. *Commit while held:* tests first (`6cb57ef`), then `8c16254`: `commitAsActor` refuses while another standing hold exists; it checks and never takes one.
+  3. *concepts.md judgements:* `d7cdd07` — `judgement:<axis>`, each axis recorded on its own, an axis that cannot be judged records nothing.
+  4. *GitHub adapter:* verified against GitHub's REST description; tests first (`7c0b59d`), then `09f0dd1`: rulesets read, so a ruleset-protected main is not reported unprotected; reviews read across pages (already so, now tested); a deleted account's review counts for nothing.
