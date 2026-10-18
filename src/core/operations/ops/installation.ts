@@ -5,11 +5,14 @@
 // by default the OS user). A vault registered with `add` is not accepted by
 // that, so it shows an unaccepted change until an owner adopts its `main`.
 // Both install the vault's hooks (`hooks.ts`), except where the user's own are
-// in the way.
+// in the way. `init` also makes the person's worktree, so there is somewhere
+// to edit at once.
 
 import { isAbsolute, basename, resolve } from 'node:path';
+import { ensureActorWorktree } from '../../actors/index.ts';
 import { checkPerson, registerVault } from '../../config/index.ts';
-import { readVaultIdentity, registeredVaults } from '../../registry/index.ts';
+import type { AcceptedMain } from '../../integrity/index.ts';
+import { readVaultIdentity, registeredVaults, type RegisteredVault } from '../../registry/index.ts';
 import { err, ok, type Result } from '../../result/index.ts';
 import { createEmptyVault, createFromTemplate, inspectTemplate, resolveTemplateSpec } from '../../templates/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
@@ -61,10 +64,25 @@ function newConfigPerson(context: OperationContext, request: { readonly params: 
 
 const PERSON_PARAM = { name: 'person', kind: 'string', description: 'The installation\'s person, when the config file is created (default: the OS user)' } as const;
 
+/** The vault as registered just now, with its default locations. */
+function justRegistered(context: OperationContext, id: string, path: string): RegisteredVault | undefined {
+  return registeredVaults({ vaults: [{ id, path, host: false }] }, context.installation.paths, context.installation.host.os)[0];
+}
+
 /** Installs the vault's hooks where none of the user's are in the way; what happened, one line each. */
 async function installHooks(context: OperationContext, id: string, path: string): Promise<string[]> {
-  const [vault] = registeredVaults({ vaults: [{ id, path, host: false }] }, context.installation.paths, context.installation.host.os);
+  const vault = justRegistered(context, id, path);
   return vault === undefined ? [] : (await hookFindings(context, vault, true)).map((f) => f.message);
+}
+
+/** Makes the person's worktree in a vault just created, so there is somewhere to edit; what happened, one line. */
+async function makeOwnWorktree(context: OperationContext, id: string, path: string, accepted: AcceptedMain, person: string): Promise<string> {
+  const vault = justRegistered(context, id, path);
+  if (vault === undefined) return '';
+  const made = await ensureActorWorktree(context.git, vault, accepted, person, context.reads);
+  return made.ok
+    ? `Your worktree, where you edit and commit: ${made.value.path}`
+    : `No worktree was made for "${person}": ${made.error.reason === 'unknown-actor' ? 'not one of the vault\'s owners or actors' : made.error.reason}.`;
 }
 
 export const addOperation: Operation = {
@@ -131,9 +149,11 @@ export const initOperation: Operation = {
     const added = registerVault(context.installation.paths.configFile, context.installation.host, { id, path }, created.value);
     if (!added.ok) return fromError(added.error, { created: made.value });
     const hooks = await installHooks(context, id, path);
+    const worktree = await makeOwnWorktree(context, id, path, made.value.accepted, person.value);
     return succeeded([
       `Created vault "${id}" at ${path}, accepted at ${made.value.accepted.sha}, and registered it${created.value === undefined ? '' : `, creating ${context.installation.paths.configFile} for person "${created.value}"`}.`,
       ...hooks.map((h) => `Hooks: ${h}`),
+      ...(worktree === '' ? [] : [worktree]),
     ].join('\n'), { ...made.value, hooks });
   },
 };

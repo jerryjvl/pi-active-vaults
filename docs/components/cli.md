@@ -25,7 +25,7 @@ its operation's parameters (`vault <command> --help`).
 
 | Command | Does |
 |---|---|
-| `vault init <path> [--template <url\|name>[@ref]] [--id <id>] [--person <name>]` | Create a vault and register it: empty — owned by the installation's `person`, every change needing checks and an owner — or from a template with fresh history. Its first commit is its accepted `main`. Installs the vault's hooks. Where there is no config file yet it creates one (private), with `installation.person` from `--person`, by default the OS user's name; `--person` is refused where the config exists |
+| `vault init <path> [--template <url\|name>[@ref]] [--id <id>] [--person <name>]` | Create a vault and register it: empty — owned by the installation's `person`, every change needing checks and an owner — or from a template with fresh history. Its first commit is its accepted `main`. Installs the vault's hooks and makes your worktree. Where there is no config file yet it creates one (private), with `installation.person` from `--person`, by default the OS user's name; `--person` is refused where the config exists |
 | `vault template show <url\|name>[@ref]` | Check that a repository is a compatible template and summarise it |
 | `vault add <path> [--person <name>]` | Register an existing vault in the installation, by the id its root contract declares; nothing in it is accepted until an owner adopts `main`. Installs the vault's hooks where none of the user's are in the way, and says which it left; creates the config file as `init` does |
 | `vault list` | Registered vaults and their catalog entries, and where the installation's `person` works in each (their actor worktree, under the state directory unless the vault configures another) |

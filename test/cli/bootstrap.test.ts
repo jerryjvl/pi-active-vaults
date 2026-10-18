@@ -127,3 +127,15 @@ test('add installs the hooks where none of the user\'s are in the way, and says 
     other.cleanup();
   }
 }));
+
+test('init makes the person\'s worktree, so the worktree that list shows exists to edit in', withEmptyHome(async (home) => {
+  const made = await home.vault('init', home.dir.file('vaults', 'notes'), '--person', 'jerry');
+  assert.equal(made.code, 0, made.stderr);
+  const listed = JSON.parse((await home.vault('list', '--json')).stdout) as { data: { vaults: { worktree?: string; accepted: string }[] } };
+  const [vault] = listed.data.vaults;
+  assert.ok(vault?.worktree !== undefined, 'list names the worktree');
+  assert.equal(existsSync(join(vault.worktree, '_contract.md')), true, 'the worktree exists, checked out');
+  assert.match(made.stdout, new RegExp(`worktree.*${vault.worktree.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  const status = await home.vault('status');
+  assert.equal(status.code, 0, status.stderr);
+}));

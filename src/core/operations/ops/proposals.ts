@@ -38,12 +38,18 @@ async function commitContext(context: OperationContext, caller: Caller): Promise
   };
 }
 
+/** The policy's state in a word: an owner's approval, which accepting gives, is not shown as a failure. */
+function policySummary({ verdict }: MergeEvaluation): string {
+  if (verdict.satisfied) return 'satisfied';
+  return verdict.requirements.every((r) => r.met || r.requirement === 'owner') ? 'met once an owner accepts it' : 'not satisfied';
+}
+
 function evaluationLines(evaluation: MergeEvaluation): string[] {
   return [
     ...evaluation.checks.map((c) => `  check ${c.name}: ${c.status}`),
     ...evaluation.control.map((c) => `  control change: ${c.path} (${c.reason})`),
     ...evaluation.verdict.requirements.map((r) => `  ${r.met ? 'met' : 'unmet'} ${r.requirement}${r.met ? '' : `: ${r.reasons.join('; ')}`}`),
-    `  merge policy ${evaluation.verdict.satisfied ? 'satisfied' : 'not satisfied'}`,
+    `  merge policy ${policySummary(evaluation)}`,
   ];
 }
 

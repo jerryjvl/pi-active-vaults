@@ -75,6 +75,8 @@ test('status shows each pending proposal with its checks and what the policy sti
   const status = await t.run('status');
   assert.match(status.text, /proposal from gardener: 1 commit\(s\), head [0-9a-f]{40}/);
   assert.match(status.text, /unmet owner: no owner has approved this commit/);
+  assert.match(status.text, /merge policy met once an owner accepts it/, "an owner's approval alone is not shown as a failure");
+  assert.doesNotMatch(status.text, /not satisfied/);
 }));
 
 test('status shows where the installation person works in each vault — not to a remote client, which has no use for a machine path', withInstallation(async (t) => {
