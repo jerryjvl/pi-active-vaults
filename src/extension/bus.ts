@@ -9,7 +9,7 @@ import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { callRequest, describeCommandLineError, operationNamed, outcomeData } from '../core/operations/index.ts';
 import { isRecord } from '../core/result/index.ts';
 import { liveOr, type Holder } from './live.ts';
-import { operate, VERSION_CHANNEL, whereOf } from './operate.ts';
+import { operate, CHANNEL_PREFIX, whereOf } from './operate.ts';
 
 /** The methods answered, in the order `ready` lists them. */
 export const BUS_METHODS = ['ping', 'search', 'contract', 'status'] as const;
@@ -30,13 +30,13 @@ async function answer(pi: ExtensionAPI, holder: Holder, method: string, params: 
 
 /** Answers requests until the returned function is called. */
 export function subscribeRequests(pi: ExtensionAPI, holder: Holder): () => void {
-  return pi.events.on(`${VERSION_CHANNEL}:request`, (data) => {
+  return pi.events.on(`${CHANNEL_PREFIX}:request`, (data) => {
     if (!isRecord(data) || typeof data['id'] !== 'string' || typeof data['method'] !== 'string') return;
     const { id, method } = data;
     const params = isRecord(data['params']) ? data['params'] : {};
     void answer(pi, holder, method, params).then(
-      (reply) => pi.events.emit(`${VERSION_CHANNEL}:reply:${id}`, reply),
-      (error: unknown) => pi.events.emit(`${VERSION_CHANNEL}:reply:${id}`, { ok: false, error: error instanceof Error ? error.message : String(error) }),
+      (reply) => pi.events.emit(`${CHANNEL_PREFIX}:reply:${id}`, reply),
+      (error: unknown) => pi.events.emit(`${CHANNEL_PREFIX}:reply:${id}`, { ok: false, error: error instanceof Error ? error.message : String(error) }),
     );
   });
 }

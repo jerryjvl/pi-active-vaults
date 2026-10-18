@@ -8,16 +8,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fauxAssistantMessage, fauxToolCall, type JsonObject } from '@earendil-works/pi-ai';
+import { fauxAssistantMessage } from '@earendil-works/pi-ai';
 import { actorHold } from '../../src/core/actors/index.ts';
 import { eventJson } from '../../src/core/conditions/index.ts';
 import { renderRunContext } from '../../src/core/sessions/index.ts';
 import { withInstallation, type TestInstallation } from '../support/installation.ts';
-import { withPi } from '../support/pi.ts';
+import { toolCall, withPi } from '../support/pi.ts';
 import { RUNNING, runOf, startedSpawn } from '../support/session.ts';
 import type { SpawnEntry } from '../../src/core/queue/index.ts';
 
-const call = (name: string, args: JsonObject) => fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
 
 function runFile(t: TestInstallation, entry: SpawnEntry, overrides: Record<string, unknown> = {}): string {
   const path = t.dir.file(`run-${entry.trace}.json`);
@@ -62,7 +61,7 @@ test('a run past its budget is stopped', withInstallation(async (t) => {
 test('a run writes only in its worktree', withInstallation(async (t) => {
   const entry = startedSpawn(t, 'jobs/daily.md', 1_000_000);
   await withPi(t, { flags: { 'vault-run': runFile(t, entry) } }, async (pi) => {
-    pi.respond(call('write', { path: t.dir.file('elsewhere.txt'), content: 'x' }), call('write', { path: join(t.vault.worktrees, 'gardener', 'a.md'), content: 'A' }), fauxAssistantMessage('Done.'));
+    pi.respond(toolCall('write', { path: t.dir.file('elsewhere.txt'), content: 'x' }), toolCall('write', { path: join(t.vault.worktrees, 'gardener', 'a.md'), content: 'A' }), fauxAssistantMessage('Done.'));
     await pi.prompt('Run the job.');
     const writes = (pi.requests.at(-1)?.messages ?? []).filter((m) => m.role === 'toolResult' && m.toolName === 'write');
     assert.deepEqual(writes.map((m) => (m as { isError: boolean }).isError), [true, false], 'a blocked call is an error result');

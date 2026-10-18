@@ -11,12 +11,13 @@ import type { RegisteredVault } from '../core/registry/index.ts';
 import { callerOf, holdActor } from '../core/sessions/index.ts';
 import type { Live } from './live.ts';
 
-export const VERSION_CHANNEL = 'pav:v1';
+/** The package's channels on Pi's event bus, namespaced and versioned (api.md "Events"). */
+export const CHANNEL_PREFIX = 'pav:v1';
 
 /** Tells other packages what spawned work was requested, or how a run ended. */
 export function publishSpawns(pi: ExtensionAPI, entries: readonly SpawnEntry[]): void {
   for (const e of entries) {
-    pi.events.emit(`${VERSION_CHANNEL}:spawn`, {
+    pi.events.emit(`${CHANNEL_PREFIX}:spawn`, {
       state: e.state === 'queued' ? 'requested' : e.state, trace: e.trace, vault: e.vault, document: e.document,
       ...(e.parent === undefined ? {} : { parent: e.parent }), ...(e.reason === undefined ? {} : { reason: e.reason }),
     });

@@ -6,7 +6,6 @@
 import type { ForgeDeps } from '../../forge/index.ts';
 import { acceptedMain, type AcceptedMain } from '../../integrity/index.ts';
 import type { NotifyDeps } from '../../notify/index.ts';
-import type { MatchedSpawns, QueueContext, SpawnEntry, SpawnMatching } from '../../queue/index.ts';
 import type { RegisteredVault } from '../../registry/index.ts';
 import { err, ok, type Result } from '../../result/index.ts';
 import type { SearchContext } from '../../search/index.ts';
@@ -86,28 +85,3 @@ export function lineRange(content: string, range: string | undefined): string {
   return content.split('\n').slice(start - 1, end).join('\n');
 }
 
-/** How an event is matched to jobs on this installation. */
-export async function spawnMatching(context: OperationContext): Promise<SpawnMatching> {
-  const { config, vaults } = context.installation;
-  return {
-    git: context.git, store: context.state, vaults,
-    match: { subscriptions: config.subscriptions, equivalentLabels: config.labels.equivalent },
-    scripts: { ...(await context.scriptOptions()), builtins: [] },
-  };
-}
-
-/** What claiming a spawn needs: IDs for its trace, the clock, and the installation's budget limits. */
-export function queueContext(context: OperationContext): QueueContext {
-  return { ids: context.ids, clock: context.clock, limits: context.installation.config.budgets };
-}
-
-/** What became of each spawn requested, and of the matches that requested none, for a person or model. */
-export function spawnLines(entries: readonly SpawnEntry[], matched: Pick<MatchedSpawns, 'dropped' | 'paused'>): string[] {
-  return [
-    ...entries.map((e) => (e.state === 'queued'
-      ? `Queued ${e.vault}:${e.document} as trace ${e.trace}; the daemon runs it.`
-      : `${e.vault}:${e.document} was not queued: ${e.reason ?? e.state}.`)),
-    ...matched.dropped.map((d) => `${d.vault}:${d.document}: its script did not match (${d.reason}).`),
-    ...matched.paused.map((id) => `Vault "${id}" is paused (unaccepted change); its jobs were not matched.`),
-  ];
-}

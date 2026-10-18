@@ -11,7 +11,7 @@ import { listRefs, readTextAt } from '../../git/index.ts';
 import { isTraceId } from '../../ids/index.ts';
 import { requireNoUnacceptedChange } from '../../integrity/index.ts';
 import { notifyBuiltin, sendNotification, testTransport } from '../../notify/index.ts';
-import { enqueueSpawn, listSpawns, matchSpawns, reachedVaults, submitSpawns, vaultJobs, type MatchedSpawns, type SpawnEntry } from '../../queue/index.ts';
+import { enqueueSpawn, listSpawns, vaultJobs, type MatchedSpawns, type SpawnEntry } from '../../queue/index.ts';
 import type { RegisteredVault } from '../../registry/index.ts';
 import { runScript } from '../../scripts/index.ts';
 import { compactTracePath, newTraceId, parseCompactTrace, readFullLog, type CompactTrace } from '../../traces/index.ts';
@@ -19,7 +19,8 @@ import type { OperationContext } from '../context.ts';
 import { locate } from '../locate.ts';
 import { fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Operation, OperationRequest } from '../types.ts';
-import { notifyDeps, queueContext, readingFrom, spawnLines, spawnMatching, text, texts, theVault } from './common.ts';
+import { queueContext, requestSpawns, spawnLines } from '../spawning.ts';
+import { notifyDeps, readingFrom, text, texts, theVault } from './common.ts';
 
 /** A condition in a line: its event and what it filters on. */
 function conditionText(condition: Candidate['conditions'][number]): string {
@@ -120,10 +121,9 @@ export const triggerOperation: Operation = {
       }
     }
     const event: VaultEvent = { kind: 'external', vault: vault.id, name: text(request.params, 'name') ?? '', ...(payload === undefined ? {} : { payload }) };
-    const { vaults, config } = context.installation;
-    const matched = await matchSpawns(await spawnMatching(context), { event, id: newTraceId(context.ids) }, reachedVaults(vaults, config.subscriptions, vault.id));
-    if (!matched.ok) return fromError(matched.error);
-    return queuedOutcome(await submitSpawns(context.state, queueContext(context), matched.value.requests), matched.value);
+    const requested = await requestSpawns(context, { event, id: newTraceId(context.ids) });
+    if (!requested.ok) return fromError(requested.error);
+    return queuedOutcome(requested.value.entries, requested.value.matched);
   },
 };
 

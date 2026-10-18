@@ -15,14 +15,15 @@ import { diffText } from '../../git/index.ts';
 import { requireNoUnacceptedChange } from '../../integrity/index.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
 import { evaluateMerge, type MergeEvaluation } from '../../policy/index.ts';
-import { listSpawns, matchSpawns, reachedVaults, submitSpawns, type SpawnEntry } from '../../queue/index.ts';
+import { listSpawns, type SpawnEntry } from '../../queue/index.ts';
 import { readVaultIdentity, writersOf, type RegisteredVault } from '../../registry/index.ts';
 import { newTraceId } from '../../traces/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
 import { vaultRelative } from '../locate.ts';
 import { fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Caller, Operation } from '../types.ts';
-import { actorOf, flag, forgeDeps, personOf, queueContext, readingFrom, spawnLines, spawnMatching, text, texts, theVault } from './common.ts';
+import { requestSpawns, spawnLines } from '../spawning.ts';
+import { actorOf, flag, forgeDeps, personOf, readingFrom, text, texts, theVault } from './common.ts';
 
 const ACTOR_PARAM = { name: 'actor', kind: 'string', positional: true, description: 'The actor whose proposal it is' } as const;
 
@@ -284,15 +285,13 @@ export const commitOperation: Operation = {
 async function spawnsOfCommit(context: OperationContext, vault: RegisteredVault, sha: string, parent: string | undefined): Promise<{ lines: string[]; entries: SpawnEntry[] }> {
   const events = await deriveEvents(context.git, vault.path, vault.id, { kind: 'committed', from: `${sha}^`, to: sha });
   if (!events.ok) return { lines: [`Its events could not be read (${events.error.reason}); nothing was spawned.`], entries: [] };
-  const { vaults, config } = context.installation;
   const entries: SpawnEntry[] = [];
   const lines: string[] = [];
   for (const event of events.value) {
-    const matched = await matchSpawns(await spawnMatching(context), { event }, reachedVaults(vaults, config.subscriptions, vault.id), parent === undefined ? {} : { parent });
-    if (!matched.ok) return { lines: [...lines, `Its spawns could not be matched (${matched.error.reason}).`], entries };
-    const submitted = await submitSpawns(context.state, queueContext(context), matched.value.requests);
-    entries.push(...submitted);
-    lines.push(...spawnLines(submitted, matched.value));
+    const requested = await requestSpawns(context, { event }, parent === undefined ? {} : { parent });
+    if (!requested.ok) return { lines: [...lines, `Its spawns could not be matched (${requested.error.reason}).`], entries };
+    entries.push(...requested.value.entries);
+    lines.push(...spawnLines(requested.value.entries, requested.value.matched));
   }
   return { lines, entries };
 }

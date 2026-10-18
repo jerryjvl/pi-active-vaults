@@ -1,5 +1,6 @@
-// Public surface of the queue module: the jobs a vault declares, the spawn
-// queue and its claims, and job cursors, on top of `store`.
+// Public surface of the queue module: the jobs a vault declares, matching an
+// event to the spawns it requests, the spawn queue and its claims, and job
+// cursors, on top of `store`.
 
 export {
   commitSpawn,

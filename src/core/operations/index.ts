@@ -1,6 +1,8 @@
 // Public surface of the operations layer: what every surface is generated
-// from — the catalogue of operations, permission sets, and the assembly of
-// the local stores from each module's schema.
+// from — the catalogue of operations, reading command lines and calls into
+// requests, what each surface shows of an outcome, permission sets,
+// requesting spawns, and the assembly of the local stores from each module's
+// schema.
 
 export { INDEX_MODULES, STATE_MODULES, openIndexStore, openStateStore } from './stores.ts';
 export { loadInstallation, type Installation, type InstallationError } from './installation.ts';
@@ -14,7 +16,7 @@ export { describeError, fromError } from './messages.ts';
 export { MODEL_TEXT_LIMIT, modelResult, outcomeData, type ModelResult, type OutcomeData } from './results.ts';
 export { unacceptedNotices, type VaultNotice } from './notices.ts';
 export { doctorFindings, type Finding } from './ops/doctor.ts';
-export { queueContext, spawnLines, spawnMatching } from './ops/common.ts';
+export { queueContext, requestSpawns, spawnLines, type RequestedSpawns } from './spawning.ts';
 export type {
   Caller, Operation, OperationOutcome, OperationRequest, OperationStatus, ParamKind, ParamSpec, ParamSurface, Surfaces, VaultScope,
 } from './types.ts';

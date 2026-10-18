@@ -12,13 +12,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fauxAssistantMessage, fauxToolCall, type JsonObject } from '@earendil-works/pi-ai';
 import { withInstallation, type TestInstallation } from '../support/installation.ts';
-import { toolResults, withPi } from '../support/pi.ts';
+import { DONE, toolResults, toolCall, withPi } from '../support/pi.ts';
 import { RUNNING } from '../support/session.ts';
 
-const done = fauxAssistantMessage('Done.');
-const call = (name: string, args: JsonObject) => fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
 
 function vaultTools(pi: Awaited<Parameters<Parameters<typeof withPi>[2]>[0]>) {
   return pi.runtime.session.getAllTools().filter((tool) => tool.name.startsWith('vault_'));
@@ -65,7 +62,7 @@ test('vault_read returns the accepted content as text and as data; a missing doc
   t.repo.commit('note');
   t.accept();
   await withPi(t, {}, async (pi) => {
-    pi.respond(call('vault_read', { path: 'home:notes/a.md' }), call('vault_read', { path: 'home:notes/missing.md' }), done);
+    pi.respond(toolCall('vault_read', { path: 'home:notes/a.md' }), toolCall('vault_read', { path: 'home:notes/missing.md' }), DONE);
     await pi.prompt('Read it.');
     assert.deepEqual(pi.results.map((r) => [r.tool, r.isError, r.text.split('\n')[0]]), [
       ['vault_read', false, 'Alpha.'],
@@ -84,7 +81,7 @@ test('a vault tool\'s result for a vault with an unaccepted change carries the n
   t.repo.write('stray.md', 'x');
   t.repo.commit('stray');
   await withPi(t, {}, async (pi) => {
-    pi.respond(call('vault_read', { path: 'home:notes/a.md' }), done);
+    pi.respond(toolCall('vault_read', { path: 'home:notes/a.md' }), DONE);
     await pi.prompt('Read it.');
     assert.match(toolResults(pi.requests.at(-1), 'vault_read')[0] ?? '', /Alpha\.[^]*Vault "home": main has 1 unaccepted commit/);
   });
@@ -97,7 +94,7 @@ async function writeInWorktree(t: TestInstallation, actor: string, path: string,
 test('vault_commit commits the session\'s worktree as its actor, with its trace and session, after the checks', withInstallation(async (t) => {
   await withPi(t, { flags: { 'vault-actor': 'gardener' } }, async (pi) => {
     await writeInWorktree(t, 'gardener', 'notes.md', 'A note.\n');
-    pi.respond(call('vault_commit', { message: 'Add a note' }), done);
+    pi.respond(toolCall('vault_commit', { message: 'Add a note' }), DONE);
     await pi.prompt('Commit.');
     const result = toolResults(pi.requests.at(-1), 'vault_commit')[0] ?? '';
     assert.match(result, /^Committed [0-9a-f]{40} on actor\/gardener\./);

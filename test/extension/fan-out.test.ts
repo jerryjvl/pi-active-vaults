@@ -8,14 +8,14 @@
 // SDK.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fauxAssistantMessage, fauxToolCall, getCurrentTools, type FauxResponseStep, type JsonObject } from '@earendil-works/pi-ai';
+import { fauxAssistantMessage, getCurrentTools, type FauxResponseStep, type JsonObject } from '@earendil-works/pi-ai';
 import { writeFileSync } from 'node:fs';
 import { renderRunContext } from '../../src/core/sessions/index.ts';
 import { withInstallation } from '../support/installation.ts';
-import { toolResults, withPi } from '../support/pi.ts';
+import { toolCall, toolResults, withPi } from '../support/pi.ts';
 import { RUNNING, runOf, startedSpawn } from '../support/session.ts';
 
-const fanOut = (args: JsonObject) => fauxAssistantMessage(fauxToolCall('vault_fan_out', args), { stopReason: 'toolUse' });
+const fanOut = (args: JsonObject) => toolCall('vault_fan_out', args);
 
 /** An item or gather answer that records what it was asked, and whether it was offered any tools. */
 function answer(text: string, asked: { prompt: string; tools: number }[]): FauxResponseStep {

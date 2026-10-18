@@ -11,16 +11,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fauxAssistantMessage, fauxToolCall, type JsonObject } from '@earendil-works/pi-ai';
 import { actorHold, takeActorHold } from '../../src/core/actors/index.ts';
 import { budgetState } from '../../src/core/budgets/index.ts';
 import { listSpawns } from '../../src/core/queue/index.ts';
 import { withInstallation } from '../support/installation.ts';
-import { toolResults, withPi } from '../support/pi.ts';
+import { DONE, toolResults, toolCall, withPi } from '../support/pi.ts';
 import { OTHER_HOLDER, RUNNING } from '../support/session.ts';
 
-const done = fauxAssistantMessage('Done.');
-const call = (name: string, args: JsonObject) => fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
 
 test('the session holds its actor while it runs, and releases it at shutdown', withInstallation(async (t) => {
   await withPi(t, { flags: { 'vault-actor': 'gardener' } }, async (pi) => {
@@ -41,7 +38,7 @@ test('the system prompt lists the vault catalog; the start reports unaccepted ch
   t.repo.write('stray.md', 'x');
   t.repo.commit('stray');
   await withPi(t, {}, async (pi) => {
-    pi.respond(done);
+    pi.respond(DONE);
     await pi.prompt('Hello.');
     const [first] = pi.requests;
     assert.match(first?.system ?? '', /## Knowledge vaults[^]*- home: Home things\./);
@@ -54,9 +51,9 @@ test('writes outside the session\'s worktree are blocked with where to write ins
   await withPi(t, { flags: { 'vault-actor': 'gardener' } }, async (pi) => {
     const worktree = join(t.vault.worktrees, 'gardener');
     pi.respond(
-      call('write', { path: 'notes/a.md', content: 'In the checkout.' }),
-      call('write', { path: join(worktree, 'notes', 'b.md'), content: 'In the worktree.' }),
-      done,
+      toolCall('write', { path: 'notes/a.md', content: 'In the checkout.' }),
+      toolCall('write', { path: join(worktree, 'notes', 'b.md'), content: 'In the worktree.' }),
+      DONE,
     );
     await pi.prompt('Write.');
     assert.equal(existsSync(join(t.repo.path, 'notes', 'a.md')), false);
@@ -68,7 +65,7 @@ test('writes outside the session\'s worktree are blocked with where to write ins
 
 test('a shell command that pushes is blocked', { skip: process.platform === 'win32' ? 'bash' : false }, withInstallation(async (t) => {
   await withPi(t, { flags: { 'vault-actor': 'gardener' } }, async (pi) => {
-    pi.respond(call('bash', { command: 'git push origin actor/gardener' }), done);
+    pi.respond(toolCall('bash', { command: 'git push origin actor/gardener' }), DONE);
     await pi.prompt('Push.');
     assert.match(toolResults(pi.requests.at(-1), 'bash')[0] ?? '', /Pushing is not for sessions/);
   });
@@ -77,10 +74,10 @@ test('a shell command that pushes is blocked', { skip: process.platform === 'win
 test('an untrusted tool taints the session, and its commits say so', { skip: process.platform === 'win32' ? 'bash' : false }, withInstallation(async (t) => {
   await withPi(t, { flags: { 'vault-actor': 'gardener' } }, async (pi) => {
     pi.respond(
-      call('bash', { command: 'echo fetched' }),
-      call('write', { path: join(t.vault.worktrees, 'gardener', 'a.md'), content: 'A' }),
-      call('vault_commit', { message: 'After an untrusted tool' }),
-      done,
+      toolCall('bash', { command: 'echo fetched' }),
+      toolCall('write', { path: join(t.vault.worktrees, 'gardener', 'a.md'), content: 'A' }),
+      toolCall('vault_commit', { message: 'After an untrusted tool' }),
+      DONE,
     );
     await pi.prompt('Work.');
     assert.match(t.repo.git('log', '-1', '--format=%B', 'refs/heads/actor/gardener'), /Vault-Tainted: yes/);
@@ -93,10 +90,10 @@ test('reading only inside the vaults with trusted tools leaves the session untai
   t.accept();
   await withPi(t, { flags: { 'vault-actor': 'gardener' } }, async (pi) => {
     pi.respond(
-      call('read', { path: 'notes/a.md' }),
-      call('write', { path: join(t.vault.worktrees, 'gardener', 'b.md'), content: 'B' }),
-      call('vault_commit', { message: 'Clean work' }),
-      done,
+      toolCall('read', { path: 'notes/a.md' }),
+      toolCall('write', { path: join(t.vault.worktrees, 'gardener', 'b.md'), content: 'B' }),
+      toolCall('vault_commit', { message: 'Clean work' }),
+      DONE,
     );
     await pi.prompt('Work.');
     assert.doesNotMatch(t.repo.git('log', '-1', '--format=%B', 'refs/heads/actor/gardener'), /Vault-Tainted/);
@@ -109,7 +106,7 @@ test('touching a vault path injects its contract once, with the result of the ca
   t.repo.commit('notes');
   t.accept();
   await withPi(t, {}, async (pi) => {
-    pi.respond(call('read', { path: 'notes/a.md' }), call('read', { path: 'notes/a.md' }), done);
+    pi.respond(toolCall('read', { path: 'notes/a.md' }), toolCall('read', { path: 'notes/a.md' }), DONE);
     await pi.prompt('Read twice.');
     const [first, second] = toolResults(pi.requests.at(-1), 'read');
     assert.match(first ?? '', /Alpha\.[^]*<vault-context source="home:_contract\.md">\nRoot prose\.[^]*source="home:notes\/_contract\.md">\nNotes are short\./);
@@ -122,7 +119,7 @@ test('session.start documents are injected before the first request', withInstal
   t.repo.commit('memory');
   t.accept();
   await withPi(t, {}, async (pi) => {
-    pi.respond(done);
+    pi.respond(DONE);
     await pi.prompt('Hello.');
     assert.match(JSON.stringify(pi.requests[0]?.messages), /source=\\"home:memory\/always\.md\\">\\nBe brief\./);
   });
@@ -134,7 +131,7 @@ test('a session event that matches a job queues it in the session\'s tree, and s
   t.repo.commit('job');
   t.accept();
   await withPi(t, {}, async (pi) => {
-    pi.respond(call('read', { path: 'notes/a.md' }), done);
+    pi.respond(toolCall('read', { path: 'notes/a.md' }), DONE);
     await pi.prompt('Read.');
     const spawns = listSpawns(t.context.state);
     assert.deepEqual(spawns.map((s) => [s.document, s.state, s.depth]), [['jobs/on-notes.md', 'queued', 1]]);
@@ -146,7 +143,7 @@ test('a session event that matches a job queues it in the session\'s tree, and s
 
 test('each turn\'s tokens are recorded against the session\'s budget as it ends', withInstallation(async (t) => {
   await withPi(t, {}, async (pi) => {
-    pi.respond(call('read', { path: '_contract.md' }), done);
+    pi.respond(toolCall('read', { path: '_contract.md' }), DONE);
     await pi.prompt('Look.');
     const ready = pi.events.find((e) => e.channel === 'pav:v1:ready')?.data as { trace: string };
     const state = budgetState(t.context.state, t.installation.config.budgets, t.clock, ready.trace);

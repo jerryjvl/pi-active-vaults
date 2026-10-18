@@ -7,9 +7,8 @@
 // queued: one spawn, whatever happens to the reply. Spawned work joins the
 // session's tree, under the session's trace.
 
-import type { SpawnEntry, SpawnSender } from '../queue/index.ts';
-import { matchSpawns, reachedVaults, submitSpawns } from '../queue/index.ts';
-import { queueContext, spawnLines, spawnMatching, type OperationContext } from '../operations/index.ts';
+import { spawnEventKey, type SpawnEntry, type SpawnSender } from '../queue/index.ts';
+import { requestSpawns, spawnLines, type OperationContext } from '../operations/index.ts';
 import { injectionsFor, type Injection, type SessionEvent } from './injection.ts';
 import type { VaultSession } from './session.ts';
 
@@ -39,15 +38,13 @@ const NOTHING = { injections: [], spawns: [], notes: [] } as const;
 /** Handles a session event the first time it happens: what it injects and what it spawns. */
 export async function sessionEvent(context: OperationContext, session: VaultSession, event: SessionEvent, send?: SpawnSender): Promise<SessionEventOutcome> {
   const id = eventId(session, event);
-  const key = `${event.kind}:${event.kind === 'session.path' ? `${event.vault}:` : ''}${id}`;
+  // The same key its spawns are claimed under: once seen, it has been matched.
+  const key = spawnEventKey({ ...event, id });
   if (session.seen.has(key)) return { fresh: false, ...NOTHING };
   session.seen.add(key);
 
   const injections = await injectionsFor(context, session, event);
-  const { vaults, config } = context.installation;
-  const targets = reachedVaults(vaults, config.subscriptions, event.kind === 'session.path' ? event.vault : undefined);
-  const matched = await matchSpawns(await spawnMatching(context), { event, id }, targets, { parent: session.trace });
-  if (!matched.ok) return { fresh: true, injections, spawns: [], notes: [`Its spawns could not be matched (${matched.error.reason}).`] };
-  const spawns = await submitSpawns(context.state, queueContext(context), matched.value.requests, send);
-  return { fresh: true, injections, spawns, notes: spawnLines([], matched.value) };
+  const requested = await requestSpawns(context, { event, id }, { parent: session.trace }, send);
+  if (!requested.ok) return { fresh: true, injections, spawns: [], notes: [`Its spawns could not be matched (${requested.error.reason}).`] };
+  return { fresh: true, injections, spawns: requested.value.entries, notes: spawnLines([], requested.value.matched) };
 }

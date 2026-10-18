@@ -8,7 +8,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  fauxProvider, getCurrentSystemPrompt, type FauxProviderHandle, type FauxResponseStep, type Message,
+  fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt,
+  type AssistantMessage, type FauxProviderHandle, type FauxResponseStep, type JsonObject, type Message,
 } from '@earendil-works/pi-ai';
 import {
   createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, ModelRuntime, SessionManager, SettingsManager,
@@ -166,3 +167,11 @@ export function toolResults(request: PiRequest | undefined, toolName: string): s
 }
 
 export { textOf };
+
+/** The model's final answer. */
+export const DONE = fauxAssistantMessage('Done.');
+
+/** The model calls a tool. */
+export function toolCall(name: string, args: JsonObject): AssistantMessage {
+  return fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
+}

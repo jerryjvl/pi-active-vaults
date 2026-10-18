@@ -29,7 +29,7 @@ import {
 import type { OperationContext } from '../core/operations/index.ts';
 import { BUS_METHODS, subscribeRequests } from './bus.ts';
 import type { Holder, Live } from './live.ts';
-import { publishSpawns, VERSION_CHANNEL } from './operate.ts';
+import { publishSpawns, CHANNEL_PREFIX } from './operate.ts';
 import { readsOf, shellOf, writesOf } from './paths.ts';
 
 export interface HookOptions {
@@ -98,7 +98,7 @@ async function start(pi: ExtensionAPI, holder: Holder, options: HookOptions, ctx
   if (session.brief !== undefined) live.pending.push(session.brief);
   live.pending.push(...(await handle(pi, live, { kind: 'session.start', ...modelOf(ctx) })));
   live.subscriptions.push(subscribeRequests(pi, holder));
-  pi.events.emit(`${VERSION_CHANNEL}:ready`, { version: packageVersion(), capabilities: [...BUS_METHODS], trace: session.trace });
+  pi.events.emit(`${CHANNEL_PREFIX}:ready`, { version: packageVersion(), capabilities: [...BUS_METHODS], trace: session.trace });
 }
 
 const modelOf = (ctx: ExtensionContext): { model?: string } => (ctx.model === undefined ? {} : { model: ctx.model.id });
@@ -107,7 +107,7 @@ const modelOf = (ctx: ExtensionContext): { model?: string } => (ctx.model === un
 async function handle(pi: ExtensionAPI, live: Live, event: SessionEvent): Promise<string[]> {
   const outcome = await sessionEvent(live.context, live.session, event);
   if (!outcome.fresh) return [];
-  pi.events.emit(`${VERSION_CHANNEL}:event`, event);
+  pi.events.emit(`${CHANNEL_PREFIX}:event`, event);
   publishSpawns(pi, outcome.spawns);
   const spawned = outcome.spawns.filter((s) => s.state === 'queued').map((s) => `Spawned ${s.vault}:${s.document} (trace ${s.trace}).`);
   return [
@@ -149,7 +149,7 @@ function usages(...found: (Usage | undefined)[]) {
 
 function stopIfOver(pi: ExtensionAPI, session: VaultSession, ctx: ExtensionContext, stop: string | undefined): void {
   if (stop === undefined) return;
-  pi.events.emit(`${VERSION_CHANNEL}:spawn`, { state: 'stopped', reason: stop, trace: session.trace });
+  pi.events.emit(`${CHANNEL_PREFIX}:spawn`, { state: 'stopped', reason: stop, trace: session.trace });
   ctx.ui.notify(`Vaults: the run is over its ${stop === 'ttl' ? 'run time' : 'budget'} and stops.`, 'error');
   ctx.abort();
   ctx.shutdown();

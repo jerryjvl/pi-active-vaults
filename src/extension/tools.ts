@@ -5,8 +5,9 @@
 //
 // Declarations hold no runtime values (pi-conventions.md "Prompt-cache
 // stability"): the schemas, descriptions and guidelines are the same in every
-// session. A tool's vault comes from its vault paths (`<vault-id>:<path>`),
-// from `vaults` for an operation over many, or else is the session's own.
+// session. A tool's vault is chosen by the core (`callRequest`): its vault
+// paths (`<vault-id>:<path>`), `vaults` for an operation over many, the vault
+// the session's directory is in, or else the session's own.
 
 import type { ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { Type, type TSchema } from 'typebox';
