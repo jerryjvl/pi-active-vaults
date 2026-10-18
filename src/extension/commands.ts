@@ -6,7 +6,7 @@
 // by it. An operation awaiting confirmation (adopting) asks the person first,
 // when there is a person to ask.
 
-import { fileURLToPath } from 'node:url';
+import { CLI_PROGRAM } from '../cli/program.ts';
 import type { ExtensionAPI, ExtensionCommandContext } from '@earendil-works/pi-coding-agent';
 import { writeLauncher, type Host } from '../core/config/index.ts';
 import {
@@ -18,9 +18,6 @@ import { operate } from './operate.ts';
 const OUTPUT = 'pav:vault';
 const COMMANDS = CATALOGUE.filter((o) => o.surfaces.command);
 const nameOf = (operation: Operation): string => operation.command ?? operation.name;
-
-/** The CLI's entry point beside this module: compiled, or the source under test. */
-const CLI_PROGRAM = fileURLToPath(new URL(`../cli/main.${import.meta.url.endsWith('.ts') ? 'ts' : 'js'}`, import.meta.url));
 
 function overview(): string {
   return [

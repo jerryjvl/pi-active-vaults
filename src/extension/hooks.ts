@@ -20,7 +20,7 @@ import { readFileSync } from 'node:fs';
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from '@earendil-works/pi-coding-agent';
 import type { Usage } from '@earendil-works/pi-ai';
 import { usageOf } from '../core/budgets/index.ts';
-import type { Host } from '../core/config/index.ts';
+import { packageVersion, type Host } from '../core/config/index.ts';
 import {
   createContext, describeError, loadInstallation, locate, operationNamed, paramsOn, splitVaultPath, type ContextOptions,
 } from '../core/operations/index.ts';
@@ -42,13 +42,6 @@ export interface HookOptions {
 
 
 
-function packageVersion(): string {
-  try {
-    return (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version;
-  } catch {
-    return '0.0.0';
-  }
-}
 
 /** Why the session cannot have a vault session, told to the person; a headless run then ends. */
 function fail(holder: Holder, ctx: ExtensionContext, headless: boolean, problem: string): void {
