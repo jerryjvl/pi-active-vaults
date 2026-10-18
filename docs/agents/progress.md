@@ -9,9 +9,9 @@ Maintained by the implementing agent; read by the reviewer. Newest stage last.
 
 Kept current with every commit, so an interrupted session can resume.
 
-- **Done:** Stage 6b, approved.
-- **In progress:** the Stage 6b review's changes, tests first: (1) merge-method check — rebase merges forbidden like squash, read best effort, "cannot verify" a warning; (2) merge-result check — a merged proposal's head must be an ancestor of the new main, reported in status, doctor and once to owners; (3) a run that commits nothing and whose last model request failed is stopped `error`; (4) the smoke test removes its directory after a failure.
-- **Next:** Stage 7 — end-to-end scenarios, the final consolidation pass, a last read of every document against behaviour, and the list of what remains unverified.
+- **Done:** Stage 6b, approved. The Stage 6b review's changes: merge methods (`300ba63`, `4caf506`), merge results (`e6447f6`, `b39063a`), run outcomes (`497f185`, `fe35963`), smoke cleanup (`316d797`).
+- **In progress:** Stage 7 — end-to-end scenarios under `test/e2e/` (scheduled job → proposal → review → accept; adopt; an unaccepted change pausing automation; a forge-mode proposal; an MCP read-only profile).
+- **Next:** the final consolidation pass, a last read of every document against behaviour, the Stage 7 entry with everything still unverified.
 
 ## Stage entries
 
