@@ -17,7 +17,7 @@
 import type { ForgeEntry } from '../config/index.ts';
 import { isRecord, ok, type Result } from '../result/index.ts';
 import {
-  POLICY_CONTEXT, UNPROTECTED, allowSquashMerge, forgeCaller, headPull, isShaValue, onePull, readAccount, shortDescription, standingApprovals,
+  POLICY_CONTEXT, UNPROTECTED, anyAllowed, forgeCaller, headPull, isShaValue, onePull, readAccount, readMergeMethods, shortDescription, standingApprovals,
   type ForgeAdapter, type ForgeDepsBase, type ForgeError,
 } from './adapter.ts';
 
@@ -151,6 +151,10 @@ export function githubAdapter(entry: ForgeEntry, project: string, deps: ForgeDep
         requiredApprovals: Math.max(...sources.map((r) => r.approvals)),
       });
     },
-    squashMerges: () => allowSquashMerge(forge, repo),
+    // The merge settings are shown only to a token with contents read and write.
+    mergeMethods: () => readMergeMethods(forge, repo, (s) => ({
+      squash: anyAllowed(s['allow_squash_merge']),
+      rebase: anyAllowed(s['allow_rebase_merge']),
+    })),
   };
 }

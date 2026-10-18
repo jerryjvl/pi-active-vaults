@@ -20,15 +20,27 @@ Day to day: when a command reports an unaccepted change, look at it with
 Use a forge for any vault where a misbehaving agent or machine must not be able
 to change accepted knowledge, and for every vault shared between people. Four
 settings carry the guarantee; `vault doctor` checks each one through the forge's
-API and reports what is missing — and, where the API does not say whether squash
-merges are allowed (some forges say so only to accounts with more access), says so.
+API and reports what is missing. Where the API does not show the merge methods
+to the executor's account, it warns that it cannot verify them.
 
 | Setting | Value |
 |---|---|
 | **Executor credential** | A bot account or deploy key with write access to the repository, but **not an owner**. Owner credentials are never stored on executor machines. |
 | **Protected `main`** | No direct pushes, no force pushes, no deletion; changes only through pull requests; the `vault/policy` status required. |
 | **Required approval** | At least one approval from an owner, who is not the pull request's author. |
-| **No squash merges** | Squash merging disabled for the repository. A squash replaces the proposal's commits with a new one, losing the trailers, attestations and trace notes attached to them. |
+| **No squash or rebase merges** | Only merge commits or fast-forwards, which keep the proposal's commits. A squash replaces them with one new commit, a rebase with copies; the attestations and trace notes attached to the reviewed commits do not follow. |
+
+The merge methods to turn off:
+
+- **Gitea:** in the repository's settings under pull requests, untick "Create
+  squash commit", "Rebase, then fast-forward" and "Rebase, then create merge
+  commit".
+- **GitHub:** Settings → General → Pull Requests, untick "Allow squash
+  merging" and "Allow rebase merging".
+- **GitLab:** Settings → Merge requests, set "Squash commits when merging" to
+  "Do not allow", and leave "Enable automatic rebase prior to merge" off. With
+  the fast-forward and semi-linear methods, a merge request's **Rebase** also
+  replaces the proposal's commits.
 
 On GitLab, statuses count as pipelines: require that pipelines succeed. A
 GitLab approval names no commit, so `vault/policy` counts owners' approvals

@@ -1,11 +1,13 @@
 // Gitea's API (https://<host>/api/v1): `Authorization: token …`, pages of
 // `limit`. Reviews carry the commit they were made on, and a dismissed
 // approval is marked `dismissed`. A protected branch cannot be deleted.
+// Two merge styles rebase: "Rebase, then fast-forward" (`allow_rebase`) and
+// "Rebase, then create merge commit" (`allow_rebase_explicit`).
 
 import type { ForgeEntry } from '../config/index.ts';
 import { isRecord, ok } from '../result/index.ts';
 import {
-  POLICY_CONTEXT, UNPROTECTED, allowSquashMerge, forgeCaller, headPull, isShaValue, onePull, readAccount, shortDescription, standingApprovals,
+  POLICY_CONTEXT, UNPROTECTED, anyAllowed, forgeCaller, headPull, isShaValue, onePull, readAccount, readMergeMethods, shortDescription, standingApprovals,
   type ForgeAdapter, type ForgeDepsBase,
 } from './adapter.ts';
 
@@ -14,7 +16,6 @@ const PAGE = 50;
 export function giteaAdapter(entry: ForgeEntry, project: string, deps: ForgeDepsBase): ForgeAdapter {
   const forge = forgeCaller(entry, deps, (token) => ({ authorization: `token ${token}` }));
   const repo = `/repos/${project}`;
-
 
   return {
     type: 'gitea',
@@ -69,6 +70,9 @@ export function giteaAdapter(entry: ForgeEntry, project: string, deps: ForgeDeps
         requiredApprovals: typeof p['required_approvals'] === 'number' ? p['required_approvals'] : 0,
       });
     },
-    squashMerges: () => allowSquashMerge(forge, repo),
+    mergeMethods: () => readMergeMethods(forge, repo, (s) => ({
+      squash: anyAllowed(s['allow_squash_merge']),
+      rebase: anyAllowed(s['allow_rebase'], s['allow_rebase_explicit']),
+    })),
   };
 }

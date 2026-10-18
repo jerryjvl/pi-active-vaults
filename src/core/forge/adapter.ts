@@ -73,8 +73,28 @@ export interface ForgeAdapter {
   setStatus(sha: Sha, status: CommitStatus): Promise<Result<void, ForgeError>>;
   approvals(pull: PullRequest): Promise<Result<ForgeApproval[], ForgeError>>;
   protection(branch: string): Promise<Result<BranchProtection, ForgeError>>;
-  /** Whether the repository allows squash merges; `unknown` when the forge does not say (it may need more access). */
-  squashMerges(): Promise<Result<boolean | 'unknown', ForgeError>>;
+  /** Which merge methods that replace a proposal's commits the repository allows. */
+  mergeMethods(): Promise<Result<MergeMethods, ForgeError>>;
+}
+
+/** Allowed or not; `unknown` when the forge does not say (it may need more access). */
+export type Allowed = boolean | 'unknown';
+
+/**
+ * The merge methods that replace a proposal's commits with new ones — a squash
+ * with one commit, a rebase with copies — so the trailers survive at most,
+ * while the attestations and trace notes on the reviewed commits do not
+ * reach `main`. Merge commits and fast-forwards keep the commits.
+ */
+export interface MergeMethods {
+  readonly squash: Allowed;
+  readonly rebase: Allowed;
+}
+
+/** Any of `flags` true allows it; all false forbids it; otherwise the forge does not say. */
+export function anyAllowed(...flags: readonly unknown[]): Allowed {
+  if (flags.some((f) => f === true)) return true;
+  return flags.every((f) => f === false) ? false : 'unknown';
 }
 
 export interface ForgeDepsBase {
@@ -185,25 +205,23 @@ export function standingApprovals(reviews: readonly { user: string; verdict: 'ap
   return [...standing.values()];
 }
 
-/** A repository's `allow_squash_merge` as Gitea and GitHub both give it; absent means the forge does not say. */
-export async function allowSquashMerge(forge: ForgeCaller, repo: string): Promise<Result<boolean | 'unknown', ForgeError>> {
+/** The repository's settings (`GET repo`), read through `methods`; a field the forge leaves out is `unknown`. */
+export async function readMergeMethods(forge: ForgeCaller, repo: string, methods: (settings: Record<string, unknown>) => MergeMethods): Promise<Result<MergeMethods, ForgeError>> {
   const got = await forge.call('GET', repo);
   if (!got.ok) return got;
-  if (!isRecord(got.value.body)) return forge.bad('not a repository');
-  const allowed = got.value.body['allow_squash_merge'];
-  return ok(typeof allowed === 'boolean' ? allowed : 'unknown');
+  return isRecord(got.value.body) ? ok(methods(got.value.body)) : forge.bad('not a repository');
 }
 
 export type ProtectionProblem =
   | 'not-protected' | 'direct-pushes' | 'force-pushes' | 'deletion' | 'policy-status-not-required'
-  | 'approval-not-required' | 'approval-unknown' | 'squash-merges' | 'squash-unknown' | 'executor-is-owner';
+  | 'approval-not-required' | 'approval-unknown' | 'squash-merges' | 'rebase-merges' | 'merges-unknown' | 'executor-is-owner';
 
 /** What `vault doctor` knows about the repository beyond `main`'s protection. */
 export interface ForgeSettings {
   /** The executor's account. */
   readonly account: string;
   readonly owners: readonly string[];
-  readonly squashMerges: boolean | 'unknown';
+  readonly merges: MergeMethods;
 }
 
 /**
@@ -211,8 +229,8 @@ export interface ForgeSettings {
  * account fall short of the recommended setup (security-setup.md), for
  * `vault doctor`. Owner approval not being required is reported, not
  * refused: a vault may deliberately let `vault/policy` alone decide. Squash
- * merges must be off: a squash replaces the proposal's commits, and with them
- * the trailers, attestations and trace notes attached to them.
+ * and rebase merges must be off (`MergeMethods`); what the forge does not
+ * say is `merges-unknown`.
  */
 export function protectionProblems(protection: BranchProtection, who: ForgeSettings): ProtectionProblem[] {
   const problems: ProtectionProblem[] = [];
@@ -225,8 +243,9 @@ export function protectionProblems(protection: BranchProtection, who: ForgeSetti
     if (protection.requiredApprovals === 'unknown') problems.push('approval-unknown');
     else if (protection.requiredApprovals < 1) problems.push('approval-not-required');
   }
-  if (who.squashMerges === true) problems.push('squash-merges');
-  else if (who.squashMerges === 'unknown') problems.push('squash-unknown');
+  if (who.merges.squash === true) problems.push('squash-merges');
+  if (who.merges.rebase === true) problems.push('rebase-merges');
+  if (who.merges.squash === 'unknown' || who.merges.rebase === 'unknown') problems.push('merges-unknown');
   if (who.owners.includes(who.account)) problems.push('executor-is-owner');
   return problems;
 }

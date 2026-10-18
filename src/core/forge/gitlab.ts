@@ -10,12 +10,15 @@
 //    required when merging needs every pipeline to succeed.
 //
 // Squash merging is the project's `squash_option`: only `never` turns it off.
+// No merge method rebases by itself; "automatic rebase prior to merge"
+// (`automatic_rebase_enabled`, newer GitLab) does, for the fast-forward and
+// semi-linear methods only.
 
 import type { ForgeEntry } from '../config/index.ts';
 import { isRecord, ok } from '../result/index.ts';
 import {
-  UNPROTECTED, forgeCaller, isShaValue, onePull, readAccount, shortDescription,
-  type ForgeAdapter, type ForgeDepsBase, type ForgeError, type PullRequest, type StatusState,
+  UNPROTECTED, anyAllowed, forgeCaller, isShaValue, onePull, readAccount, readMergeMethods, shortDescription,
+  type Allowed, type ForgeAdapter, type ForgeDepsBase, type ForgeError, type PullRequest, type StatusState,
 } from './adapter.ts';
 
 const PAGE = 100;
@@ -23,6 +26,12 @@ const STATE: Readonly<Record<StatusState, string>> = { pending: 'pending', succe
 
 /** A setting that some tiers do not offer: forbidden or absent means it cannot be read. */
 const unavailable = (error: ForgeError): boolean => error.reason === 'http-error' && (error.status === 403 || error.status === 404);
+
+/** Whether merging rebases: only with automatic rebase, which a merge commit method ignores. */
+function rebasesWith(method: unknown, automatic: unknown): Allowed {
+  if (method === 'merge') return false;
+  return method === 'ff' || method === 'rebase_merge' ? anyAllowed(automatic) : 'unknown';
+}
 
 export function gitlabAdapter(entry: ForgeEntry, project: string, deps: ForgeDepsBase): ForgeAdapter {
   const forge = forgeCaller(entry, deps, (token) => ({ 'private-token': token }));
@@ -94,12 +103,9 @@ export function gitlabAdapter(entry: ForgeEntry, project: string, deps: ForgeDep
         requiredApprovals: required,
       });
     },
-    async squashMerges() {
-      const got = await forge.call('GET', repo);
-      if (!got.ok) return got;
-      if (!isRecord(got.value.body)) return forge.bad('not a project');
-      const option = got.value.body['squash_option'];
-      return ok(typeof option === 'string' ? option !== 'never' : 'unknown');
-    },
+    mergeMethods: () => readMergeMethods(forge, repo, (s) => ({
+      squash: typeof s['squash_option'] === 'string' ? s['squash_option'] !== 'never' : 'unknown',
+      rebase: rebasesWith(s['merge_method'], s['automatic_rebase_enabled']),
+    })),
   };
 }

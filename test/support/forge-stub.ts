@@ -140,7 +140,7 @@ export async function startForgeStub(type: ForgeType, headSha: (branch: string) 
       if (type === 'github' && rest === '/rules/branches/main') return { body: page(state.rules ?? [], url.searchParams, 'per_page') };
       if (type === 'gitlab' && rest === '/protected_branches/main') return state.protection === undefined ? { status: 404, body: {} } : { body: state.protection };
       if (rest === '' && state.repository === 'forbidden') return { status: 403, body: {} };
-      const settings = state.repository ?? {};
+      const settings = state.repository === 'forbidden' ? {} : state.repository ?? {};
       if (type === 'gitlab' && rest === '') return { body: { path_with_namespace: PROJECT, only_allow_merge_if_pipeline_succeeds: state.gitlab.pipelinesMustSucceed, ...settings } };
       if (type !== 'gitlab' && rest === '') return { body: { full_name: PROJECT, ...settings } };
       if (type === 'gitlab' && rest === '/approvals') {
