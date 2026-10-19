@@ -53,7 +53,8 @@ async function backedUpRefs(git: Git, repo: string): Promise<Result<{ refspecs: 
     if (!listed.ok) return listed;
     found.push(...listed.value.filter((r) => prefix !== MAIN_REF || r.ref === MAIN_REF));
   }
-  found.sort((a, b) => a.ref.localeCompare(b.ref));
+  // main first: a forge makes the first branch pushed to an empty repository its default branch (Gitea does).
+  found.sort((a, b) => (a.ref === MAIN_REF ? -1 : b.ref === MAIN_REF ? 1 : a.ref.localeCompare(b.ref)));
   return ok({
     refspecs: found.map(({ ref }) => `${ref.startsWith(ACTORS) ? '+' : ''}${ref}:${ref}`),
     state: found.map((r) => `${r.sha} ${r.ref}`).join('\n'),
