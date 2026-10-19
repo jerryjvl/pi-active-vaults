@@ -2,8 +2,9 @@
 // writes an editor workspace with the installation person's worktree in every
 // vault they own or write as, one folder each, named by vault id, making any
 // worktree that is missing; a vault with nothing accepted yet, or one the
-// person has no part in, is left out and said so. `--open` opens it with
-// `code`.
+// person has no part in, is left out and said so. `--open` first brings the
+// person's worktrees up to date with the accepted main (leaving one with
+// uncommitted changes as it is), then opens it with `code`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -41,6 +42,35 @@ test('--open opens the workspace with `code`', { skip: process.platform === 'win
   }, {
     env: { PATH: `${bin}:/usr/bin:/bin` },
   })();
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test('--open first brings the person\'s worktrees up to date with the accepted main, but leaves one with work in progress', { skip: process.platform === 'win32' ? 'POSIX shell script' : false }, async () => {
+  const bin = binWithCode();
+  try {
+    await withInstallation(async (t) => {
+      assert.equal((await t.run('workspace')).status, 'ok');
+      const mine = join(t.vault.worktrees, 'alice');
+      t.repo.write('notes/new.md', 'Accepted since.');
+      t.repo.commit('new note');
+      t.accept();
+      const opened = await t.run('workspace', { open: true });
+      assert.equal(opened.status, 'ok', opened.text);
+      assert.equal(readFileSync(join(mine, 'notes', 'new.md'), 'utf8'), 'Accepted since.');
+      assert.match(opened.text, /home: brought up to date with the accepted main \(fast-forwarded\)/);
+      t.repo.write('notes/later.md', 'Accepted later.');
+      t.repo.commit('later note');
+      t.accept();
+      writeFileSync(join(mine, 'notes', 'new.md'), 'My edit, not committed.');
+      const left = await t.run('workspace', { open: true });
+      assert.equal(left.status, 'ok', left.text);
+      assert.match(left.text, /home: left as it is \(uncommitted changes\)/);
+      assert.equal(readFileSync(join(mine, 'notes', 'new.md'), 'utf8'), 'My edit, not committed.');
+      assert.equal(existsSync(join(mine, 'notes', 'later.md')), false);
+      assert.doesNotMatch((await t.run('workspace')).text, /brought up to date|left as it is/, 'writing the workspace alone syncs nothing');
+    }, { env: { PATH: `${bin}:/usr/bin:/bin` } })();
   } finally {
     rmSync(bin, { recursive: true, force: true });
   }

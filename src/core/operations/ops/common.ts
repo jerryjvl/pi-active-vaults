@@ -3,7 +3,7 @@
 // works from, the actor a writing one writes as, and the dependency bundles
 // the lower modules take, and where the installation person works.
 
-import { actorWorktreePath } from '../../actors/index.ts';
+import { actorWorktreePath, type ActorCommitContext } from '../../actors/index.ts';
 import type { ForgeDeps } from '../../forge/index.ts';
 import { MAIN_BRANCH, acceptedIdentity, acceptedMain, type AcceptedMain } from '../../integrity/index.ts';
 import { judgeProposal } from '../../judgements/index.ts';
@@ -29,6 +29,18 @@ export function theVault(request: OperationRequest): RegisteredVault {
 }
 
 /** The recorded accepted main, which reading continues from during an unaccepted change. */
+/** What committing as an actor needs, attributed to the caller. */
+export async function commitContext(context: OperationContext, caller: Caller): Promise<ActorCommitContext> {
+  return {
+    git: context.git,
+    store: context.state,
+    alive: context.alive,
+    clock: context.clock,
+    checks: await context.scriptOptions(),
+    attribution: { identity: packageIdentity(context.installation, caller.person ?? caller.actor ?? 'vault') },
+  };
+}
+
 export function readingFrom(context: OperationContext, vault: RegisteredVault): Result<AcceptedMain, { reason: 'no-accepted-main'; vault: string }> {
   const accepted = acceptedMain(context.state, vault.id);
   return accepted === undefined ? err({ reason: 'no-accepted-main', vault: vault.id }) : ok(accepted);

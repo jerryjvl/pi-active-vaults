@@ -30,7 +30,7 @@ its operation's parameters (`vault <command> --help`).
 | `vault add <path> [--person <name>]` | Register an existing vault in the installation, by the id its root contract declares; nothing in it is accepted until an owner adopts `main`. Installs the vault's hooks where none of the user's are in the way, and says which it left; creates the config file as `init` does |
 | `vault list` | Registered vaults and their catalog entries, and where the installation's `person` works in each (their actor worktree, under the state directory unless the vault configures another) |
 | `vault whoami` | This installation's name, for use as a vault's `executor` |
-| `vault workspace [--open]` | Write an editor workspace (VS Code's format) with your worktree in each vault you own or write as, one folder per vault named by its id, making missing worktrees; `--open` opens it with `code` |
+| `vault workspace [--open]` | Write an editor workspace (VS Code's format) with your worktree in each vault you own or write as, one folder per vault named by its id, making missing worktrees; `--open` first brings those worktrees up to date with the accepted main (one with uncommitted changes is left as it is, and said so), then opens it with `code` |
 | `vault doctor [--fix]` | Check the installation and each vault (below). A problem exits `1`; warnings do not. `--fix` installs hooks where none of the user's is in the way, corrects permissions and, when no daemon runs, runs its start-up recovery |
 
 `vault doctor` checks:

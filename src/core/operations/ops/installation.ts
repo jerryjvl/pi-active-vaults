@@ -10,7 +10,7 @@
 
 import { writeFileSync } from 'node:fs';
 import { isAbsolute, basename, dirname, resolve } from 'node:path';
-import { ensureActorWorktree } from '../../actors/index.ts';
+import { ensureActorWorktree, syncActorBranch, type ActorCommitContext } from '../../actors/index.ts';
 import { checkPerson, ensurePrivateDir, registerVault } from '../../config/index.ts';
 import { runProcess } from '../../process/index.ts';
 import type { AcceptedMain } from '../../integrity/index.ts';
@@ -21,7 +21,8 @@ import { packageIdentity, type OperationContext } from '../context.ts';
 import { hookFindings } from '../hooks.ts';
 import { fromError, succeeded } from '../messages.ts';
 import type { Caller, Operation } from '../types.ts';
-import { identityOf, ownWorktree, personOf, readingFrom, text } from './common.ts';
+import { newTraceId } from '../../traces/index.ts';
+import { commitContext, identityOf, ownWorktree, personOf, readingFrom, text } from './common.ts';
 
 const CLI_ONLY = { cli: true, command: false, mcp: false } as const;
 
@@ -162,15 +163,17 @@ export const initOperation: Operation = {
 
 export const workspaceOperation: Operation = {
   name: 'workspace',
-  summary: 'Write an editor workspace with your worktree in every vault you own or write as; --open opens it',
+  summary: 'Write an editor workspace with your worktree in every vault you own or write as; --open brings them up to date and opens it',
   vault: 'none',
   surfaces: CLI_ONLY,
-  params: [{ name: 'open', kind: 'boolean', description: 'Open the workspace with `code`' }],
+  params: [{ name: 'open', kind: 'boolean', description: 'Bring your worktrees up to date with the accepted main, then open the workspace with `code`' }],
   async run(context, request) {
     const person = personOf(request.caller);
     if (!person.ok) return fromError(person.error);
     const folders: { name: string; path: string }[] = [];
     const lines: string[] = [];
+    const open = request.params['open'] === true;
+    const committing = open ? await commitContext(context, request.caller) : undefined;
     for (const vault of context.installation.vaults) {
       const accepted = readingFrom(context, vault);
       if (!accepted.ok) {
@@ -183,13 +186,15 @@ export const workspaceOperation: Operation = {
         continue;
       }
       folders.push({ name: vault.id, path: worktree.value.path });
+      // Opening is when you read them: each starts from the accepted main, unless you have work in progress.
+      if (committing !== undefined) lines.push(...(await syncLine(context, committing, vault, accepted.value, person.value)));
     }
     const file = context.installation.paths.workspace;
     ensurePrivateDir(dirname(file));
     // Regenerated every time, so a new vault appears without editing the file by hand.
     writeFileSync(file, `${JSON.stringify({ folders }, null, 2)}\n`, { mode: 0o600 });
     lines.unshift(`Wrote ${file} with ${folders.length} worktree(s): ${folders.map((f) => f.name).join(', ') || 'none'}.`);
-    if (request.params['open'] === true) {
+    if (open) {
       // The person's own editor, started for them: it gets their whole environment
       // (on WSL, `code` needs its variables to reach VS Code on Windows), unlike
       // scripts, which run with only the variables they need.
@@ -199,6 +204,19 @@ export const workspaceOperation: Operation = {
     return succeeded(lines.join('\n'), { file, folders });
   },
 };
+
+/** Your branch in a vault brought up to date for opening; a line when anything happened, or why it could not. */
+async function syncLine(context: OperationContext, committing: ActorCommitContext, vault: RegisteredVault, accepted: AcceptedMain, person: string): Promise<string[]> {
+  const synced = await syncActorBranch(committing, vault, accepted, person, {
+    origin: { trace: newTraceId(context.ids), actor: person }, date: context.clock.now(), identity: packageIdentity(context.installation, person),
+  });
+  if (!synced.ok) return [`${vault.id}: not brought up to date (${synced.error.reason})`];
+  switch (synced.value.outcome) {
+    case 'fast-forwarded': case 'merged': return [`${vault.id}: brought up to date with the accepted main (${synced.value.outcome})`];
+    case 'uncommitted-changes': return [`${vault.id}: left as it is (uncommitted changes)`];
+    default: return [];
+  }
+}
 
 export const whoamiOperation: Operation = {
   name: 'whoami',

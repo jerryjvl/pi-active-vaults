@@ -7,7 +7,7 @@
 import { writeFileSync } from 'node:fs';
 import {
   accept, adopt, adoptionDelta, commitAsActor, ensureActorWorktree, heldByAnother, worktreeFile, listActorHolds, readProposal, review, syncActorBranch,
-  type ActorCommitContext, type AdoptionDelta, type Review,
+  type AdoptionDelta, type Review,
 } from '../../actors/index.ts';
 import { deriveEvents } from '../../events/index.ts';
 import { lostMergeReport, lostMerges, proposeToForge, syncWithForge } from '../../forge/index.ts';
@@ -21,23 +21,12 @@ import { newTraceId, recordRun } from '../../traces/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
 import { vaultRelative } from '../locate.ts';
 import { fromError, invalid, refused, succeeded } from '../messages.ts';
-import type { Caller, Operation } from '../types.ts';
+import type { Operation } from '../types.ts';
 import { jobsWithoutModel, unavailableText } from '../models.ts';
 import { requestSpawns, spawnLines } from '../spawning.ts';
-import { flag, forgeDeps, identityOf, judgeForProposal, ownWorktree, personOf, readingFrom, text, texts, theVault, writerOf } from './common.ts';
+import { commitContext, flag, forgeDeps, identityOf, judgeForProposal, ownWorktree, personOf, readingFrom, text, texts, theVault, writerOf } from './common.ts';
 
 const ACTOR_PARAM = { name: 'actor', kind: 'string', positional: true, description: 'The actor whose proposal it is' } as const;
-
-async function commitContext(context: OperationContext, caller: Caller): Promise<ActorCommitContext> {
-  return {
-    git: context.git,
-    store: context.state,
-    alive: context.alive,
-    clock: context.clock,
-    checks: await context.scriptOptions(),
-    attribution: { identity: packageIdentity(context.installation, caller.person ?? caller.actor ?? 'vault') },
-  };
-}
 
 /** The policy's state in a word: an owner's approval, which accepting gives, is not shown as a failure. */
 function policySummary({ verdict }: MergeEvaluation): string {
