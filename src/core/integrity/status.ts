@@ -21,6 +21,8 @@ export const MAIN_REF = `refs/heads/${MAIN_BRANCH}`;
 export interface VaultLocation {
   readonly id: string;
   readonly path: string;
+  /** The Git remote the vault's forge (forge mode) or backup (local mode) is on, by its name in this clone. */
+  readonly remote?: string;
 }
 
 export type UnacceptedKind = 'none-accepted' | 'ahead' | 'behind' | 'diverged' | 'main-missing';

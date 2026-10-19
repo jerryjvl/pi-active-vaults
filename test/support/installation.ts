@@ -23,6 +23,8 @@ import { createTempDir, type TempDir } from './temp-dir.ts';
 import { rootContract, type RootContractOptions } from './vault.ts';
 
 export interface InstallationOptions {
+  /** The Git remote the main vault's registration names (its backup or forge). */
+  readonly remote?: string;
   readonly contract?: RootContractOptions;
   /** Extra config YAML, appended. */
   readonly config?: string;
@@ -94,11 +96,11 @@ export function withInstallation(run: (t: TestInstallation) => Promise<void>, op
       return { other, repo: made };
     });
     const vaultIds = [options.contract?.id ?? 'home', ...others.map((o) => o.other.id)];
-    const entry = (id: string, path: string, hosted: boolean | undefined): string => `{ id: ${id}, path: ${JSON.stringify(path)}${hosted === true ? ', host: true' : ''} }`;
+    const entry = (id: string, path: string, hosted: boolean | undefined, remote?: string): string => `{ id: ${id}, path: ${JSON.stringify(path)}${hosted === true ? ', host: true' : ''}${remote === undefined ? '' : `, remote: ${remote}`} }`;
     mkdirSync(dir.file('config'), { recursive: true, mode: 0o700 });
     writeFileSync(dir.file('config', 'config.yaml'), [
       'installation: { name: alice@homeserver, person: alice }',
-      `vaults: [${[entry(options.contract?.id ?? 'home', repo.path, options.host), ...others.map((o) => entry(o.other.id, o.repo.path, o.other.host))].join(', ')}]`,
+      `vaults: [${[entry(options.contract?.id ?? 'home', repo.path, options.host, options.remote), ...others.map((o) => entry(o.other.id, o.repo.path, o.other.host))].join(', ')}]`,
       ...(options.noDefaultModels === true ? [] : [`models:\n  agent: { model: ${AGENT_MODEL} }\npolicy:\n  - { vaults: [${vaultIds.join(', ')}], allow-models: [agent] }`]),
       options.config ?? '',
     ].join('\n'), { mode: 0o600 });

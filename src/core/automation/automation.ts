@@ -8,6 +8,7 @@
 //    everything since the cursors — the slots missed while it was down too;
 //  - tick: forge sync first (a merge in the forge moves the accepted main,
 //    and each merged proposal is checked for its commits reaching it), then
+//    backups of local-mode vaults that name a remote (backups.ts), then
 //    which vaults it runs and which are paused (their owners told once), the Git events since each job's cursor, the timers that came due,
 //    queued work past its queue time, the outbox's retries, and log rotation;
 //  - schedule: starts what may start — in priority order, within capacity,
@@ -23,6 +24,7 @@ import { deliverDue } from '../notify/index.ts';
 import { notifyDeps, scriptEnvironment, spawnMatching, type OperationContext } from '../operations/index.ts';
 import { expireQueued, listSpawns, recoverRuns, runProcesses, schedulable, type RecoveryReport, type SpawnEntry, type SpawnMatching } from '../queue/index.ts';
 import { scanGitEvents } from './events.ts';
+import { createBackups } from './backups.ts';
 import { createForgeSync } from './forge.ts';
 import { METHODS, answer, claimRequested, inTree, noticeOf, readRequest, refuse, type Notice, type Reply } from './protocol.ts';
 import { startRun, type PiCommand, type RunHandle } from './run.ts';
@@ -74,6 +76,7 @@ export function createAutomation(context: OperationContext, options: AutomationO
   let matching: Promise<SpawnMatching> | undefined;
   const matchingOf = (): Promise<SpawnMatching> => (matching ??= spawnMatching(context));
   const forge = createForgeSync(context);
+  const backups = createBackups(context);
 
   const tell = (notice: Notice): void => {
     for (const listener of listeners) listener(notice);
@@ -83,6 +86,8 @@ export function createAutomation(context: OperationContext, options: AutomationO
   const tick = async (only?: string): Promise<void> => {
     const now = context.clock.now();
     if (only === undefined) await forge.tick(await hostedVaults(context));
+    // Every vault here is backed up, hosted or not: its repository is on this machine.
+    await backups.tick(only === undefined ? context.installation.vaults : context.installation.vaults.filter((v) => v.id === only));
     // Syncing may have moved an accepted main, and with it where the vault is run.
     const hosted = await hostedVaults(context);
     const unaccepted = await pausedVaults(context, context.installation.vaults);
@@ -145,6 +150,7 @@ export function createAutomation(context: OperationContext, options: AutomationO
       running: running.map((s) => ({ vault: s.vault, document: s.document, trace: s.trace, actor: s.actor, started: s.started, pid: processes.get(s.id) })),
       paused: [...paused].sort(),
       forge: forge.outcomes(),
+      backups: backups.outcomes(),
       budgets: { dailyUsed: usedToday(context.state, context.clock), ...(dailyTokens === undefined ? {} : { dailyTokens }) },
     };
   };

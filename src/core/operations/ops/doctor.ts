@@ -24,7 +24,8 @@ import { chmodSync, existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { listActorHolds } from '../../actors/index.ts';
 import { resolveSecret, staleServiceTools } from '../../config/index.ts';
-import { forgeAdapter, forgeProject, lostMergeReport, lostMerges, protectionProblems } from '../../forge/index.ts';
+import { missingRemoteNotes } from '../../backup/index.ts';
+import { forgeAdapter, forgeProject, lostMergeReport, lostMerges, protectionProblems, remoteOf } from '../../forge/index.ts';
 import {
   gitDirectories, gitVersion, listRemotes, listWorktrees, meetsMinimumGitVersion, remoteUrl, MINIMUM_GIT_VERSION,
 } from '../../git/index.ts';
@@ -118,8 +119,15 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
   for (const hook of await hookFindings(context, vault, fix)) findings.push(at(hook.level, 'hooks', hook.message));
 
   const remotes = await listRemotes(git, vault.path);
-  if (identity.value.review === 'local' && remotes.ok && remotes.value.length > 0) {
-    findings.push(at('warning', 'remotes', `A local vault has remotes (${remotes.value.join(', ')}): local mode is for one clone; use forge mode for a vault on several machines.`));
+  if (identity.value.review === 'local') {
+    // Its backup remote is expected; any other is a sign the vault is used from several clones.
+    const others = remotes.ok ? remotes.value.filter((name) => name !== vault.remote) : [];
+    if (others.length > 0) findings.push(at('warning', 'remotes', `A local vault has remotes (${others.join(', ')}): local mode is for one clone; use forge mode for a vault on several machines.`));
+    if (vault.remote !== undefined) {
+      findings.push(remotes.ok && remotes.value.includes(vault.remote)
+        ? at('ok', 'backup', `Backed up to the remote "${vault.remote}" by the daemon.`)
+        : at('warning', 'backup', missingRemoteNotes(vault, vault.remote, 'backup')));
+    }
   }
 
   const worktrees = await listWorktrees(git, vault.path);
@@ -171,10 +179,11 @@ async function jobFindings(context: OperationContext, vault: RegisteredVault, ac
 
 async function forgeFindings(context: OperationContext, vault: RegisteredVault, owners: readonly string[]): Promise<Finding[]> {
   const at = (level: Finding['level'], message: string): Finding => ({ level, check: 'forge', vault: vault.id, message });
-  const remote = await remoteUrl(context.git, vault.path, 'origin');
-  if (!remote.ok || remote.value === undefined) return [at('problem', 'A forge vault needs its forge as the remote "origin".')];
+  const name = remoteOf(vault);
+  const remote = await remoteUrl(context.git, vault.path, name);
+  if (!remote.ok || remote.value === undefined) return [at('problem', missingRemoteNotes(vault, name, 'forge'))];
   const project = forgeProject(context.installation.config.forges, remote.value);
-  if (!project.ok) return [at('problem', `No forge is configured for origin's host (${project.error.reason}).`)];
+  if (!project.ok) return [at('problem', `No forge is configured for the host of the remote "${name}" (${project.error.reason}).`)];
   const adapter = forgeAdapter(project.value.entry, project.value.project, { client: context.http, secrets: context.secrets });
   const account = await adapter.account();
   if (!account.ok) return [at('problem', `The forge cannot be asked about its settings (${account.error.reason}).`)];

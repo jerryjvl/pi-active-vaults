@@ -12,6 +12,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+const runGit = (args: string[]): string => execFileSync('git', args, { encoding: 'utf8' }).trim();
 import { takeActorHold } from '../../../src/core/actors/index.ts';
 import { listSpawns, takeDaemonRecord } from '../../../src/core/queue/index.ts';
 import { runProcess } from '../../../src/core/process/index.ts';
@@ -38,6 +41,21 @@ test('doctor reports a hooks path that bypasses the hooks, a remote on a local v
   assert.match(about(found, 'remotes')[0]?.message ?? '', /A local vault has remotes \(origin\)/);
   assert.deepEqual(about(found, 'locks').map((f) => f.level), ['problem']);
 }));
+
+test('a local vault backed up to a remote: doctor says what to do while the clone lacks it, and it is not a stray remote once added; sync pushes', withInstallation(async (t) => {
+  const missing = about((await findings(t)).found, 'backup');
+  assert.deepEqual(missing.map((f) => f.level), ['warning']);
+  assert.match(missing[0]?.message ?? '', /backed up to the Git remote "backup", which this clone does not have[^]*remote add backup <its URL>/);
+  const bare = t.dir.file('backup.git');
+  runGit(['init', '--quiet', '--bare', bare]);
+  t.repo.git('remote', 'add', 'backup', bare);
+  const { found } = await findings(t);
+  assert.deepEqual(about(found, 'backup').map((f) => f.level), ['ok']);
+  assert.deepEqual(about(found, 'remotes'), [], 'its backup remote is expected');
+  const synced = await t.run('sync', {}, { vaults: ['home'] });
+  assert.match(synced.text, /Backed up to "backup" \(\d+ refs\)\./);
+  assert.equal(runGit(['-C', bare, 'rev-parse', 'refs/heads/main']), t.repo.git('rev-parse', 'main'));
+}, { remote: 'backup' }));
 
 test('doctor warns of keyword-only search, no daily ceiling, notify unconfigured, and undelivered notifications', withInstallation(async (t) => {
   const { found } = await findings(t);

@@ -60,6 +60,12 @@ export interface VaultEntry {
   readonly path: string;
   readonly worktrees?: string;
   readonly host: boolean;
+  /**
+   * The Git remote, by its name in this clone: the forge a forge-mode vault is
+   * reviewed on (default `origin`), or where a local-mode vault is backed up
+   * (none: it stays on this machine).
+   */
+  readonly remote?: string;
 }
 
 export interface ForgeEntry {
@@ -168,6 +174,8 @@ function httpUrl(r: Reader, value: unknown, path: string): string {
 const ENDPOINT_KEYS = ['url', 'token', 'model', 'batch', 'parallel'];
 const AGENT_KEYS = ['model', 'parallel', 'assume-prefix-cache'];
 const AGENT_MODEL = /^[^/\s]+\/\S+$/;
+/** A Git remote's name, as the git module accepts it. */
+const REMOTE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 function readEndpoint(r: Reader, m: PlainObject, path: string): ModelEndpoint {
   return {
@@ -236,7 +244,7 @@ function readVaults(r: Reader, value: unknown): VaultEntry[] {
   const seenPaths = new Set<string>();
   return r.list(value ?? [], 'vaults').map((item, i) => {
     const path = `vaults[${i}]`;
-    const v = r.record(item, path, ['id', 'path', 'worktrees', 'host']);
+    const v = r.record(item, path, ['id', 'path', 'worktrees', 'host', 'remote']);
     const id = r.string(v['id'], join(path, 'id'), VAULT_ID);
     if (id !== '' && seenIds.has(id)) r.add(join(path, 'id'), 'duplicate vault id');
     seenIds.add(id);
@@ -244,11 +252,13 @@ function readVaults(r: Reader, value: unknown): VaultEntry[] {
     if (vaultPath !== '' && seenPaths.has(vaultPath)) r.add(join(path, 'path'), 'two vaults share this path');
     seenPaths.add(vaultPath);
     const worktrees = v['worktrees'] === undefined ? undefined : r.absolutePath(v['worktrees'], join(path, 'worktrees'));
+    const remote = v['remote'] === undefined ? undefined : r.string(v['remote'], join(path, 'remote'), REMOTE_NAME);
     return {
       id,
       path: vaultPath,
       ...(worktrees === undefined ? {} : { worktrees }),
       host: r.boolean(v, 'host', path, false),
+      ...(remote === undefined ? {} : { remote }),
     };
   });
 }

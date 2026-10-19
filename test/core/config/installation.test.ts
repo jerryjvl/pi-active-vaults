@@ -289,3 +289,10 @@ test('policy lists model names', () => {
   const config = valid('vaults:\n  - { id: a, path: /a }\npolicy:\n  - { vaults: [a], allow-models: [judgement, classify, quick] }');
   assert.deepEqual(config.policy, [{ vaults: ['a'], allowModels: ['judgement', 'classify', 'quick'] }]);
 });
+
+test('a vault may name the Git remote it is backed up to (local mode) or reviewed on (forge mode), as a remote name', () => {
+  const config = valid('vaults:\n  - { id: a, path: /v/a, remote: flashstor }\n  - { id: b, path: /v/b }');
+  assert.equal(config.vaults[0]?.remote, 'flashstor');
+  assert.equal(config.vaults[1]?.remote, undefined, 'none: the vault stays on this machine');
+  assert.ok(issues('vaults:\n  - { id: a, path: /v/a, remote: "https://example.net/a.git" }').some((i) => i.startsWith('vaults[0].remote')), 'a name, not a URL: the URL is the clone\'s');
+});

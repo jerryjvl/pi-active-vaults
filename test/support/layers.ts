@@ -14,7 +14,7 @@ export const LAYERS: Readonly<Record<string, number>> = {
   policy: 1, integrity: 1, actors: 1, scripts: 1,
   // L2 Work machinery
   traces: 2, budgets: 2, queue: 2, models: 2, search: 2, judgements: 2,
-  notify: 2, templates: 2, forge: 2,
+  notify: 2, templates: 2, forge: 2, backup: 2,
   // L3 Operations
   operations: 3, sessions: 3, automation: 3,
 };

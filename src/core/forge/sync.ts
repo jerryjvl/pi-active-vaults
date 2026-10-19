@@ -69,9 +69,11 @@ export type ForgeSyncError =
   | { readonly reason: 'not-pushable'; readonly refspec: string }
   | { readonly reason: 'accepted-moved'; readonly current: Sha | null };
 
-const REMOTE = 'origin';
+/** The remote a forge-mode vault's forge is on, unless its registration names another. */
+export const DEFAULT_REMOTE = 'origin';
+export const remoteOf = (vault: { readonly remote?: string }): string => vault.remote ?? DEFAULT_REMOTE;
 const MAIN_REF = `refs/heads/${MAIN_BRANCH}`;
-const FORGE_MAIN = `refs/remotes/${REMOTE}/${MAIN_BRANCH}`;
+const forgeMainOf = (remote: string): string => `refs/remotes/${remote}/${MAIN_BRANCH}`;
 // The notes that travel with a vault: attestations and traces, merged line by line.
 const SHARED_NOTES = [ATTESTATIONS_REF, TRACES_REF] as const;
 // The forge's notes are fetched beside ours, then merged into ours.
@@ -85,14 +87,14 @@ const forgeCopy = (ref: string): string => `${FORGE_NOTES_PREFIX}${ref.slice(NOT
  * `leaseOnMergedHead`), which may replace the forge's copy only while it
  * holds exactly the commit the lease names.
  */
-export async function pushToForge(git: Git, repo: string, refspecs: readonly string[], options: { readonly lease?: Lease } = {}): Promise<Result<void, ForgeSyncError>> {
+export async function pushToForge(git: Git, repo: string, refspecs: readonly string[], options: { readonly lease?: Lease; readonly remote?: string } = {}): Promise<Result<void, ForgeSyncError>> {
   for (const refspec of refspecs) {
     const [source, destination, ...rest] = refspec.split(':');
     const own = source === destination && rest.length === 0;
     if (!own || source === undefined || !(source.startsWith('refs/heads/actor/') || (SHARED_NOTES as readonly string[]).includes(source))) return err({ reason: 'not-pushable', refspec });
   }
   if (options.lease !== undefined && !options.lease.ref.startsWith('refs/heads/actor/')) return err({ reason: 'not-pushable', refspec: options.lease.ref });
-  return pushRefs(git, repo, REMOTE, refspecs, options);
+  return pushRefs(git, repo, options.remote ?? DEFAULT_REMOTE, refspecs, options.lease === undefined ? {} : { lease: options.lease });
 }
 
 /**
@@ -105,7 +107,7 @@ export async function pushToForge(git: Git, repo: string, refspecs: readonly str
  * included. Undefined when a plain push does.
  */
 async function leaseOnMergedHead(deps: ForgeDeps, vault: VaultLocation, actor: string, branchRef: string): Promise<Result<Lease | undefined, ForgeSyncError>> {
-  const forgeHead = await remoteRef(deps.git, vault.path, REMOTE, branchRef);
+  const forgeHead = await remoteRef(deps.git, vault.path, remoteOf(vault), branchRef);
   if (!forgeHead.ok) return forgeHead;
   if (forgeHead.value === undefined || !mergedHeads(deps.store, vault.id, actor).includes(forgeHead.value)) return ok(undefined);
   const ahead = await resolveRevision(deps.git, vault.path, branchRef);
@@ -115,11 +117,12 @@ async function leaseOnMergedHead(deps: ForgeDeps, vault: VaultLocation, actor: s
   return ok(forwards.ok && forwards.value ? undefined : { ref: branchRef, sha: forgeHead.value });
 }
 
-/** The adapter for the vault's forge: the one its `origin` is on. */
+/** The adapter for the vault's forge: the one its remote (`origin` unless registered otherwise) is on. */
 export async function connectForge(deps: ForgeDeps, vault: VaultLocation): Promise<Result<ForgeAdapter, ForgeSyncError>> {
-  const url = await remoteUrl(deps.git, vault.path, REMOTE);
+  const remote = remoteOf(vault);
+  const url = await remoteUrl(deps.git, vault.path, remote);
   if (!url.ok) return url;
-  if (url.value === undefined) return err({ reason: 'no-remote', remote: REMOTE });
+  if (url.value === undefined) return err({ reason: 'no-remote', remote });
   const found = forgeProject(deps.forges, url.value);
   return found.ok ? ok(forgeAdapter(found.value.entry, found.value.project, deps)) : found;
 }
@@ -132,7 +135,7 @@ async function requireForgeMode(git: Git, repo: string, sha: Sha): Promise<Resul
 
 /** Fetches the forge's notes and merges each into ours, line by line. */
 async function meetNotes(deps: ForgeDeps, vault: VaultLocation, also: readonly string[] = []): Promise<Result<void, ForgeSyncError>> {
-  const fetched = await fetchRefs(deps.git, vault.path, REMOTE, [...also, `+${NOTES_PREFIX}*:${FORGE_NOTES_PREFIX}*`]);
+  const fetched = await fetchRefs(deps.git, vault.path, remoteOf(vault), [...also, `+${NOTES_PREFIX}*:${FORGE_NOTES_PREFIX}*`]);
   if (!fetched.ok) return fetched;
   for (const ref of SHARED_NOTES) {
     const theirs = await resolveRevision(deps.git, vault.path, forgeCopy(ref));
@@ -230,7 +233,7 @@ export async function proposeToForge(
   if (!notes.ok) return notes;
   const lease = await leaseOnMergedHead(deps, vault, actor, branchRef);
   if (!lease.ok) return lease;
-  const pushed = await pushToForge(deps.git, vault.path, [branchRef, ...notes.value].map((ref) => `${ref}:${ref}`), lease.value === undefined ? {} : { lease: lease.value });
+  const pushed = await pushToForge(deps.git, vault.path, [branchRef, ...notes.value].map((ref) => `${ref}:${ref}`), { remote: remoteOf(vault), ...(lease.value === undefined ? {} : { lease: lease.value }) });
   if (!pushed.ok) return pushed;
 
   const found = await adapter.findPullRequest(actorBranch(actor), MAIN_BRANCH);
@@ -290,9 +293,9 @@ export async function syncWithForge(
 ): Promise<Result<{ accepted: AcceptedMain; mainUpdated: boolean }, ForgeSyncError>> {
   const adapter = await connectForge(deps, vault);
   if (!adapter.ok) return adapter;
-  const met = await meetNotes(deps, vault, [`+${MAIN_REF}:${FORGE_MAIN}`]);
+  const met = await meetNotes(deps, vault, [`+${MAIN_REF}:${forgeMainOf(remoteOf(vault))}`]);
   if (!met.ok) return met;
-  const forgeMain = await resolveRevision(deps.git, vault.path, FORGE_MAIN);
+  const forgeMain = await resolveRevision(deps.git, vault.path, forgeMainOf(remoteOf(vault)));
   if (!forgeMain.ok) return forgeMain;
   const mode = await requireForgeMode(deps.git, vault.path, forgeMain.value);
   if (!mode.ok) return mode;

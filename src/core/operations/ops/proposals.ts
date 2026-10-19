@@ -9,6 +9,7 @@ import {
   accept, adopt, adoptionDelta, commitAsActor, ensureActorWorktree, heldByAnother, worktreeFile, listActorHolds, readProposal, review, syncActorBranch,
   type AdoptionDelta, type Review,
 } from '../../actors/index.ts';
+import { backupVault } from '../../backup/index.ts';
 import { deriveEvents } from '../../events/index.ts';
 import { lostMergeReport, lostMerges, proposeToForge, syncWithForge } from '../../forge/index.ts';
 import { diffText } from '../../git/index.ts';
@@ -190,7 +191,7 @@ export const acceptOperation: Operation = {
 
 export const syncOperation: Operation = {
   name: 'sync',
-  summary: 'Bring actor branches up to date with the accepted main; in forge mode, fetch first',
+  summary: 'Bring actor branches up to date with the accepted main; in forge mode, fetch first; a local vault with a remote is backed up',
   vault: 'one',
   surfaces: { cli: true, command: false, mcp: false },
   params: [{ ...ACTOR_PARAM, description: 'Only this actor\'s branch' }],
@@ -218,9 +219,18 @@ export const syncOperation: Operation = {
       outcomes.push({ actor, ...synced.value });
       if (synced.value.outcome !== 'no-branch') lines.push(`${actor}: ${synced.value.outcome}${synced.value.head === undefined ? '' : ` at ${synced.value.head}`}`);
     }
+    if (identity.value.review === 'local' && vault.remote !== undefined) lines.push(await backupLine(context, { ...vault, remote: vault.remote }));
     return succeeded(lines.join('\n') || 'No actor branches to sync.', { outcomes });
   },
 };
+
+/** A local vault's backup, pushed now: what happened, or what to do. */
+async function backupLine(context: OperationContext, vault: RegisteredVault & { remote: string }): Promise<string> {
+  const done = await backupVault(context.git, vault);
+  if (done.ok) return done.value.outcome === 'pushed' ? `Backed up to "${vault.remote}" (${done.value.refs} refs).` : `Backup at "${vault.remote}" is up to date.`;
+  if (done.error.reason === 'missing-remote') return done.error.notes;
+  return `Not backed up to "${vault.remote}": ${done.error.reason === 'push-refused' ? done.error.detail : done.error.reason}`;
+}
 
 export const proposeOperation: Operation = {
   name: 'propose',

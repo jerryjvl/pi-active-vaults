@@ -176,6 +176,17 @@ are matched like any other. For the vaults this daemon runs:
 
 Attestation and trace notes are fetched, merged line by line and pushed.
 
+## Backups
+
+Each tick, every local-mode vault whose registration names a remote is pushed
+there when its `main`, actor branches or notes changed since the last push
+(concepts.md "Review modes"): `main` and the notes fast-forward only, actor
+branches forced, nothing pruned. Every vault on the machine is backed up,
+hosted or not. A failure — a remote this clone lacks, a backup that has
+diverged — is the vault's outcome in `vault daemon status`, said in full by
+`vault doctor`, and tried again on the next tick. What was last pushed is
+remembered only while the daemon runs, so a restart pushes once more.
+
 ## Socket protocol
 
 JSON lines over a socket only the user can reach: `<state>/daemon.sock`, or on

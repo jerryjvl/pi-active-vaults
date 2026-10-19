@@ -33,6 +33,7 @@ export {
   proposeToForge,
   publishStatuses,
   pushToForge,
+  remoteOf,
   syncWithForge,
   type ForgeDeps,
   type ForgeSyncError,

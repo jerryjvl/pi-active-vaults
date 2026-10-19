@@ -377,8 +377,24 @@ chooses how proposals are reviewed (`vault.review`):
 on the machine that accepted it, so another clone would see those accepts as
 unaccepted changes. A vault used on several machines uses `forge` mode.
 
+A vault's registration may name a **Git remote** (`remote: <name>`, the
+remote's name in that clone), and what it is for follows the mode:
+
+| Vault | `remote` | What happens |
+|---|---|---|
+| Only on this machine | none | Nothing leaves the machine |
+| Backed up | in `local` mode | The daemon pushes `main`, the actor branches and the package's notes there after each change, and `vault sync` does too. `main` and the notes go fast-forward only, so a backup that has diverged is reported, never overwritten; actor branches are forced, being reset after an accept; nothing is pruned |
+| Shared | in `forge` mode (default `origin`) | The forge the vault is reviewed on, below |
+
+The repository behind a remote is made by hand, wherever Git can push (a Gitea
+or GitHub account, a bare repository on a disk), and the remote added to the
+clone with `git remote add`. Remotes are per clone: when a clone lacks the one
+its registration names, `vault doctor` and `vault sync` say how to add it.
+Promoting a backed-up vault to a shared one is changing its mode; the remote
+stays.
+
 In `forge` mode the package pushes the actor branch and its notes to the
-vault's `origin`, and publishes each check as a commit status on the proposal
+vault's remote, and publishes each check as a commit status on the proposal
 (`vault/check/<name>`) plus **`vault/policy`**: whether the proposal satisfies
 the vault's merge policy, counting owners' forge approvals of that exact
 commit. It never pushes `main` and learns of merges by fetching. Branch
@@ -386,8 +402,8 @@ protection on `main` requires `vault/policy` and, in the recommended setup, an
 owner's approval; `vault doctor` checks it ([Security
 setup](security-setup.md)). Owners are identified by their forge usernames.
 
-A vault moves from `local` to `forge` by adding a remote and changing the mode;
-nothing else changes.
+A vault moves from `local` to `forge` by adding a remote (if it has none yet)
+and changing the mode; nothing else changes.
 
 Each vault has an **accepted `main`** — in `local` mode the commit `vault accept`
 last produced or adopted, in `forge` mode the forge's `main` as last fetched.
@@ -438,6 +454,7 @@ vaults:
     path: ~/vaults/home-knowledge
     worktrees: ~/vaults/home-knowledge-worktrees
     host: true                 # run this vault's background jobs here (default false)
+    remote: backup             # a Git remote of this clone: backup (local mode) or forge (forge mode); see Review modes
 models:                        # see Models below
   embed:     { url: "https://…/v1", token: "${EMBED_TOKEN}", model: mxbai-embed-large-v1, batch: 32, parallel: 4 }
   rerank:    { url: "https://…/v1", token: "${RERANK_TOKEN}", model: qwen3-reranker }

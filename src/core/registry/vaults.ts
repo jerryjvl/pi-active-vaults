@@ -14,6 +14,8 @@ export interface RegisteredVault {
   readonly worktrees: string;
   /** This installation opts in to running the vault's jobs. */
   readonly host: boolean;
+  /** The Git remote, by name in this clone, its forge (forge mode) or backup (local mode) is on. */
+  readonly remote?: string;
 }
 
 /**
@@ -30,6 +32,7 @@ export function registeredVaults(
     path: v.path,
     worktrees: v.worktrees ?? pathFor(os).join(paths.worktrees, v.id),
     host: v.host,
+    ...(v.remote === undefined ? {} : { remote: v.remote }),
   }));
 }
 
