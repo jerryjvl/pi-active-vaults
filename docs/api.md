@@ -73,7 +73,7 @@ message, shown and not sent to the model on its own.
 
 | Flag | Use |
 |---|---|
-| `--vault-run <file>` | Headless run context written by the daemon: vault, job document, actor, trace (whose allotment is the budget), triggering event (see [Pi extension](components/extension.md#headless-sessions)) |
+| `--vault-run <file>` | Headless run context written by the daemon: vault, job document, actor, agent model, trace (whose allotment is the budget), triggering event (see [Pi extension](components/extension.md#headless-sessions)) |
 | `--vault-actor <name>` | Actor for an interactive session (default from configuration) |
 
 ## Events

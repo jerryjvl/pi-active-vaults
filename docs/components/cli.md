@@ -43,7 +43,7 @@ its operation's parameters (`vault <command> --help`).
 - a leftover Git lock in `main`'s worktree, and undelivered notifications;
 - search that is keyword-only because no `policy` entry names the vault;
 - jobs that cannot run (no budget, no permitted actor, or no `agent` model it may use), and an unset `budgets.daily-tokens`;
-- models: requested names that are not configured (and the default that answers instead), names with the wrong role, defaults that documents need but are missing, and models `policy` does not allow where they are asked for.
+- models: requested names that are not configured (and the default that answers instead), names with the wrong role, defaults that documents need but are missing, models `policy` does not allow where they are asked for, and `policy` names that match no configured model.
 
 ### Knowledge
 
@@ -58,7 +58,7 @@ its operation's parameters (`vault <command> --help`).
 
 | Command | Does |
 |---|---|
-| `vault status` | The installation `person`'s worktree in each vault (not over MCP), pending proposals, failing checks, queued work, holds, merged proposals whose commits did not reach `main`, undelivered notifications |
+| `vault status` | The installation `person`'s worktree in each vault (not over MCP), pending proposals, failing checks, queued work, jobs that cannot run for lack of a model, holds, merged proposals whose commits did not reach `main`, undelivered notifications |
 | `vault review <actor>` | Commits, diff, checks and control-change flags; records the reviewed SHA |
 | `vault accept <actor>` | Merge the SHA you last reviewed if the merge policy is satisfied |
 | `vault accept --adopt <sha>` | Show failed checks and control changes in the delta from the accepted `main` first, to be acknowledged; then the delta, and accept once confirmed. Without a terminal, it shows them and exits `3`; `--acknowledge <digest> --yes` confirms what was shown |
@@ -70,7 +70,7 @@ its operation's parameters (`vault <command> --help`).
 
 | Command | Does |
 |---|---|
-| `vault jobs` | Jobs with their conditions, last run, next run and pending items |
+| `vault jobs` | Jobs with their conditions, the model each asks for, last run, next run and pending items, and which cannot run |
 | `vault run <document>` | Run a job now, outside its conditions |
 | `vault trigger <name> [--payload <file>]` | Emit an external event |
 | `vault script <name> [args]` | Run an approved script; its arguments, options included, pass through |

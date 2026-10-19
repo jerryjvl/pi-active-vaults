@@ -91,10 +91,13 @@ writeFileSync(join(dirs.vault, 'jobs', 'second.md'), job('[{ on: committed, path
 git(dirs.vault, 'add', '--all');
 git(dirs.vault, 'commit', '--quiet', '--message', 'Create the smoke vault');
 
-// The installation, and Pi's own directories: the endpoint as Pi's only model, the package as its only extension.
+// The installation, and Pi's own directories: the endpoint as Pi's only model — which the installation names as its
+// `agent` model, as Pi does (provider/id), and allows for the vault — the package as its only extension.
 writeFileSync(join(dirs.config, 'config.yaml'), [
   'installation: { name: alice@smoke, person: alice }',
   `vaults: [{ id: smoke, path: ${JSON.stringify(dirs.vault)}, host: true }]`,
+  `models: { agent: { model: ${JSON.stringify(`smoke/${model}`)} } }`,
+  'policy: [{ vaults: [smoke], allow-models: [agent] }]',
   'budgets: { daily-tokens: 2000000, cascade-pool: 400000 }',
   'taint: { trusted-tools: [read, write, edit, vault_commit, vault_read] }',
   '',

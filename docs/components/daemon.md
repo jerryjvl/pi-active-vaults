@@ -47,7 +47,7 @@ state change is one transaction.
 | `queue-time` | Queued longer than `daemon.queue-time` |
 | `requested` | Stopped through the socket |
 | `no-session` | Its condition is `session-required` and the originating session is not known here |
-| `no-model` | No `agent` model it may use: none configured, or not allowed by `policy` for its vault |
+| `no-model` | No `agent` model it may use: none configured, or not allowed by `policy` for its vault — decided at the claim, and again when it would start |
 
 ## Matching
 

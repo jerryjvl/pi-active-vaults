@@ -2,8 +2,8 @@
 // capabilities), `spawn` (submit a spawn request), `status` (queue, running
 // sessions, budgets), `subscribe` (start and finish notices for a session's
 // spawns), `stop` (stop a running spawn). A spawn request is claimed under
-// its identity, with its budget and actor as the job on the accepted main
-// has them — never as the request says; one that matches no job's spawn
+// its identity, with its budget, actor and model as the job on the accepted
+// main has them — never as the request says; one that matches no job's spawn
 // condition, or is for a paused vault, is refused.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -38,6 +38,15 @@ test('a spawn request is claimed with the budget and actor of the job on the acc
   const again = await automation.handle({ method: 'spawn', params: request() }, () => {});
   assert.equal(again.ok && (again.result as { trace: string }).trace, spawn?.trace, 'the same identity is the same spawn');
 }));
+
+test('a request that names a model is claimed with the job\'s model, not the request\'s', withInstallation(async (t) => {
+  t.repo.write('jobs/a.md', jobDocument('[{ on: external, name: go, effect: spawn }]', { model: 'quick' }));
+  t.accept(t.repo.commit('job'));
+  const automation = automationFor(t, fakePi(t));
+  const answer = await automation.handle({ method: 'spawn', params: request({ model: 'agent' }) }, () => {});
+  assert.equal(answer.ok, true, JSON.stringify(answer));
+  assert.equal(listSpawns(t.context.state)[0]?.model, 'quick');
+}, { noDefaultModels: true, config: 'models:\n  agent: { model: p/big }\n  quick: { role: agent, model: p/small }\npolicy:\n  - { vaults: [home], allow-models: [agent, quick] }' }));
 
 test('a request that is no job\'s spawn condition, or for a paused vault, is refused and nothing is claimed', withInstallation(async (t) => {
   job(t);

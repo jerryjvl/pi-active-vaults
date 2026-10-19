@@ -115,11 +115,15 @@ A judgement check sends a document's content as state, with questions from the
 contract's axes, to the judgement model each axis names (else the default
 `judgement`; axes for one model share a request), applies each axis's `pass-when` (see
 [Concepts](../concepts.md#judgement-axes)), and records each axis's outcome as
-an attestation. The content hash, model and axis version are part of each
-record. A judgement whose content has since changed is treated as missing.
+an attestation. The content hash, model and axis version (which includes the
+`model` the axis names) are part of each record. A judgement whose content has
+since changed is treated as missing. An axis no permitted model can answer —
+none configured, the wrong role, not allowed by `policy` — is reported
+unjudged, records nothing and keeps its requirement unmet; the axes of other
+models are still judged.
 
 - **One attestation per axis**, named after it — so `judgement:<axis>` requires
-  that axis: `subject` is the content's blob, `by` the model ID, `version` the
+  that axis: `subject` is the content's blob, `by` the ID of the model that answered it, `version` the
   axis's version, `evidence` the probability or level against what was needed.
 - **The axes and the vault's purpose come from the accepted `main`**; the
   commit judged supplies only the content. Judging is refused while `main` has

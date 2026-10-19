@@ -43,7 +43,7 @@ export function readRequest(message: unknown): { method: Method; params: Readonl
   return isRecord(params) ? { method, params } : refuse('invalid-request');
 }
 
-const SPAWN_KEYS = ['vault', 'document', 'condition', 'event', 'parent', 'relevance', 'budget', 'actor'];
+const SPAWN_KEYS = ['vault', 'document', 'condition', 'event', 'parent', 'relevance', 'budget', 'actor', 'model'];
 
 /** Claims what a spawn request asks for, as the job on the accepted main has it. */
 export async function claimRequested(context: OperationContext, matching: SpawnMatching, params: Readonly<Record<string, unknown>>): Promise<Reply> {

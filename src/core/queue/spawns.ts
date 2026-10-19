@@ -9,7 +9,8 @@
 // (no budget, too deep, already in the tree), or that no permitted `agent`
 // model can run (`no-model`: none configured, or the policy does not allow it
 // for the vault — never swapped for another), is still claimed, as stopped
-// with the reason, so the same event never spawns it again. `matched` is not stored: matching is a pure function of history.
+// with the reason, so the same event never spawns it again. `matched` is not
+// stored: matching is a pure function of history.
 //
 // Invariants: every later state change is one transaction that moves the
 // spawn only from the state before it (queued → running → committed or

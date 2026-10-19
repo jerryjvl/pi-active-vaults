@@ -22,7 +22,7 @@ A Markdown file with optional YAML frontmatter. Standard keys:
 | `applies-when` | Conditions under which the document is injected into a session or spawns work |
 | `budget` | `{ tokens, ttl }` — required on any document that can spawn work; `ttl` in whole seconds, minutes or hours (`90s`, `30m`, `2h`) |
 | `actor` | The actor its spawned work writes as: one of the vault's `actors`, never an owner; else the nearest contract's `actor`. A spawning document without one does not run (`vault jobs` and `vault doctor` report it) |
-| `model` | The `agent` model its spawned work runs on, by name (see [Installation](#models)); else the nearest contract's `model`; else the default `agent` |
+| `model` | The `agent` model its spawned work runs on, by name (see [Models](#models)); else the nearest contract's `model`; else the default `agent`. A `model` that is not a name stops the job from running (`vault jobs` and `vault doctor` report it) |
 | `provenance` | Written by the runtime: trace ID and a compact causal path |
 
 Any other key is the vault's own.
@@ -203,6 +203,8 @@ Each axis is judged and recorded on its own, so a rule requires exactly the
 axes it names (`require: [judgement:evidence, judgement:relevance]`). An axis
 that cannot be judged — no permitted model, an error, content too large for the
 model — never passes: nothing is recorded, and its requirement stays unmet.
+Axes that have a model are still judged: one that has none is reported
+unjudged, and the judgement does not pass.
 
 An axis may name the judgement model that answers it (`model`); without one,
 the default `judgement` does. Naming a faster model is an optimisation for
@@ -452,7 +454,10 @@ what that name is, so a vault never depends on a particular model existing.
 
 - **Default entries** are named after their role, and their role is implied: a
   `role` that differs from the name is an error. Other names give their `role`
-  explicitly; only `judgement` and `agent` may have more than one entry.
+  explicitly; only `judgement` and `agent` may have more than one entry, so
+  the one `embed` and the one `rerank` model are named after their roles. An
+  `agent` model's `model` is exactly `provider/id`: Pi matches looser
+  patterns on its own, and the policy is written for the model named here.
 - **A request names a model; it never guarantees one.** An axis's or job's
   `model` that is not configured here is answered by its role's default,
   which `vault doctor` reports. Choose the strongest available model as each
@@ -460,9 +465,11 @@ what that name is, so a vault never depends on a particular model existing.
   always an explicit choice.
 - **A named model with the wrong role** (an axis naming an `agent` model) is a
   problem `vault doctor` reports; the request fails as below.
-- **Policy applies to the model actually used.** A configured model the policy
-  does not allow for the vault is never replaced by the default: the request
-  fails.
+- **Policy applies to the model actually used.** `allow-models` lists model
+  names. A configured model the policy does not allow for the vault is never
+  replaced by the default: the request fails. A job is checked at its claim
+  and again when it starts, and a headless run starts only when Pi is running
+  it on the `agent` model the daemon chose.
 - **A missing model never stops anything else.** Without the model a request
   needs, its work does not happen, visibly: a job does not run (`vault jobs`,
   `vault status`), an axis stays unjudged and its requirement unmet, search is
