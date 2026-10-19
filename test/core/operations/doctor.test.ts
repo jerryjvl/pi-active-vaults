@@ -175,6 +175,15 @@ test('doctor checks the forge\'s merge methods: squash or rebase merges allowed 
   assert.match(unreadable[0]?.[1] ?? '', /cannot verify whether squash and rebase merges are allowed \(http-error\)/i);
 }));
 
+test('a forge that shows main\'s protection only to admins: a warning to check it by hand, and the merge settings still checked', withForgeInstallation(async (t, forge) => {
+  forge.stub.model.protection = 'forbidden';
+  forge.stub.model.repository = { allow_squash_merge: true, allow_rebase: false, allow_rebase_explicit: false };
+  const found = about((await findings(t)).found, 'forge').map((f) => [f.level, f.message]);
+  assert.deepEqual(found.map(([level]) => level), ['warning', 'problem']);
+  assert.match(found[0]?.[1] ?? '', /cannot be read with the executor's access[^]*check it by hand/);
+  assert.match(found[1]?.[1] ?? '', /Squash merges are allowed/);
+}));
+
 // cli.md `vault doctor`: models — requested names that are not configured (and the default that answers
 // instead), names with the wrong role, defaults that documents need but are missing, and models the policy
 // does not allow where they are asked for; and the jobs that cannot run for lack of an agent model.

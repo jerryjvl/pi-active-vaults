@@ -20,7 +20,9 @@ Use a forge for any vault where a misbehaving agent or machine must not be able
 to change accepted knowledge, and for every vault shared between people. Four
 settings carry the guarantee; `vault doctor` checks each one through the forge's
 API and reports what is missing. Where the API does not show the merge methods
-to the executor's account, it warns that it cannot verify them.
+to the executor's account, it warns that it cannot verify them; where it shows
+`main`'s protection only to repository admins (Gitea), which the executor
+should not be, it warns that you need to check the protection by hand.
 
 | Setting | Value |
 |---|---|

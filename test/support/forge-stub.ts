@@ -31,8 +31,8 @@ export interface ForgeModel {
   pulls: StubPull[];
   statuses: { sha: string; context: string; state: string; description: string }[];
   reviews: StubReview[];
-  /** The forge-native protection body for `main`, or undefined when unprotected. */
-  protection?: object;
+  /** The forge-native protection body for `main`, undefined when unprotected, or 'forbidden' when only admins may read it. */
+  protection?: object | 'forbidden';
   /** The repository's settings in the forge's own fields (merge methods); 'forbidden': the account may not read them. */
   repository?: Record<string, unknown> | 'forbidden';
   /** Called before a list of pull requests is answered: something that happens in the forge meanwhile. */
@@ -154,6 +154,7 @@ export async function startForgeStub(type: ForgeType, headSha: (branch: string) 
     }
 
     if (method === 'GET') {
+      if (state.protection === 'forbidden' && /^\/(branch_protections|branches|protected_branches)\/main/.test(rest)) return { status: 403, body: { message: 'user should be an owner or a collaborator with admin write of a repository' } };
       if (type === 'gitea' && rest === '/branch_protections/main') return state.protection === undefined ? { status: 404, body: {} } : { body: state.protection };
       if (type === 'github' && rest === '/branches/main/protection') return state.protection === undefined ? { status: 404, body: { message: 'Branch not protected' } } : { body: state.protection };
       if (type === 'github' && rest === '/rules/branches/main') return { body: page(state.rules ?? [], url.searchParams, 'per_page') };

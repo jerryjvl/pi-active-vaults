@@ -188,10 +188,19 @@ async function forgeFindings(context: OperationContext, vault: RegisteredVault, 
   const account = await adapter.account();
   if (!account.ok) return [at('problem', `The forge cannot be asked about its settings (${account.error.reason}).`)];
   const protection = await adapter.protection(MAIN_BRANCH);
-  if (!protection.ok) return [at('problem', `Main's protection cannot be read (${protection.error.reason}).`)];
   // Merge settings are best effort: a forge may show them only to accounts with more access than the executor's.
   const read = await adapter.mergeMethods();
   const merges = read.ok ? read.value : { squash: 'unknown', rebase: 'unknown' } as const;
+  if (!protection.ok) {
+    // Some forges (Gitea) show protection only to repository admins, which the executor rightly is not:
+    // worth checking by hand, not a fault. Its merge settings may still be readable.
+    const refused = protection.error.reason === 'http-error' && 'status' in protection.error && (protection.error.status === 401 || protection.error.status === 403);
+    if (!refused) return [at('problem', `Main's protection cannot be read (${protection.error.reason}).`)];
+    return [
+      at('warning', 'Main\'s protection cannot be read with the executor\'s access (the forge shows it only to repository admins, which the executor should not be); check it by hand (security-setup.md).'),
+      ...(['squash', 'rebase'] as const).filter((m) => merges[m] === true).map((m) => at('problem', FORGE_PROBLEMS[`${m}-merges`])),
+    ];
+  }
   const problems = protectionProblems(protection.value, { account: account.value, owners, merges });
   // What the forge's API does not say is worth knowing, not a fault: approval not required, or merge methods unverifiable.
   const warnings: readonly string[] = ['approval-not-required', 'merges-unknown'];
