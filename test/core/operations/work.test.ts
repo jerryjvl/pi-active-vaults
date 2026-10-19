@@ -6,6 +6,7 @@
 // database for it to run. security.md — these propagate, so they are refused
 // for a vault whose main has an unaccepted change.
 import { test } from 'node:test';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { listSpawns } from '../../../src/core/queue/index.ts';
 import { TRACES_REF, renderCompactTrace } from '../../../src/core/traces/index.ts';
@@ -70,6 +71,17 @@ test('script runs an approved script from the accepted main, in the vault, with 
   assert.equal(ran.text, `hello in ${t.repo.path.split('/').at(-1)}\ntoken: none`);
   const failing = await t.run('script', { name: 'missing' });
   assert.equal(failing.status, 'failed');
+}));
+
+test('a session\'s scripts share its scratch directory as VAULT_SCRATCH; a lone run has none', posixOnly, withInstallation(async (t) => {
+  t.repo.write('.vault/scripts/scratch.sh', scriptSource('scratch', 'echo "scratch: ${VAULT_SCRATCH:-none}"; [ -z "$VAULT_SCRATCH" ] || ls -ld "$VAULT_SCRATCH" | cut -c1-10'));
+  t.repo.commit('script');
+  t.accept();
+  const trace = '01JABCDEFGHJKMNPQRSTVWXYZ0';
+  const inSession = await t.run('script', { name: 'scratch' }, { caller: { session: 'a-session', trace } });
+  assert.equal(inSession.status, 'ok', inSession.text);
+  assert.equal(inSession.text, `scratch: ${join(t.context.installation.paths.scratch, trace)}\ndrwx------`, 'private to the user');
+  assert.equal((await t.run('script', { name: 'scratch' })).text, 'scratch: none');
 }));
 
 test('notify is a failure, not a crash, when notifications are not configured', withInstallation(async (t) => {

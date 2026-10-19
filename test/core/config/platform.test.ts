@@ -85,6 +85,7 @@ test('the installation files live at the documented places under those directori
     runs: '/s/runs',
     refs: '/s/refs',
     workspace: '/s/vaults.code-workspace',
+    scratch: '/s/scratch',
   });
   assert.equal(installationPaths({ config: 'C:\\c', state: 'C:\\s' }, 'win32').stateDb, 'C:\\s\\state.sqlite');
   // A named pipe on Windows, unique to the state directory, so two installations never share one.

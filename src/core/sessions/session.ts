@@ -24,6 +24,7 @@
 import { ensureActorWorktree, releaseActorHold, takeActorHold, type Holder, type HoldError, type WorktreeError } from '../actors/index.ts';
 import { allot, budgetState, finishSession, type Budget } from '../budgets/index.ts';
 import { eventJson } from '../conditions/index.ts';
+import { removeScratch } from '../config/index.ts';
 import { acceptedDocument, acceptedIdentity, acceptedMain } from '../integrity/index.ts';
 import { locate, unacceptedNotices, type Caller, type OperationContext } from '../operations/index.ts';
 import { resolveModel } from '../models/index.ts';
@@ -239,6 +240,7 @@ export function closeSession(context: OperationContext, session: VaultSession): 
     releaseActorHold(context.state, { vault: session.vault.id, actor: session.actor, holder: session.holder });
   }
   session.held = false;
+  removeScratch(context.installation.paths, session.trace);
   if (session.mode === 'interactive') context.state.transaction((tx) => finishSession(tx, context.clock, session.trace));
 }
 

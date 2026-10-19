@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fauxAssistantMessage, getCurrentTools, type FauxResponseStep, type JsonObject } from '@earendil-works/pi-ai';
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderRunContext } from '../../src/core/sessions/index.ts';
 import { withInstallation } from '../support/installation.ts';
@@ -186,5 +186,32 @@ test('an item over the budget stops before its next step, and later items are sk
     const result = pi.results.find((r) => r.tool === 'vault_fan_out');
     assert.equal(result?.isError, true);
     assert.match(result?.text ?? '', /a: the run's budget is used; b: the run's budget is used/);
+  });
+}, { running: RUNNING }));
+
+test('with save, the outcomes go to the session\'s scratch directory and only a summary comes back; the directory goes with the session', withInstallation(async (t) => {
+  let scratch = '';
+  await withPi(t, {}, async (pi) => {
+    pi.respond(
+      fanOut({ items: ['a', 'b'], each: 'Do it.', save: 'scratch:outcomes.json' }),
+      fauxAssistantMessage('A'), fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'overloaded' }),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    const trace = (pi.events.find((e) => e.channel === 'pav:v1:ready')?.data as { trace: string }).trace;
+    scratch = join(t.context.installation.paths.scratch, trace);
+    assert.deepEqual(JSON.parse(readFileSync(join(scratch, 'outcomes.json'), 'utf8')), [{ item: 'a', outcome: 'done', result: 'A' }, { item: 'b', outcome: 'failed', reason: 'overloaded' }]);
+    assert.equal(toolResults(pi.requests.at(-1), 'vault_fan_out')[0], 'Saved 2 outcome(s) to scratch:outcomes.json: 1 done.\nNot done:\nb: failed (overloaded)');
+  });
+  assert.equal(existsSync(scratch), false, 'removed when the session closed');
+}, { running: RUNNING }));
+
+test('save names a file in the scratch directory, never a path, and does not go with gather', withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    pi.respond(fanOut({ items: ['a'], each: 'Do it.', save: 'scratch:../x.json' }), fanOut({ items: ['a'], each: 'Do it.', save: 'scratch:x.json', gather: 'Combine.' }), DONE);
+    await pi.prompt('Fan out.');
+    const results = pi.results.filter((r) => r.tool === 'vault_fan_out');
+    assert.deepEqual(results.map((r) => r.isError), [true, true]);
+    assert.match(results[0]?.text ?? '', /not a file in this session's scratch directory/);
   });
 }, { running: RUNNING }));

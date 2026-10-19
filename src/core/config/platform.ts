@@ -40,6 +40,8 @@ export interface InstallationPaths {
   readonly refs: string;
   /** The editor workspace `vault workspace` writes: the person's worktree in each vault. */
   readonly workspace: string;
+  /** Sessions' scratch directories, one per trace (scratch.ts). */
+  readonly scratch: string;
 }
 
 export type PlatformDirsError = { reason: 'relative-override'; variable: string };
@@ -134,6 +136,7 @@ export function installationPaths(dirs: PlatformDirs, os: PlatformKind): Install
     runs: p.join(dirs.state, 'runs'),
     refs: p.join(dirs.state, 'refs'),
     workspace: p.join(dirs.state, 'vaults.code-workspace'),
+    scratch: p.join(dirs.state, 'scratch'),
   };
 }
 

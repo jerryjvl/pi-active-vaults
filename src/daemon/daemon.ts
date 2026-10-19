@@ -18,7 +18,9 @@
 //    socket and its record.
 
 import { watch, type FSWatcher } from 'node:fs';
-import { ensurePrivateDir, findPi, packageVersion, type Host } from '../core/config/index.ts';
+import { ensurePrivateDir, findPi, packageVersion, sweepScratch, type Host } from '../core/config/index.ts';
+
+const SCRATCH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 import { createAutomation, type Automation, type Notice, type PiCommand } from '../core/automation/index.ts';
 import { createContext, loadInstallation, type ContextOptions, type OperationContext } from '../core/operations/index.ts';
 import { releaseDaemonRecord, takeDaemonRecord, type RecoveryReport } from '../core/queue/index.ts';
@@ -137,6 +139,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Result<Runnin
     return server;
   }
   const recovered = await automation.start();
+  // Scratch a session that never closed left behind: a day untouched is long past any run's time.
+  sweepScratch(installation.value.paths, context.clock.now().getTime(), SCRATCH_MAX_AGE_MS);
   schedule();
   const endpoints: (McpEndpoint | { profile: string; error: McpEndpointError })[] = [];
   for (const profile of installation.value.mcp.profiles.filter((p) => p.listen !== undefined)) {

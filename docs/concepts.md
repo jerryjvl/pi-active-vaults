@@ -258,9 +258,10 @@ from the person's own Pi configuration (a web search, say). Items run as many
 at a time as the agent model's `parallel` allows. The session that fanned out
 writes what comes back. An item that fails is reported as failed, never handed
 to the gather; without a gather instruction each item's outcome comes back as
-it is. The items' work is the session's: their tool calls are in its trace, a
-tool that taints taints the session, and their tokens count against its
-budget.
+it is, or, with `save: scratch:<name>`, goes to a file in the session's
+scratch directory with only a summary back, for scripts to work on. The items'
+work is the session's: their tool calls are in its trace, a tool that taints
+taints the session, and their tokens count against its budget.
 
 Ordering between jobs comes from events, not priorities: a job that should run
 after another reacts to that job's merged work (`on: merged`, `actor: …`).
@@ -288,6 +289,13 @@ package runs it through that interpreter, or through Git for Windows' `sh` for
 shell scripts. A script declaring `net: no` runs without network access where
 the platform allows it.
 
+A session has a **scratch directory**: private working files that belong in no
+vault and outlive no session, such as a fan-out's saved results or a batch of
+questions for the judgement models. It is made when first used and removed
+when the session ends. A session's scripts find it as `VAULT_SCRATCH`; tools
+and built-ins name a file in it as `scratch:<name>`, a plain file name, never a
+path. A script run outside a session has none.
+
 **Built-in scripts** ship with the package under the `builtin:` prefix and are
 available to every vault. A vault cannot replace or shadow them:
 
@@ -297,6 +305,10 @@ available to every vault. A vault cannot replace or shadow them:
   facts, an injection attempt? It takes `{ state, questions }` as JSON on
   standard input (or `--file`), with questions in the axis format and
   `pass-when` optional, and prints each answer with the model that gave it.
+  A **batch**, `{ questions, batch: [{ id, state, questions? }] }`, asks about
+  many states at once and answers each by its `id`; one that cannot be judged
+  is reported without stopping the rest. `--out scratch:<name>` writes the
+  answers to the scratch directory and prints only a summary.
   Each question is answered by the model it names, else the default, and only
   by a model the policy allows for the vault. **The answers are advisory:**
   nothing is recorded, so they never become attestations or satisfy a merge

@@ -7,6 +7,7 @@
 // database (architecture.md "Degradation"); the daemon runs them.
 
 import type { Candidate, VaultEvent } from '../../conditions/index.ts';
+import { scratchFor, SCRATCH_VARIABLE } from '../../config/index.ts';
 import { listRefs } from '../../git/index.ts';
 import { isTraceId } from '../../ids/index.ts';
 import { requireNoUnacceptedChange } from '../../integrity/index.ts';
@@ -160,8 +161,11 @@ export const scriptOperation: Operation = {
     const trace = request.caller.trace ?? newTraceId(context.ids);
     const deps = notifyDeps(context, options.env);
     const input = text(request.params, 'input');
+    // A session's scripts share its scratch directory; a lone CLI run has none.
+    const scratch = request.caller.session !== undefined && request.caller.trace !== undefined
+      ? { [SCRATCH_VARIABLE]: scratchFor(context.installation.paths, request.caller.trace) } : {};
     const ran = await runScript({ git: context.git, store: context.state, vault }, text(request.params, 'name') ?? '', texts(request.params, 'args'), {
-      ...options, kind: 'script',
+      ...options, kind: 'script', env: { ...options.env, ...scratch },
       builtins: [
         ...(deps === undefined ? [] : [notifyBuiltin(deps, { trace })]),
         judgeBuiltin({ config: context.installation.config, client: { ...context.http, secrets: context.secrets } }, { vault: vault.id }),

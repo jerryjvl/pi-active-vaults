@@ -19,15 +19,15 @@ export const RUNNING: Readonly<Record<number, string>> = { [ME]: '2026-01-01T00:
 /** The holder record of the other session. */
 export const OTHER_HOLDER = { process: { pid: OTHER, started: RUNNING[OTHER] as string }, session: 'other-session' };
 
-/** The job document `startedSpawn` runs, on the accepted main. */
-export const JOB = '---\napplies-when: [{ on: external, name: daily, effect: spawn }]\nbudget: { tokens: 5000, ttl: 10m }\nactor: gardener\n---\nRun the daily job.\n';
+/** The job document `startedSpawn` runs, on the accepted main; its budget is ample for a few turns (tests of budgets give their own). */
+export const JOB = '---\napplies-when: [{ on: external, name: daily, effect: spawn }]\nbudget: { tokens: 20000, ttl: 10m }\nactor: gardener\n---\nRun the daily job.\n';
 
 /**
  * A spawn of `document` — committed and accepted as a job first — queued and
  * started as the daemon would before running it; in the tree of `parent`
  * when given.
  */
-export function startedSpawn(t: TestInstallation, document = 'jobs/daily.md', tokens = 5000, parent?: string): SpawnEntry {
+export function startedSpawn(t: TestInstallation, document = 'jobs/daily.md', tokens = 20000, parent?: string): SpawnEntry {
   t.repo.write(document, JOB);
   t.repo.commit(`job ${document}`);
   t.accept();

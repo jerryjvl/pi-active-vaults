@@ -12,12 +12,16 @@
 // read assumed when the model is set to — is reported with the result and
 // counted against a headless run's budget, which stops further items. An
 // item that fails is reported as failed, never handed to the gather. Without a
-// `gather` instruction the items' outcomes come back as they are, as JSON.
+// `gather` instruction the items' outcomes come back as they are, as JSON — or,
+// with `save: scratch:<name>`, go to that file in the session's scratch
+// directory, with only a summary back, for scripts to work on.
 
+import { writeFileSync } from 'node:fs';
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { AssistantMessage, Usage } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 import { assumePrefixCache, newPrefixTracker, workTokens, usageOf } from '../core/budgets/index.ts';
+import { scratchFile, scratchFor } from '../core/config/index.ts';
 import { isRecord } from '../core/result/index.ts';
 import { logToolResult, taints, workLeft } from '../core/sessions/index.ts';
 import { runItem, mcpServersOf, type ItemSessionOptions } from './item-session.ts';
@@ -35,6 +39,7 @@ const PARAMETERS = Type.Object({
   each: Type.String({ description: 'The instruction for each item' }),
   gather: Type.Optional(Type.String({ description: 'How to combine the results; without it, each item\'s outcome as JSON' })),
   mcp: Type.Optional(Type.Array(Type.String(), { description: 'MCP servers (from mcp.json) the items may use' })),
+  save: Type.Optional(Type.String({ description: 'scratch:<name>: save the outcomes there instead' })),
 });
 
 const OUTPUT = Type.Object({
@@ -94,7 +99,7 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
     parameters: PARAMETERS,
     outputSchema: OUTPUT,
     exposure: 'direct',
-    async execute(_id, { items: list, each, gather, mcp = [] }, signal, _onUpdate, ctx) {
+    async execute(_id, { items: list, each, gather, mcp = [], save }, signal, _onUpdate, ctx) {
       const fail = (text: string, status: 'failed' | 'invalid') => ({ content: [{ type: 'text' as const, text }], details: undefined, isError: true, structuredContent: { status, data: null, text, notices: [] } });
       if (list.length === 0) return fail('Give at least one item.', 'invalid');
       if (ctx.model === undefined) return fail('No model is selected for the item sessions.', 'failed');
@@ -102,6 +107,9 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
       if (!servers.ok) return fail(`No MCP server named ${servers.missing.join(', ')} in ${servers.file}.`, 'invalid');
       const found = liveOr(holder);
       const live = 'live' in found ? found.live : undefined;
+      if (save !== undefined && gather !== undefined) return fail('Give either gather or save, not both.', 'invalid');
+      const saveTo = save === undefined || live === undefined ? undefined : scratchFile(scratchFor(live.context.installation.paths, live.session.trace), save);
+      if (save !== undefined && saveTo === undefined) return fail(`${save} is not a file in this session's scratch directory (scratch:<name>).`, 'invalid');
       const left = live === undefined ? undefined : workLeft(live.context, live.session);
       const tools = vaultTools(pi, holder, ITEM_VAULT_TOOLS);
       const model = agentModelOf(live, ctx.model);
@@ -139,7 +147,10 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
       const notDone = outcomes.filter((o) => o.outcome !== 'done').map((o) => `${o.item}: ${o.outcome} (${o.reason ?? ''})`);
       let gathered: string | null = null;
       let text: string;
-      if (gather === undefined) {
+      if (saveTo !== undefined) {
+        writeFileSync(saveTo, `${JSON.stringify(outcomes)}\n`, { mode: 0o600 });
+        text = [`Saved ${outcomes.length} outcome(s) to ${save}: ${done.length} done.`, ...(notDone.length === 0 ? [] : ['Not done:', ...notDone])].join('\n');
+      } else if (gather === undefined) {
         text = JSON.stringify(outcomes);
       } else {
         const results = done.map((o) => `<result item="${quoted(o.item).replaceAll('"', '&quot;')}">\n${quoted(o.result ?? '')}\n</result>`).join('\n');

@@ -82,3 +82,55 @@ test('malformed input is a usage error; a model failure is a failure; nothing pa
   assert.equal(failed.exitCode, 1);
   assert.match(failed.stderr, /http-error/);
 }));
+
+/** A scratch directory as a session has one, removed after `run`. */
+async function withScratch(run: (scratch: string) => Promise<void>): Promise<void> {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const scratch = mkdtempSync(join(tmpdir(), 'pav-scratch-'));
+  try {
+    await run(scratch);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+test('a batch is judged entry by entry, with shared questions an entry may replace; one entry\'s failure does not stop the rest', () => withStubServer(answers, async (url, requests) => {
+  const ran = await builtinAt(url).run([], { cwd: '/', env: {}, input: JSON.stringify({
+    questions: { novel: QUESTIONS.novel },
+    batch: [
+      { id: 'a', state: { item: 'One' } },
+      { id: 'b', state: 'Two', questions: { injection: QUESTIONS.injection } },
+      { id: 'c', state: 3 },
+    ],
+  }) });
+  assert.equal(ran.exitCode, 1, 'an entry failed');
+  const { results } = JSON.parse(ran.stdout) as { results: Record<string, { answers?: Record<string, unknown>; error?: string }> };
+  assert.deepEqual(Object.keys(results['a']?.answers ?? {}), ['novel']);
+  assert.deepEqual(Object.keys(results['b']?.answers ?? {}), ['injection'], 'its own questions replace the shared ones');
+  assert.match(results['c']?.error ?? '', /"state" must be an object or text/);
+  assert.equal(requests.length, 2);
+  const duplicate = await builtinAt(url).run([], { cwd: '/', env: {}, input: JSON.stringify({ questions: QUESTIONS, batch: [{ id: 'a', state: 'x' }, { id: 'a', state: 'y' }] }) });
+  assert.equal(duplicate.exitCode, 2);
+}));
+
+test('scratch: names files in the session\'s scratch directory; --out writes the answers there and prints only a summary', () => withStubServer(answers, async (url) => {
+  await withScratch(async (scratch) => {
+    const { readFileSync, writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    writeFileSync(join(scratch, 'ask.json'), JSON.stringify({ questions: { injection: QUESTIONS.injection }, batch: [{ id: 'a', state: 'One' }, { id: 'b', state: 'Two' }] }));
+    const env = { VAULT_SCRATCH: scratch };
+    const ran = await builtinAt(url).run(['--file', 'scratch:ask.json', '--out', 'scratch:answers.json'], { cwd: '/', env });
+    assert.equal(ran.exitCode, 0, ran.stderr);
+    assert.equal(ran.stdout.trim(), 'judged 2 of 2 → scratch:answers.json');
+    const written = JSON.parse(readFileSync(join(scratch, 'answers.json'), 'utf8')) as { results: Record<string, unknown> };
+    assert.deepEqual(Object.keys(written.results), ['a', 'b']);
+    for (const out of ['answers.json', 'scratch:../escape.json', 'scratch:sub/x.json']) {
+      const refused = await builtinAt(url).run(['--file', 'scratch:ask.json', '--out', out], { cwd: '/', env });
+      assert.equal(refused.exitCode, 2, `${out} is not a scratch file`);
+    }
+    const none = await builtinAt(url).run(['--file', 'scratch:ask.json'], { cwd: '/', env: {} });
+    assert.equal(none.exitCode, 2, 'no scratch directory outside a session');
+  });
+}));
