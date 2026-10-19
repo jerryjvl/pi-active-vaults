@@ -109,7 +109,7 @@ export async function judgeForProposal(context: OperationContext, vault: Registe
     if (!outcome.ok) return [`${path} could not be judged (${outcome.error.reason}); its judgement requirements stay unmet.`];
     const { axes, unjudged } = outcome.value;
     return [
-      ...(axes.length === 0 ? [] : [`judged ${path}: ${axes.map((a) => `${a.name} ${a.result}`).join(', ')}`]),
+      ...(axes.length === 0 ? [] : [`${axes.every((a) => a.reused) ? 'already judged' : 'judged'} ${path}: ${axes.map((a) => `${a.name} ${a.result}`).join(', ')}`]),
       ...unjudged.map((u) => `${path}: ${u.name} not judged (${u.reason.reason}).`),
     ];
   });

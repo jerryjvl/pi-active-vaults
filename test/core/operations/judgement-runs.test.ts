@@ -88,17 +88,22 @@ test('review judges what is still missing for the current content', withJudgedIn
   assert.equal(judgementRequests(requests), before + 1);
   assert.match(reviewed.text, /met judgement:evidence/);
 
-  // Already judged for this content: a second review asks nothing.
-  await t.run('review', { actor: 'gardener' });
+  // Met for this content: a second review asks nothing more.
+  const again = await t.run('review', { actor: 'gardener' });
+  assert.doesNotMatch(again.text, /judged topics/);
   assert.equal(judgementRequests(requests), before + 1);
 }));
 
-test('a failing judgement is recorded as a failure, never a pass', withJudgedInstallation(async (t) => {
+test('a failing judgement is recorded as a failure, never a pass, and is not asked again for the same content', withJudgedInstallation(async (t, requests) => {
   judge.up = true; judge.primary = 0.2;
   const committed = await commitAs(t, { 'topics/a.md': 'Just an opinion.' });
   assert.equal(committed.status, 'ok', committed.text);
   assert.match(committed.text, /judged topics\/a\.md: evidence fail/);
   assert.match((await t.run('status')).text, /unmet judgement:evidence/);
+  const before = judgementRequests(requests);
+  const reviewed = await t.run('review', { actor: 'gardener' });
+  assert.match(reviewed.text, /already judged topics\/a\.md: evidence fail/);
+  assert.equal(judgementRequests(requests), before);
 }));
 
 test('accept evaluates what is recorded and never asks a model', withJudgedInstallation(async (t, requests) => {
