@@ -1,4 +1,4 @@
-// Clients for the model roles' HTTP APIs (concepts.md "Installation"):
+// Clients for the HTTP model roles' APIs (concepts.md "Models"):
 //   embed     — OpenAI-compatible POST <url>/embeddings
 //   rerank    — POST <url>/rerank, Jina / Cohere style
 //   judgement — POST <url>/systemone (see `systemone.ts`)
@@ -13,46 +13,46 @@
 // vector or score per input, vectors of one dimension), and anything else is
 // an error, never a partial result.
 
-import { resolveSecret, type ModelRole, type SecretDeps } from '../config/index.ts';
+import { resolveSecret, type EndpointRole, type SecretDeps } from '../config/index.ts';
 import { requestJson, type HttpClient, type HttpError } from '../http/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import { inBatches } from './batches.ts';
-import type { PermittedModel } from './roles.ts';
+import type { PermittedModel } from './resolve.ts';
 
 export interface ModelClient extends HttpClient {
   readonly secrets: SecretDeps;
 }
 
 export type ModelError =
-  | { readonly reason: 'token'; readonly role: ModelRole; readonly where: string }
-  | (HttpError & { readonly role: ModelRole });
+  | { readonly reason: 'token'; readonly role: EndpointRole; readonly where: string }
+  | (HttpError & { readonly role: EndpointRole });
 
 /** The role's API at `path`, under the configured base URL. */
-function apiUrl(model: PermittedModel, path: string): string {
-  return `${model.endpoint.url.replace(/\/+$/, '')}/${path}`;
+function apiUrl(model: PermittedModel<EndpointRole>, path: string): string {
+  return `${model.entry.url.replace(/\/+$/, '')}/${path}`;
 }
 
 /** POSTs `body` as JSON to the role's API with its bearer token; the response's JSON, or why not. */
-export async function postJson(client: ModelClient, model: PermittedModel, path: string, token: string, body: unknown): Promise<Result<unknown, ModelError>> {
+export async function postJson(client: ModelClient, model: PermittedModel<EndpointRole>, path: string, token: string, body: unknown): Promise<Result<unknown, ModelError>> {
   const posted = await requestJson(client, { method: 'POST', url: apiUrl(model, path), headers: { authorization: `Bearer ${token}` }, body });
   return posted.ok ? ok(posted.value.body) : err({ ...posted.error, role: model.role });
 }
 
 /** The role's token, resolved now; an error names only the config field. */
-export async function roleToken(client: ModelClient, model: PermittedModel): Promise<Result<string, ModelError>> {
-  const token = await resolveSecret(model.endpoint.token, client.secrets);
+export async function roleToken(client: ModelClient, model: PermittedModel<EndpointRole>): Promise<Result<string, ModelError>> {
+  const token = await resolveSecret(model.entry.token, client.secrets);
   return token.ok ? token : err({ reason: 'token', role: model.role, where: token.error.where });
 }
 
 /** Resolves the token once, then sends the inputs in batches. */
 async function batched<I, O>(
-  client: ModelClient, model: PermittedModel, inputs: readonly I[],
+  client: ModelClient, model: PermittedModel<EndpointRole>, inputs: readonly I[],
   send: (token: string, batch: readonly I[]) => Promise<Result<readonly O[], ModelError>>,
 ): Promise<Result<O[], ModelError>> {
   if (inputs.length === 0) return ok([]);
   const token = await roleToken(client, model);
   if (!token.ok) return token;
-  return inBatches(inputs, model.endpoint, (batch) => send(token.value, batch));
+  return inBatches(inputs, model.entry, (batch) => send(token.value, batch));
 }
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
@@ -77,7 +77,7 @@ function byIndex<T>(items: unknown, count: number, read: (item: Record<string, u
 /** One vector per text, in the texts' order. */
 export async function embed(client: ModelClient, model: PermittedModel<'embed'>, texts: readonly string[]): Promise<Result<number[][], ModelError>> {
   const vectors = await batched<string, number[]>(client, model, texts, async (token, batch) => {
-    const posted = await postJson(client, model, 'embeddings', token, { model: model.endpoint.model, input: batch });
+    const posted = await postJson(client, model, 'embeddings', token, { model: model.entry.model, input: batch });
     if (!posted.ok) return posted;
     const placed = byIndex((posted.value as { data?: unknown } | null)?.data, batch.length, (item) => {
       const embedding = item['embedding'];
@@ -94,7 +94,7 @@ export async function embed(client: ModelClient, model: PermittedModel<'embed'>,
 /** A relevance score for each document against the query, in the documents' order. */
 export async function rerank(client: ModelClient, model: PermittedModel<'rerank'>, query: string, documents: readonly string[]): Promise<Result<number[], ModelError>> {
   return batched<string, number>(client, model, documents, async (token, batch) => {
-    const posted = await postJson(client, model, 'rerank', token, { model: model.endpoint.model, query, documents: batch, top_n: batch.length });
+    const posted = await postJson(client, model, 'rerank', token, { model: model.entry.model, query, documents: batch, top_n: batch.length });
     if (!posted.ok) return posted;
     const placed = byIndex((posted.value as { results?: unknown } | null)?.results, batch.length, (item) =>
       isFiniteNumber(item['relevance_score']) ? item['relevance_score'] : undefined);

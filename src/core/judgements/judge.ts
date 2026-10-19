@@ -1,8 +1,9 @@
 // Judging documents (core.md "Judgements"): a document's content, sent as
-// state with the questions of its axes to the judgement model; each answer
-// held against its axis's `pass-when`; each outcome recorded as an
-// attestation about the content (its blob), naming the model and the axis's
-// version.
+// state with the questions of its axes to the judgement model each axis names
+// (else the default); axes are grouped by the model that answers them, one
+// request each; each answer held against its axis's `pass-when`; each outcome
+// recorded as an attestation about the content (its blob), naming the model
+// actually used and the axis's version.
 //
 // Invariants:
 //  - a judgement is a check, so it composes like every script run: no
@@ -10,12 +11,18 @@
 //    purpose — from the accepted `main`; the commit judged supplies only the
 //    content, so a proposal cannot loosen the axes it is judged by;
 //  - content goes only to a model the installation's policy permits for the
-//    vault, and is never shortened: content too large for the model is the
-//    model's error, and a failed judgement;
+//    vault — the one the axis names, else the default, and a configured model
+//    that is not permitted is never replaced by another — and is never
+//    shortened: content too large for the model is the model's error, and a
+//    failed judgement;
+//  - an axis no permitted model can answer (none configured, the wrong role,
+//    not allowed) is reported unjudged and records nothing, so its requirement
+//    stays unmet — never a pass, and never a failure of the other axes;
 //  - a judgement that cannot be made returns its reason and records nothing,
 //    so the requirement stays unmet — a failure, never a pass;
-//  - an axis already judged for this exact content, by this model under this
-//    axis version, is not asked again: the attestation is the record;
+//  - an axis already judged for this exact content, by the model that would
+//    answer it now under this axis version (which includes the model it
+//    names), is not asked again: the attestation is the record;
 //  - content is data: it is sent only as state, never as instructions.
 
 import { readAttestations, latestAttestation, recordAttestation, type AttestationError } from '../attestations/index.ts';
@@ -26,7 +33,7 @@ import type { ContractError } from '../contracts/index.ts';
 import { documentTitle, labelsOf, parseDocument, utf8Text } from '../documents/index.ts';
 import { TREE_MODES, listTree, readFileAt, type Attribution, type Git, type GitError, type Sha } from '../git/index.ts';
 import { UNCACHED_READS, acceptedContracts, acceptedIdentity, requireNoUnacceptedChange, type AcceptedReads, type UnacceptedChangeError, type VaultLocation } from '../integrity/index.ts';
-import { askSystemOne, modelFor, type ModelClient, type ModelError, type RoleUnavailable, type SystemOneQuestion } from '../models/index.ts';
+import { askSystemOne, resolveModel, type ModelClient, type ModelError, type ModelUnavailable, type PermittedModel, type SystemOneQuestion } from '../models/index.ts';
 import { axesVersion, evaluateMerge, type PolicyError } from '../policy/index.ts';
 import type { IdentityError } from '../registry/index.ts';
 import { err, ok, type Issue, type Result } from '../result/index.ts';
@@ -51,16 +58,27 @@ export interface AxisJudgement {
   readonly evidence: string;
   /** Taken from an earlier judgement of the same content, model and axis version. */
   readonly reused: boolean;
+  /** The model that answered it (the attestation's `by`). */
+  readonly model: string;
+  /** The model the axis asked for, when it is not configured and the default answered. */
+  readonly substitutedFor?: string;
+}
+
+/** An axis that no permitted model could answer, and why. */
+export interface UnjudgedAxis {
+  readonly name: string;
+  readonly reason: ModelUnavailable;
 }
 
 export interface Judgement {
   readonly path: string;
   /** The content judged: its blob SHA. */
   readonly subject: Sha;
-  readonly model: string;
-  /** Every axis passed. */
+  /** Every axis was judged and passed. */
   readonly passed: boolean;
+  /** The axes judged, in the order the contract gives them. */
   readonly axes: readonly AxisJudgement[];
+  readonly unjudged: readonly UnjudgedAxis[];
   /** What the request used; absent when nothing was asked or the model did not say. */
   readonly usage?: { readonly inputTokens: number; readonly outputTokens: number };
 }
@@ -71,7 +89,6 @@ export type JudgementError =
   | ContractError
   | IdentityError
   | AttestationError
-  | RoleUnavailable
   | ModelError
   | { readonly reason: 'no-axes'; readonly path: string }
   | { readonly reason: 'invalid-axes'; readonly issues: readonly Issue[] }
@@ -110,26 +127,36 @@ export async function judgeDocument(
 
   const content = await contentAt(git, vault.path, commit, path);
   if (!content.ok) return content;
-  const model = modelFor(deps.config, 'judgement', [vault.id]);
-  if (!model.ok) return model;
-  const by = model.value.endpoint.model;
   const earlier = await readAttestations(git, vault.path, content.value.blob);
   if (!earlier.ok) return earlier;
 
   const judged = new Map<string, AxisJudgement>();
-  const toAsk: Axis[] = [];
+  const unjudged: UnjudgedAxis[] = [];
+  // Which axes the default answers for a model they asked for that is not configured: per axis, though the model is shared.
+  const substituted = new Map<string, string>();
+  // The axes still to ask, grouped by the model that answers them.
+  const toAsk = new Map<string, { model: PermittedModel<'judgement'>; axes: Axis[] }>();
   for (const axis of axes.value) {
+    const model = resolveModel(deps.config, 'judgement', [vault.id], axis.model);
+    if (!model.ok) {
+      unjudged.push({ name: axis.name, reason: model.error });
+      continue;
+    }
+    const by = model.value.entry.model;
+    if (model.value.substitutedFor !== undefined) substituted.set(axis.name, model.value.substitutedFor);
     const latest = latestAttestation(earlier.value, 'judgement', axis.name);
     const current = latest !== undefined && latest.by === by && latest.version === axesVersion(axis.definition);
     if (current && (latest.result === 'pass' || latest.result === 'fail')) {
-      judged.set(axis.name, { name: axis.name, result: latest.result, evidence: latest.evidence ?? '', reused: true });
+      judged.set(axis.name, { name: axis.name, result: latest.result, evidence: latest.evidence ?? '', reused: true, ...answeredBy(model.value, substituted.get(axis.name)) });
     } else {
-      toAsk.push(axis);
+      const group = toAsk.get(model.value.name) ?? { model: model.value, axes: [] };
+      group.axes.push(axis);
+      toAsk.set(model.value.name, group);
     }
   }
 
   let usage: Judgement['usage'];
-  if (toAsk.length > 0) {
+  if (toAsk.size > 0) {
     const identity = await acceptedIdentity(reads, git, vault.path, accepted.value);
     if (!identity.ok) return identity;
     const parsed = parseDocument(content.value.text);
@@ -140,28 +167,37 @@ export async function judgeDocument(
       labels: parsed.ok ? labelsOf(parsed.value.frontmatter) : [],
       content: content.value.text,
     };
-    const questions: Record<string, SystemOneQuestion> = Object.fromEntries(toAsk.map((axis) => [axis.name, axis.question]));
-    const asked = await askSystemOne(deps.client, model.value, { state, questions });
-    if (!asked.ok) return asked;
-    usage = asked.value.usage;
-    for (const axis of toAsk) {
-      const answer = asked.value.answers[axis.name];
-      if (answer === undefined) throw new Error('the System One client returned without an answer it checked for');
-      const verdict = axisVerdict(axis, answer);
-      const recorded = await recordAttestation(git, vault.path, {
-        kind: 'judgement', name: axis.name, subject: content.value.blob, result: verdict.result, by,
-        version: axesVersion(axis.definition), evidence: verdict.evidence, at: deps.clock.now().toISOString(),
-      }, deps.attribution);
-      if (!recorded.ok) return recorded;
-      judged.set(axis.name, { name: axis.name, ...verdict, reused: false });
+    for (const { model, axes: group } of toAsk.values()) {
+      const questions: Record<string, SystemOneQuestion> = Object.fromEntries(group.map((axis) => [axis.name, axis.question]));
+      const asked = await askSystemOne(deps.client, model, { state, questions });
+      if (!asked.ok) return asked;
+      if (asked.value.usage !== undefined) {
+        usage = { inputTokens: (usage?.inputTokens ?? 0) + asked.value.usage.inputTokens, outputTokens: (usage?.outputTokens ?? 0) + asked.value.usage.outputTokens };
+      }
+      for (const axis of group) {
+        const answer = asked.value.answers[axis.name];
+        if (answer === undefined) throw new Error('the System One client returned without an answer it checked for');
+        const verdict = axisVerdict(axis, answer);
+        const recorded = await recordAttestation(git, vault.path, {
+          kind: 'judgement', name: axis.name, subject: content.value.blob, result: verdict.result, by: model.entry.model,
+          version: axesVersion(axis.definition), evidence: verdict.evidence, at: deps.clock.now().toISOString(),
+        }, deps.attribution);
+        if (!recorded.ok) return recorded;
+        judged.set(axis.name, { name: axis.name, ...verdict, reused: false, ...answeredBy(model, substituted.get(axis.name)) });
+      }
     }
   }
 
   const results = axes.value.flatMap((axis) => judged.get(axis.name) ?? []);
   return ok({
-    path, subject: content.value.blob, model: by, passed: results.every((a) => a.result === 'pass'), axes: results,
+    path, subject: content.value.blob, passed: unjudged.length === 0 && results.every((a) => a.result === 'pass'), axes: results, unjudged,
     ...(usage === undefined ? {} : { usage }),
   });
+}
+
+/** What an axis's judgement says of the model that answered it. */
+function answeredBy(model: PermittedModel<'judgement'>, substitutedFor: string | undefined): Pick<AxisJudgement, 'model' | 'substitutedFor'> {
+  return { model: model.entry.model, ...(substitutedFor === undefined ? {} : { substitutedFor }) };
 }
 
 /** Judges the documents an actor's proposal still needs judged by its merge policy, in path order; each outcome on its own. */

@@ -6,8 +6,8 @@
 // redirect is an error and the token never appears in one. Local stubs only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ModelEndpoint, SecretDeps } from '../../../src/core/config/index.ts';
-import { askSystemOne, modelFor, type ModelClient, type SystemOneQuestion } from '../../../src/core/models/index.ts';
+import type { ModelEntry, SecretDeps } from '../../../src/core/config/index.ts';
+import { askSystemOne, resolveModel, type ModelClient, type SystemOneQuestion } from '../../../src/core/models/index.ts';
 import { withStubServer } from '../../support/stub-server.ts';
 
 const TOKEN = 'judge-token';
@@ -15,8 +15,8 @@ const secrets: SecretDeps = { env: { JUDGE_TOKEN: TOKEN }, runCommand: async () 
 const client: ModelClient = { fetch, secrets, timeoutMs: 5000 };
 
 function judge(url: string) {
-  const endpoint: ModelEndpoint = { url: `${url}/v1`, token: { kind: 'env', name: 'JUDGE_TOKEN', where: 'models.judgement.token' }, model: 'laya', batch: 1, parallel: 1 };
-  const permitted = modelFor({ models: { judgement: endpoint }, policy: [{ vaults: ['home'], allowModels: ['judgement'] }] }, 'judgement', ['home']);
+  const endpoint: ModelEntry = { role: 'judgement', url: `${url}/v1`, token: { kind: 'env', name: 'JUDGE_TOKEN', where: 'models.judgement.token' }, model: 'laya', batch: 1, parallel: 1 };
+  const permitted = resolveModel({ models: { judgement: endpoint }, policy: [{ vaults: ['home'], allowModels: ['judgement'] }] }, 'judgement', ['home']);
   assert.ok(permitted.ok);
   return permitted.value;
 }

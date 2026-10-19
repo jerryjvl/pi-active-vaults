@@ -33,6 +33,7 @@ export {
 } from './secrets.ts';
 export {
   FORGE_TYPES,
+  MODEL_NAME,
   MODEL_ROLES,
   VAULT_ID,
   loadInstallationConfig,
@@ -41,7 +42,9 @@ export {
   type ForgeEntry,
   type ForgeType,
   type InstallationConfig,
+  type EndpointRole,
   type ModelEndpoint,
+  type ModelEntry,
   type ModelRole,
   type VaultEntry,
 } from './installation.ts';

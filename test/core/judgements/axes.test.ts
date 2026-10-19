@@ -100,3 +100,17 @@ test('every problem with an axis is reported; nothing is assumed', () => {
   assert.deepEqual(issues({ a: { type: 'bool', instructions: 'Q', true: 'y', false: 'n', options: {}, 'pass-when': { probability: 0.5 } } }), ['axes.a.options: unknown key']);
   assert.deepEqual(issues([]), ['axes: must be a mapping']);
 });
+
+test('an axis may name the judgement model that answers it; the name is a string and an axis without one has none', () => {
+  const parsed = parseAxes({ ...EXAMPLE, 'personal-data': { ...EXAMPLE['personal-data'], model: 'classify' } });
+  assert.ok(parsed.ok);
+  assert.deepEqual(parsed.value.map((a) => a.model), [undefined, undefined, 'classify']);
+  assert.deepEqual(issues({ ...EXAMPLE, evidence: { ...EXAMPLE.evidence, model: 3 } }), ['axes.evidence.model: must be a non-empty string']);
+  assert.ok(issues({ ...EXAMPLE, relevance: { ...EXAMPLE.relevance, model: '' } })[0]?.startsWith('axes.relevance.model'));
+});
+
+test('the model an axis names is part of its definition, so of its version', () => {
+  const parsed = parseAxes({ evidence: { ...EXAMPLE.evidence, model: 'classify' } });
+  assert.ok(parsed.ok);
+  assert.deepEqual(parsed.value[0]?.definition, { ...EXAMPLE.evidence, model: 'classify' });
+});

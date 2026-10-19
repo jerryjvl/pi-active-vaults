@@ -1,7 +1,7 @@
 // The installation config (`config.yaml`): everything that differs per machine
 // or holds secrets. Loading validates the whole file and returns either a typed
 // config or every problem found — a partly valid config is never applied, and
-// an unconfigured model role is simply absent (principle 10).
+// an unconfigured model is simply absent (principle 10).
 //
 // Invariants: the file is strict (an unknown key is an error, so a typo cannot
 // silently disable a feature); secrets stay references (see `secrets.ts`);
@@ -16,8 +16,14 @@ import { DataReader, err, issuePath as join, type Issue, type Result } from '../
 import { pathFor, type Host } from './platform.ts';
 import { parseSecretRef, type SecretRef } from './secrets.ts';
 
-export const MODEL_ROLES = ['embed', 'rerank', 'judgement'] as const;
+export const MODEL_ROLES = ['judgement', 'agent', 'embed', 'rerank'] as const;
 export type ModelRole = (typeof MODEL_ROLES)[number];
+/** The roles that speak HTTP to a configured URL; `agent` models are Pi's. */
+export type EndpointRole = Exclude<ModelRole, 'agent'>;
+/** Roles with at most one entry, which must be the role's default (named after it). */
+const SINGLE_ENTRY_ROLES: readonly ModelRole[] = ['embed', 'rerank'];
+/** A model's name: what documents and policy ask for. The role names are the defaults. */
+export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export const FORGE_TYPES = ['gitea', 'github', 'gitlab'] as const;
 export type ForgeType = (typeof FORGE_TYPES)[number];
@@ -31,6 +37,13 @@ export interface ModelEndpoint {
   /** Concurrent requests. */
   readonly parallel: number;
 }
+
+/** A configured model, by role (concepts.md "Models"). */
+export type ModelEntry =
+  // One member per role, so a role selects its entry type.
+  | { [R in EndpointRole]: { readonly role: R } & ModelEndpoint }[EndpointRole]
+  /** `model` is as Pi names it (`provider/id`); Pi holds its URL and credentials. */
+  | { readonly role: 'agent'; readonly model: string };
 
 export interface VaultEntry {
   readonly id: string;
@@ -52,11 +65,12 @@ export interface InstallationConfig {
   readonly name: string;
   readonly person?: string;
   readonly vaults: readonly VaultEntry[];
-  readonly models: Readonly<Partial<Record<ModelRole, ModelEndpoint>>>;
+  /** By name; the entry named after a role is that role's default. */
+  readonly models: Readonly<Record<string, ModelEntry>>;
   readonly forges: readonly ForgeEntry[];
   readonly labels: { readonly equivalent: readonly (readonly string[])[] };
   readonly subscriptions: readonly { readonly from: string; readonly to: string }[];
-  readonly policy: readonly { readonly vaults: readonly string[]; readonly allowModels: readonly ModelRole[] }[];
+  readonly policy: readonly { readonly vaults: readonly string[]; readonly allowModels: readonly string[] }[];
   readonly budgets: {
     readonly dailyTokens?: number;
     readonly cascadePool?: number;
@@ -141,11 +155,12 @@ function httpUrl(r: Reader, value: unknown, path: string): string {
   return url;
 }
 
-function readModel(r: Reader, value: unknown, path: string): ModelEndpoint {
-  const m = r.record(value, path, ['url', 'token', 'model', 'batch', 'parallel']);
-  const url = httpUrl(r, m['url'], join(path, 'url'));
+const ENDPOINT_KEYS = ['url', 'token', 'model', 'batch', 'parallel'];
+const AGENT_MODEL = /^[^/\s]+\/\S+$/;
+
+function readEndpoint(r: Reader, m: PlainObject, path: string): ModelEndpoint {
   return {
-    url,
+    url: httpUrl(r, m['url'], join(path, 'url')),
     token: r.secret(m['token'], join(path, 'token')),
     model: r.string(m['model'], join(path, 'model')),
     batch: r.integer(m, 'batch', path, 1),
@@ -153,12 +168,54 @@ function readModel(r: Reader, value: unknown, path: string): ModelEndpoint {
   };
 }
 
+/**
+ * The role of an entry: implied by a default name (a `role` that differs is
+ * an error), else given. Undefined, with the issue reported, when it is neither.
+ */
+function readRole(r: Reader, name: string, given: unknown, path: string): ModelRole | undefined {
+  const implied = MODEL_ROLES.find((role) => role === name);
+  if (implied !== undefined) {
+    if (given !== undefined && given !== implied) r.add(join(path, 'role'), `must be ${implied}, or left out, for the default ${implied} model`);
+    return implied;
+  }
+  if (given === undefined) {
+    r.add(join(path, 'role'), `is required for a model not named after its role (${MODEL_ROLES.join(', ')})`);
+    return undefined;
+  }
+  return r.oneOf(given, join(path, 'role'), MODEL_ROLES);
+}
+
+function readModel(r: Reader, name: string, value: unknown, path: string): ModelEntry | undefined {
+  const m = r.record(value, path, ['role', ...ENDPOINT_KEYS]);
+  const role = readRole(r, name, m['role'], path);
+  if (role === undefined) return undefined;
+  if (role !== 'agent') {
+    for (const key of Object.keys(m)) if (key !== 'role' && !ENDPOINT_KEYS.includes(key)) r.add(join(path, key), 'unknown key');
+    return { role, ...readEndpoint(r, m, path) } as ModelEntry;
+  }
+  // Pi matches a loose `--model` pattern against whatever it knows, so only the exact provider/id is accepted:
+  // the model a document's content reaches is the one the policy was given.
+  for (const key of Object.keys(m)) if (key !== 'role' && key !== 'model') r.add(join(path, key), 'an agent model carries only its model: Pi holds its URL and credentials');
+  const model = r.string(m['model'], join(path, 'model'), AGENT_MODEL);
+  return { role, model };
+}
+
 function readModels(r: Reader, value: unknown): InstallationConfig['models'] {
   if (value === undefined) return {};
-  const section = r.record(value, 'models', MODEL_ROLES);
-  const models: Partial<Record<ModelRole, ModelEndpoint>> = {};
-  for (const role of MODEL_ROLES) {
-    if (section[role] !== undefined) models[role] = readModel(r, section[role], `models.${role}`);
+  const models: Record<string, ModelEntry> = {};
+  for (const [name, entry] of Object.entries(r.record(value, 'models'))) {
+    const path = join('models', name);
+    if (!MODEL_NAME.test(name)) {
+      r.add(path, 'is not a model name of letters, digits, ".", "_" or "-"');
+      continue;
+    }
+    const model = readModel(r, name, entry, path);
+    if (model !== undefined) models[name] = model;
+  }
+  for (const role of SINGLE_ENTRY_ROLES) {
+    for (const [name, entry] of Object.entries(models)) {
+      if (entry.role === role && name !== role) r.add(join('models', name), `there is only one ${role} model, and it is named ${role}`);
+    }
   }
   return models;
 }
@@ -218,10 +275,7 @@ function readSubscriptionsAndPolicy(r: Reader, raw: PlainObject, vaultIds: Reado
     const p = r.record(item, path, ['vaults', 'allow-models']);
     const vaults = r.stringList(p['vaults'] ?? [], join(path, 'vaults'));
     vaults.forEach((id, j) => known(id, `${join(path, 'vaults')}[${j}]`));
-    const allowModels = r.list(p['allow-models'] ?? [], join(path, 'allow-models')).flatMap((role, j) => {
-      const found = r.oneOf(role, `${join(path, 'allow-models')}[${j}]`, MODEL_ROLES);
-      return found === undefined ? [] : [found];
-    });
+    const allowModels = r.list(p['allow-models'] ?? [], join(path, 'allow-models')).map((name, j) => r.string(name, `${join(path, 'allow-models')}[${j}]`, MODEL_NAME));
     return { vaults, allowModels };
   });
   return { subscriptions, policy };

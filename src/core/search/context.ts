@@ -6,7 +6,7 @@
 import type { Clock } from '../clock/index.ts';
 import type { InstallationConfig } from '../config/index.ts';
 import type { Git } from '../git/index.ts';
-import { modelFor, type ModelClient, type PermittedModel, type RoleUnavailable } from '../models/index.ts';
+import { resolveModel, type ModelClient, type ModelUnavailable, type PermittedModel } from '../models/index.ts';
 import type { Result } from '../result/index.ts';
 import type { Queryable, Store } from '../store/index.ts';
 
@@ -21,9 +21,9 @@ export interface SearchContext {
   };
 }
 
-/** The role's model for these vaults, or why there is none (no models at all counts as unconfigured). */
-export function searchModel<R extends 'embed' | 'rerank'>(context: SearchContext, role: R, vaults: readonly string[]): Result<PermittedModel<R>, RoleUnavailable> {
-  return modelFor(context.models?.config ?? { models: {}, policy: [] }, role, vaults);
+/** The role's default model for these vaults, or why there is none (no models at all counts as no default). */
+export function searchModel<R extends 'embed' | 'rerank'>(context: SearchContext, role: R, vaults: readonly string[]): Result<PermittedModel<R>, ModelUnavailable> {
+  return resolveModel(context.models?.config ?? { models: {}, policy: [] }, role, vaults);
 }
 
 /** A vector as sqlite-vec reads it: little-endian float32. */

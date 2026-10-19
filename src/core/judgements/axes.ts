@@ -9,6 +9,10 @@
 // combined probability does (an option the model did not give counts as 0);
 // a score when its expected level reaches `level` and, if asked, its
 // confidence reaches `confidence`. An answer of another type fails.
+//
+// An axis may name the judgement model that answers it (`model`); which model
+// that is, is the models module's to decide. The name stays in the axis's
+// definition, so it is part of the axis's version.
 
 import type { SystemOneAnswer, SystemOneQuestion } from '../models/index.ts';
 import { DataReader, issuePath, type Issue, type Result } from '../result/index.ts';
@@ -23,6 +27,8 @@ interface AxisBase {
   /** The axis as the contract defines it: what its version is computed from. */
   readonly definition: unknown;
   readonly question: SystemOneQuestion;
+  /** The judgement model it asks for, by name; absent: the default. */
+  readonly model?: string;
 }
 
 export type Axis = AxisBase & (
@@ -64,10 +70,11 @@ function readAxis(r: DataReader, name: string, value: unknown, where: string): A
   if (!AXIS_NAME.test(name)) r.add(where, 'must be a name of letters, digits, ".", "_" or "-"');
   const type = r.oneOf(r.record(value, where)['type'], issuePath(where, 'type'), TYPES);
   if (type === undefined) return undefined;
-  const common = ['type', 'instructions', 'pass-when'];
+  const common = ['type', 'instructions', 'pass-when', 'model'];
   const keys = type === 'bool' ? [...common, 'true', 'false'] : type === 'choice' ? [...common, 'options'] : [...common, 'levels'];
   const a = r.record(value, where, keys);
   const instructions = r.string(a['instructions'], issuePath(where, 'instructions'));
+  const model = a['model'] === undefined ? {} : { model: r.string(a['model'], issuePath(where, 'model')) };
   const at = (key: string): string => issuePath(issuePath(where, 'pass-when'), key);
 
   switch (type) {
@@ -76,7 +83,7 @@ function readAxis(r: DataReader, name: string, value: unknown, where: string): A
       const p = readPassWhen(r, a, where, ['value', 'probability']) ?? {};
       if (p['value'] !== undefined && typeof p['value'] !== 'boolean') r.add(at('value'), 'must be true or false');
       const probability = unit(r, p, 'probability', issuePath(where, 'pass-when'), a['pass-when'] !== undefined) ?? 1;
-      return { name, definition: value, type, question: { type, instructions, criteria }, passWhen: { value: p['value'] !== false, probability } };
+      return { name, definition: value, type, question: { type, instructions, criteria }, ...model, passWhen: { value: p['value'] !== false, probability } };
     }
     case 'choice': {
       const options = r.record(a['options'], issuePath(where, 'options'));
@@ -90,7 +97,7 @@ function readAxis(r: DataReader, name: string, value: unknown, where: string): A
         if (choice !== '' && !Object.hasOwn(criteria, choice)) r.add(`${at('choices')}[${i}]`, 'is not one of the options');
       });
       const probability = unit(r, p, 'probability', issuePath(where, 'pass-when'), a['pass-when'] !== undefined) ?? 1;
-      return { name, definition: value, type, question: { type, instructions, criteria }, passWhen: { choices, probability } };
+      return { name, definition: value, type, question: { type, instructions, criteria }, ...model, passWhen: { choices, probability } };
     }
     case 'score': {
       const levels = r.stringList(a['levels'], issuePath(where, 'levels'));
@@ -106,7 +113,7 @@ function readAxis(r: DataReader, name: string, value: unknown, where: string): A
       }
       const confidence = unit(r, p, 'confidence', issuePath(where, 'pass-when'), false);
       return {
-        name, definition: value, type, levels, question: { type, instructions, criteria: levels },
+        name, definition: value, type, levels, question: { type, instructions, criteria: levels }, ...model,
         passWhen: { level, ...(confidence === undefined ? {} : { confidence }) },
       };
     }

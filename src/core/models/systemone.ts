@@ -18,7 +18,7 @@
 
 import { err, isRecord, ok, type Result } from '../result/index.ts';
 import { postJson, roleToken, type ModelClient, type ModelError } from './clients.ts';
-import type { PermittedModel } from './roles.ts';
+import type { PermittedModel } from './resolve.ts';
 
 export type SystemOneQuestion =
   | { readonly type: 'choice'; readonly instructions: string; readonly criteria: Readonly<Record<string, string>> }
@@ -87,7 +87,7 @@ export async function askSystemOne(client: ModelClient, model: PermittedModel<'j
   const token = await roleToken(client, model);
   if (!token.ok) return token;
   const questions = Object.fromEntries(Object.entries(request.questions).map(([name, q]) => [name, q.type === 'bool' ? { ...q, type: 'noul' } : q]));
-  const posted = await postJson(client, model, 'systemone', token.value, { model: model.endpoint.model, state: request.state, questions });
+  const posted = await postJson(client, model, 'systemone', token.value, { model: model.entry.model, state: request.state, questions });
   if (!posted.ok) return posted;
 
   const bad = (detail: string): Result<never, ModelError> => err({ reason: 'bad-response', role: model.role, detail });

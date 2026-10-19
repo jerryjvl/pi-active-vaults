@@ -77,10 +77,10 @@ function removeDocument(tx: Queryable, vault: string, path: string): void {
 
 async function addVectors(context: SearchContext, vault: string): Promise<VectorState> {
   const model = searchModel(context, 'embed', [vault]);
-  if (!model.ok) return { state: 'none', reason: model.error.reason === 'unconfigured' ? 'no-embed-model' : 'not-allowed' };
+  if (!model.ok) return { state: 'none', reason: model.error.reason === 'no-default' ? 'no-embed-model' : 'not-allowed' };
   if (!context.index.vectors) return { state: 'none', reason: 'no-vector-extension' };
   const { index } = context;
-  const modelId = model.value.endpoint.model;
+  const modelId = model.value.entry.model;
   index.transaction((tx) => {
     const recorded = tx.get<{ value: string }>('SELECT value FROM search_meta WHERE key = ?', [EMBEDDING_MODEL_KEY])?.value;
     if (recorded === modelId) return;

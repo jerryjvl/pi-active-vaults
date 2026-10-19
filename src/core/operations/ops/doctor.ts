@@ -21,13 +21,13 @@
 import { chmodSync, existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { listActorHolds } from '../../actors/index.ts';
-import { resolveSecret, staleServiceTools, MODEL_ROLES } from '../../config/index.ts';
+import { resolveSecret, staleServiceTools } from '../../config/index.ts';
 import { forgeAdapter, forgeProject, lostMergeReport, lostMerges, protectionProblems } from '../../forge/index.ts';
 import {
   gitDirectories, gitVersion, listRemotes, listWorktrees, meetsMinimumGitVersion, remoteUrl, MINIMUM_GIT_VERSION,
 } from '../../git/index.ts';
 import { MAIN_BRANCH, type AcceptedMain } from '../../integrity/index.ts';
-import { modelFor } from '../../models/index.ts';
+import { resolveModel } from '../../models/index.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
 import { daemonRecord, recordedServiceTools, recoverRuns, vaultJobs } from '../../queue/index.ts';
 import { runProcess } from '../../process/index.ts';
@@ -69,13 +69,15 @@ async function installationFindings(context: OperationContext): Promise<Finding[
     : meetsMinimumGitVersion(version.value) ? { level: 'ok', check: 'git-version', message: `Git ${version.value}` }
     : { level: 'problem', check: 'git-version', message: `Git ${version.value} is older than ${MINIMUM_GIT_VERSION.join('.')}.` });
   findings.push(await piVersion(context));
-  for (const role of MODEL_ROLES) {
-    const endpoint = installation.config.models[role];
-    if (endpoint === undefined) continue;
-    const token = await resolveSecret(endpoint.token, context.secrets);
+  for (const [name, entry] of Object.entries(installation.config.models)) {
+    if (entry.role === 'agent') {
+      findings.push({ level: 'ok', check: 'models', message: `${name}: agent model ${entry.model}, as Pi names it (Pi holds its credentials)` });
+      continue;
+    }
+    const token = await resolveSecret(entry.token, context.secrets);
     findings.push(token.ok
-      ? { level: 'ok', check: 'models', message: `${role}: ${endpoint.model} at ${endpoint.url}; its token resolves (the endpoint is not contacted)` }
-      : { level: 'problem', check: 'models', message: `${role}: the token in ${token.error.where} cannot be resolved (${token.error.reason}).` });
+      ? { level: 'ok', check: 'models', message: `${name}: ${entry.role} model ${entry.model} at ${entry.url}; its token resolves (the endpoint is not contacted)` }
+      : { level: 'problem', check: 'models', message: `${name}: the token in ${token.error.where} cannot be resolved (${token.error.reason}).` });
   }
   return findings;
 }
@@ -125,9 +127,9 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
   if (hosting(vault, identity.value, installation.config.name).conflict) {
     findings.push(at('warning', 'hosting', `host is true, but the vault's executor is ${identity.value.executor ?? ''}, so its jobs do not run here.`));
   }
-  const embed = modelFor(installation.config, 'embed', [vault.id]);
+  const embed = resolveModel(installation.config, 'embed', [vault.id]);
   if (!embed.ok && embed.error.reason === 'not-allowed') {
-    findings.push(at('warning', 'search', 'Search is keyword-only: no policy entry allows the embed role for this vault.'));
+    findings.push(at('warning', 'search', 'Search is keyword-only: no policy entry allows the embed model for this vault.'));
   }
   if (accepted.ok) findings.push(...(await jobFindings(context, vault, accepted.value)));
   return findings;

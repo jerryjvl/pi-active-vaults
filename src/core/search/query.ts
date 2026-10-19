@@ -114,11 +114,11 @@ type VectorOutcome = { readonly ranking: Ranking } | { readonly note: SearchNote
 
 async function vectorRanking(context: SearchContext, query: string, vaults: readonly string[], filter: Record<string, string | number>): Promise<VectorOutcome> {
   const model = searchModel(context, 'embed', vaults);
-  if (!model.ok) return { note: { kind: 'keyword-only', reason: model.error.reason === 'unconfigured' ? 'no-embed-model' : 'not-allowed' } };
+  if (!model.ok) return { note: { kind: 'keyword-only', reason: model.error.reason === 'no-default' ? 'no-embed-model' : 'not-allowed' } };
   const { index } = context;
   if (!index.vectors) return { note: { kind: 'keyword-only', reason: 'no-vector-extension' } };
   const recorded = index.get<{ value: string }>('SELECT value FROM search_meta WHERE key = ?', [EMBEDDING_MODEL_KEY])?.value;
-  if (recorded !== model.value.endpoint.model) return { note: { kind: 'keyword-only', reason: 'model-changed' } };
+  if (recorded !== model.value.entry.model) return { note: { kind: 'keyword-only', reason: 'model-changed' } };
   if (context.models === undefined) return { note: { kind: 'keyword-only', reason: 'no-embed-model' } };
   const embedded = await embed(context.models.client, model.value, [query]);
   if (!embedded.ok || embedded.value[0] === undefined) return { note: { kind: 'keyword-only', reason: 'embed-failed' } };

@@ -77,14 +77,17 @@ test('the documented example loads, with kebab-case keys exposed in camelCase', 
   ]);
   assert.equal(config.vaults[0]?.worktrees, '/home/alice/vaults/home-knowledge-worktrees');
   assert.equal(config.vaults[1]?.worktrees, undefined);
-  assert.deepEqual(config.models.embed, {
+  assert.deepEqual(config.models['embed'], {
+    role: 'embed',
     url: 'https://models.example.net/v1',
     token: { kind: 'env', name: 'EMBED_TOKEN', where: 'models.embed.token' },
     model: 'embed-large',
     batch: 32,
     parallel: 4,
   });
-  assert.equal(config.models.judgement?.token.kind, 'command');
+  const judgement = config.models['judgement'];
+  assert.ok(judgement?.role === 'judgement');
+  assert.equal(judgement.token.kind, 'command');
   assert.deepEqual(config.forges, [
     { host: 'git.example.net', type: 'gitea', token: { kind: 'env', name: 'FORGE_TOKEN', where: 'forges[0].token' } },
   ]);
@@ -118,9 +121,11 @@ test('an empty config is valid and applies the documented defaults', () => {
 
 test('model batch and parallel default to 1 and an absent role stays absent', () => {
   const config = valid(`models:\n  embed: { url: "http://127.0.0.1:4000/v1", token: "\${T}", model: m }`);
-  assert.equal(config.models.embed?.batch, 1);
-  assert.equal(config.models.embed?.parallel, 1);
-  assert.equal(config.models.rerank, undefined);
+  const embed = config.models['embed'];
+  assert.ok(embed?.role === 'embed');
+  assert.equal(embed.batch, 1);
+  assert.equal(embed.parallel, 1);
+  assert.equal(config.models['rerank'], undefined);
 });
 
 test('vault paths expand ~ and must then be absolute, per platform', () => {
@@ -140,6 +145,7 @@ vaults:
 models:
   embed: { url: "not a url", token: "sk-literal-secret-123", model: "", batch: 0 }
   mystery: { url: "https://x", token: "\${T}", model: m }
+  other: { role: telepathy, model: m }
 budgets: { depth-decay: 1.5, max-depth: 0 }
 logs: { keep-days: 0 }
 unknown-section: 1
@@ -147,7 +153,7 @@ unknown-section: 1
   const text = found.join('\n');
   for (const expected of [
     'vaults[0].id', 'vaults[1].host', 'vaults[2].id', 'models.embed.url', 'models.embed.token',
-    'models.embed.model', 'models.embed.batch', 'models.mystery', 'budgets.depth-decay',
+    'models.embed.model', 'models.embed.batch', 'models.mystery', 'models.other.role', 'budgets.depth-decay',
     'budgets.max-depth', 'logs.keep-days', 'unknown-section',
   ]) {
     assert.ok(text.includes(expected), `${expected} missing from:\n${text}`);
@@ -161,7 +167,7 @@ test('unknown keys inside known sections are rejected, so a typo cannot silently
   assert.ok(issues('policy:\n  - { vaults: [], alow-models: [embed] }').some((i) => i.includes('policy[0].alow-models')));
 });
 
-test('references between sections must resolve to registered vaults and known roles', () => {
+test('references between sections must resolve to registered vaults and well-formed model names', () => {
   const found = issues(`
 vaults:
   - { id: a, path: /a }
@@ -169,7 +175,7 @@ subscriptions:
   - { from: a, to: nowhere }
   - { from: a, to: a }
 policy:
-  - { vaults: [ghost], allow-models: [embed, telepathy] }
+  - { vaults: [ghost], allow-models: [embed, "not a name"] }
 `);
   const text = found.join('\n');
   assert.ok(text.includes('subscriptions[0].to'));
@@ -225,4 +231,57 @@ test('the daemon section sets the queue-time limit and how many runs go at once,
   assert.deepEqual(valid('daemon: { queue-time: 90m, parallel: 3 }').daemon, { queueTimeMs: 90 * 60 * 1000, parallel: 3 });
   const found = issues('daemon: { queue-time: soon, parallel: 0, polling: 5 }').join('\n');
   for (const expected of ['daemon.queue-time', 'daemon.parallel', 'daemon.polling']) assert.ok(found.includes(expected), found);
+});
+
+// concepts.md "Models": named entries with a role; each role's default is the entry named after it.
+const URL_ENTRY = 'url: "https://models.example.net/v1", token: "${T}", model: m';
+
+test('models are named entries: the default names imply their role, other names give it', () => {
+  const config = valid(`models:
+  judgement: { ${URL_ENTRY} }
+  classify:  { role: judgement, ${URL_ENTRY}, parallel: 4 }
+  agent:     { model: homeserver/qwen3.8-27b }
+  quick:     { role: agent, model: homeserver/qwen3.8-flash }
+  embed:     { role: embed, ${URL_ENTRY} }
+`);
+  assert.deepEqual(Object.keys(config.models), ['judgement', 'classify', 'agent', 'quick', 'embed']);
+  assert.deepEqual(Object.values(config.models).map((m) => m.role), ['judgement', 'judgement', 'agent', 'agent', 'embed']);
+  assert.deepEqual(config.models['agent'], { role: 'agent', model: 'homeserver/qwen3.8-27b' });
+  const classify = config.models['classify'];
+  assert.ok(classify?.role === 'judgement');
+  assert.equal(classify.parallel, 4);
+  assert.deepEqual(config.models['judgement']?.role, 'judgement', 'the role is implied by the name');
+});
+
+test('a role that differs from a default name is an error; a name outside the defaults needs its role', () => {
+  assert.ok(issues(`models:\n  judgement: { role: agent, model: p/m }`).some((i) => i.startsWith('models.judgement.role')));
+  assert.ok(issues(`models:\n  agent: { role: embed, ${URL_ENTRY} }`).some((i) => i.startsWith('models.agent.role')));
+  assert.ok(issues(`models:\n  classify: { ${URL_ENTRY} }`).some((i) => i.startsWith('models.classify.role')));
+  assert.ok(issues(`models:\n  classify: { role: telepathy, ${URL_ENTRY} }`).some((i) => i.startsWith('models.classify.role')));
+});
+
+test('only judgement and agent models may have more than one entry', () => {
+  assert.ok(issues(`models:\n  embed: { ${URL_ENTRY} }\n  big-embed: { role: embed, ${URL_ENTRY} }`).some((i) => i.startsWith('models.big-embed')));
+  assert.ok(issues(`models:\n  rerank: { ${URL_ENTRY} }\n  second: { role: rerank, ${URL_ENTRY} }`).some((i) => i.startsWith('models.second')));
+  // An embed or rerank model that is not named after its role would never be the default: that is said, not silently ignored.
+  assert.ok(issues(`models:\n  mxbai: { role: embed, ${URL_ENTRY} }`).some((i) => i.startsWith('models.mxbai')));
+});
+
+test('an agent entry carries only the model, as Pi names it (provider/id)', () => {
+  assert.ok(issues(`models:\n  agent: { model: p/m, url: "https://x/v1" }`).some((i) => i.startsWith('models.agent.url')));
+  assert.ok(issues(`models:\n  agent: { model: p/m, token: "x" }`).some((i) => i.startsWith('models.agent.token')));
+  assert.ok(issues('models:\n  agent: { model: just-an-id }').some((i) => i.startsWith('models.agent.model')), 'Pi would match a bare ID loosely');
+  assert.ok(issues('models:\n  agent: { }').some((i) => i.startsWith('models.agent.model')));
+  assert.ok(issues(`models:\n  judgement: { model: m }`).some((i) => i.startsWith('models.judgement.url')));
+});
+
+test('model names are well-formed, and unconfigured defaults are simply absent', () => {
+  assert.ok(issues('models:\n  "bad name": { role: agent, model: p/m }').some((i) => i.includes('models.bad name') || i.startsWith('models')));
+  const config = valid('models:\n  quick: { role: agent, model: p/m }');
+  assert.equal(config.models['agent'], undefined, 'no default agent is configured, and that is not an error');
+});
+
+test('policy lists model names', () => {
+  const config = valid('vaults:\n  - { id: a, path: /a }\npolicy:\n  - { vaults: [a], allow-models: [judgement, classify, quick] }');
+  assert.deepEqual(config.policy, [{ vaults: ['a'], allowModels: ['judgement', 'classify', 'quick'] }]);
 });

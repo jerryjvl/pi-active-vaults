@@ -11,7 +11,7 @@
 // where the installation's policy allows. Only local stub servers are used.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { InstallationConfig, ModelEndpoint, ModelRole } from '../../../src/core/config/index.ts';
+import type { EndpointRole, InstallationConfig, ModelEntry } from '../../../src/core/config/index.ts';
 import { recordAccepted, type VaultLocation } from '../../../src/core/integrity/index.ts';
 import type { ModelClient } from '../../../src/core/models/index.ts';
 import { INDEX_MODULES, openIndexStore } from '../../../src/core/operations/index.ts';
@@ -45,7 +45,7 @@ interface Fixture {
   readonly v: TestVault;
   readonly index: Store;
   /** The search context with the given model roles configured at the stub's URL and allowed for `allowed` vaults. */
-  context(roles?: Partial<Record<ModelRole, { url: string; model?: string }>>, allowed?: readonly string[]): SearchContext;
+  context(roles?: Partial<Record<EndpointRole, { url: string; model?: string }>>, allowed?: readonly string[]): SearchContext;
 }
 
 function withSearch(run: (f: Fixture) => Promise<void>, options: { vectorExtension?: string } = {}): () => Promise<void> {
@@ -56,10 +56,10 @@ function withSearch(run: (f: Fixture) => Promise<void>, options: { vectorExtensi
       : openStore(dir.file('index.sqlite'), INDEX_FILE, INDEX_MODULES, { vectorExtension: options.vectorExtension });
     if (!opened.ok) assert.fail(JSON.stringify(opened.error));
     const index = opened.value;
-    const context = (roles: Partial<Record<ModelRole, { url: string; model?: string }>> = {}, allowed: readonly string[] = ['home', 'work']): SearchContext => {
-      const models: Partial<Record<ModelRole, ModelEndpoint>> = {};
-      for (const [role, { url, model }] of Object.entries(roles) as [ModelRole, { url: string; model?: string }][]) {
-        models[role] = { url: `${url}/v1`, token: { kind: 'env', name: 'TOKEN', where: `models.${role}.token` }, model: model ?? `${role}-model`, batch: 4, parallel: 2 };
+    const context = (roles: Partial<Record<EndpointRole, { url: string; model?: string }>> = {}, allowed: readonly string[] = ['home', 'work']): SearchContext => {
+      const models: Record<string, ModelEntry> = {};
+      for (const [role, { url, model }] of Object.entries(roles) as [EndpointRole, { url: string; model?: string }][]) {
+        models[role] = { role, url: `${url}/v1`, token: { kind: 'env', name: 'TOKEN', where: `models.${role}.token` }, model: model ?? `${role}-model`, batch: 4, parallel: 2 };
       }
       const config: Pick<InstallationConfig, 'models' | 'policy'> = {
         models,
