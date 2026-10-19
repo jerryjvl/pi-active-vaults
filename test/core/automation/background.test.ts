@@ -70,6 +70,46 @@ test('a hosted forge vault\'s actor branches are proposed when their head moves,
   assert.equal(forge.remote('rev-parse', 'refs/heads/main'), t.repo.git('rev-parse', 'refs/remotes/origin/main'), 'main is never pushed');
 }, { host: true }));
 
+test('the person\'s own proposal is never pushed from here, but once proposed its statuses are kept current in a vault run elsewhere, every minute while it waits only on an owner', withForgeInstallation(async (t, forge) => {
+  const automation = automationFor(t, fakePi(t));
+  await automation.start();
+  const policyOf = (sha: string) => forge.stub.model.statuses.filter((s) => s.sha === sha && s.context === 'vault/policy').at(-1)?.state;
+  const commitAsAlice = async (path: string): Promise<string> => {
+    assert.equal((await t.run('write', { path, content: `# ${path}\n` })).status, 'ok');
+    assert.equal((await t.run('commit', { message: `Write ${path}` })).status, 'ok');
+    return t.repo.git('rev-parse', 'refs/heads/actor/alice');
+  };
+
+  const head = await commitAsAlice('notes/a.md');
+  await automation.tick();
+  assert.equal(forge.remote('branch', '--list', 'actor/alice'), '', 'not proposed: nothing is pushed');
+  assert.deepEqual(forge.stub.model.statuses, []);
+
+  const proposed = await t.run('propose', { actor: 'alice' });
+  assert.equal(proposed.status, 'ok', proposed.text);
+  assert.equal(policyOf(head), 'pending');
+  await automation.tick();
+  const published = forge.stub.model.statuses.length;
+  await automation.tick();
+  assert.equal(forge.stub.model.statuses.length, published, 'nothing republished within the minute');
+
+  forge.stub.model.reviews.push({ pull: 1, user: 'alice', state: 'APPROVED', commit: head });
+  t.clock.advance(MINUTE);
+  await automation.tick();
+  assert.equal(policyOf(head), 'success', 'an approval in the forge is picked up within a minute');
+  assert.deepEqual((await forgeStatus(automation)).map((f) => [f.vault, f.error, f.proposed]), [['home', undefined, ['alice']]]);
+  const satisfied = forge.stub.model.statuses.length;
+  t.clock.advance(MINUTE);
+  await automation.tick();
+  assert.equal(forge.stub.model.statuses.length, satisfied, 'no longer waiting on an owner: back to every few minutes');
+
+  const later = await commitAsAlice('notes/b.md');
+  t.clock.advance(5 * MINUTE);
+  await automation.tick();
+  assert.equal(forge.remote('rev-parse', 'refs/heads/actor/alice'), head, 'new work is theirs to propose');
+  assert.equal(policyOf(later), undefined, 'and no statuses land on a commit the forge was not given');
+}));
+
 test('a forge vault this installation does not run is fetched, but nothing is pushed from here', withForgeInstallation(async (t, forge) => {
   const automation = automationFor(t, fakePi(t));
   await automation.start();

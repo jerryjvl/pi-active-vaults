@@ -4,7 +4,11 @@
 // this installation runs, each of the vault's actors' proposals is kept
 // current at the forge: pushed, with its pull request opened or updated and
 // its statuses published, when its head moves; its statuses published again
-// every few minutes otherwise, to pick up reviews made in the forge — and
+// every few minutes otherwise, to pick up reviews made in the forge, and every
+// minute while all it waits for is an owner's approval. The person's own
+// proposal, in every forge vault they write to (run here or not), is never
+// pushed from here — proposing it is theirs (`vault propose`) — but once the
+// forge holds it its statuses are kept current the same way — and
 // each proposal merged in the forge is checked for its commits reaching
 // `main` (forge/merges.ts); one that did not is told to the owners once, and
 // its actor's branch — which still holds the commits `main` lacks — is reset
@@ -29,6 +33,8 @@ import { notifyOwners } from './vaults.ts';
 
 /** How long a proposal's statuses stand before they are published again. */
 const STATUS_REFRESH_MS = 5 * 60_000;
+/** ...and while all it waits for is an owner's approval in the forge: each tick, so a merge is not held up for minutes. */
+const AWAITING_OWNER_REFRESH_MS = 60_000;
 
 export interface ForgeOutcome {
   readonly vault: string;
@@ -48,18 +54,22 @@ export interface ForgeSync {
 }
 
 export function createForgeSync(context: OperationContext): ForgeSync {
-  const current = new Map<string, { head: string; published: number }>();
+  const current = new Map<string, { head: string; published: number; awaitingOwner: boolean }>();
   const outcomes = new Map<string, ForgeOutcome>();
   const deps = () => forgeDeps(context, context.installation.config.person ?? 'vault');
 
-  const proposeFor = async (vault: RegisteredVault, accepted: Parameters<typeof readProposal>[2], now: number): Promise<{ proposed: string[]; error?: string }> => {
+  const proposeFor = async (vault: RegisteredVault, accepted: Parameters<typeof readProposal>[2], now: number, runsHere: boolean): Promise<{ proposed: string[]; error?: string }> => {
     const identity = await acceptedIdentity(context.reads, context.git, vault.path, accepted);
     if (!identity.ok) return { proposed: [], error: identity.error.reason };
+    const person = context.installation.config.person;
+    const actors = runsHere ? identity.value.actors : [];
+    const own = person !== undefined && writersOf(identity.value).includes(person) && !actors.includes(person) ? [person] : [];
     const proposed: string[] = [];
     let error: string | undefined;
     // A branch that still holds what the forge merged without its commits is not a new proposal.
     const merged = new Set((await lostMerges(context.git, context.state, vault)).map((r) => r.actor));
-    for (const actor of identity.value.actors) {
+    for (const actor of [...actors, ...own]) {
+      const mine = own.includes(actor);
       const key = `${vault.id}\0${actor}`;
       if (merged.has(actor)) {
         current.delete(key);
@@ -72,24 +82,29 @@ export function createForgeSync(context: OperationContext): ForgeSync {
         continue;
       }
       // What the proposal still needs judged is judged before its statuses go out, so `vault/policy` counts it;
-      // a judgement already recorded for the same content is reused, so a republish asks no model.
-      await judgeForProposal(context, vault, actor, actor);
+      // a judgement already recorded for the same content is reused, so a republish asks no model. The person's
+      // own proposal was judged when they proposed it, and work they have not proposed is not judged here.
+      if (!mine) await judgeForProposal(context, vault, actor, actor);
       const last = current.get(key);
-      if (last?.head !== proposal.value.head) {
-        const pushed = await proposeToForge(deps(), vault, actor);
-        if (!pushed.ok) {
-          error ??= pushed.error.reason;
-          continue;
-        }
-        current.set(key, { head: proposal.value.head, published: now });
-      } else if (now - last.published >= STATUS_REFRESH_MS) {
-        const published = await publishStatuses(deps(), vault, actor);
-        if (!published.ok) {
-          error ??= published.error.reason;
-          continue;
-        }
-        last.published = now;
+      const moved = last?.head !== proposal.value.head;
+      const due = last === undefined || now - last.published >= (last.awaitingOwner ? AWAITING_OWNER_REFRESH_MS : STATUS_REFRESH_MS);
+      if (!moved && !due) {
+        proposed.push(actor);
+        continue;
       }
+      const sent = moved && !mine ? await proposeToForge(deps(), vault, actor) : await publishStatuses(deps(), vault, actor);
+      if (!sent.ok) {
+        if (sent.error.reason === 'not-proposed') {
+          // The person's: not yet proposed, or committed to since — nothing to keep current until they propose it;
+          // asked again next tick. An actor's whose pull request was closed in the forge: proposed again only when
+          // its head moves, as before.
+          if (mine) current.delete(key);
+          else current.set(key, { head: proposal.value.head, published: now, awaitingOwner: false });
+        } else error ??= sent.error.reason;
+        continue;
+      }
+      const awaitingOwner = sent.value.unmet.length === 1 && sent.value.unmet[0] === 'owner';
+      current.set(key, { head: proposal.value.head, published: now, awaitingOwner });
       proposed.push(actor);
     }
     return { proposed, ...(error === undefined ? {} : { error }) };
@@ -137,7 +152,7 @@ export function createForgeSync(context: OperationContext): ForgeSync {
         }
         const accepted = synced.value.accepted;
         const judged = asked === undefined ? undefined : asked.ok ? await judgeMerges(vault, accepted, asked.value) : asked.error.reason;
-        const kept = runsHere ? await proposeFor(vault, accepted, now.getTime()) : { proposed: [] };
+        const kept = await proposeFor(vault, accepted, now.getTime(), runsHere);
         const error = judged ?? kept.error;
         outcomes.set(vault.id, { vault: vault.id, at, accepted: accepted.sha, proposed: kept.proposed, ...(error === undefined ? {} : { error }) });
       }

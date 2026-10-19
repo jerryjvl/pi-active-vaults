@@ -166,6 +166,8 @@ export function describeError(error: ErrorValue): string {
       return `No forge is configured for host "${str(e['host'])}".`;
     case 'no-remote':
       return `The vault has no remote "${str(e['remote'])}".`;
+    case 'not-proposed':
+      return `The forge has no open pull request holding ${str(e['actor'])}'s proposal; propose it first.`;
     case 'not-a-template':
       return 'That repository is not a template (its root contract has no template key).';
     case 'unknown-template':

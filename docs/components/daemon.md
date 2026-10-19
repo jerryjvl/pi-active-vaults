@@ -148,14 +148,22 @@ session run on that session's machine.
 
 Each minute, every `forge`-mode vault is fetched first: the forge's `main`
 becomes the accepted `main`, the local `main` follows it forward, and merges
-are matched like any other. For the vaults this daemon runs:
+are matched like any other. For the vaults this daemon runs, and for the
+person's own proposals:
 
 - **Proposals.** Each of the vault's `actors` with a proposal is judged for
   what its merge policy still needs, then kept current:
   when its head moves, the branch is pushed and its pull request opened or
   updated with its statuses; otherwise the statuses are republished every five
-  minutes, to pick up reviews made in the forge. Failures show in `vault daemon
-  status` and are retried the next minute.
+  minutes, to pick up reviews made in the forge — every minute while all it
+  waits for is an owner's approval. Failures show in `vault daemon status` and
+  are retried the next minute.
+- **The person's own proposal**, in every forge-mode vault they write to —
+  run here or not. It is never pushed from here: proposing is theirs (`vault
+  propose`). Once the forge has a pull request holding it, its statuses are
+  kept current the same way. Statuses are only ever published on the head the
+  pull request holds, so work committed since is not reported on until it is
+  proposed.
 - **Merge results.** Before fetching, it asks the forge for the most recently
   merged pull requests (one page); after fetching, it checks once whether each
   one's head is in the new `main`. One that is not — a squash or rebase merge —

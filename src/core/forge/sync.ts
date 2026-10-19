@@ -67,7 +67,15 @@ export type ForgeSyncError =
   | { readonly reason: 'no-remote'; readonly remote: string }
   | { readonly reason: 'not-forge-mode' }
   | { readonly reason: 'not-pushable'; readonly refspec: string }
-  | { readonly reason: 'accepted-moved'; readonly current: Sha | null };
+  | { readonly reason: 'accepted-moved'; readonly current: Sha | null }
+  | { readonly reason: 'not-proposed'; readonly actor: string };
+
+/** What publishing a proposal's statuses sent, and the requirements of its merge policy still unmet. */
+export interface Published {
+  readonly policy: PolicyStatus;
+  readonly checks: CommitStatus[];
+  readonly unmet: string[];
+}
 
 /** The remote a forge-mode vault's forge is on, unless its registration names another. */
 export const DEFAULT_REMOTE = 'origin';
@@ -170,7 +178,7 @@ function checkState(check: CheckStatus): StatusState {
 /** Publishes each check's result and `vault/policy` on the proposal's head. */
 async function publish(
   deps: ForgeDeps, adapter: ForgeAdapter, vault: VaultLocation, accepted: AcceptedMain, owners: readonly string[], proposal: Proposal, pull: PullRequest | undefined,
-): Promise<Result<{ policy: PolicyStatus; checks: CommitStatus[] }, ForgeSyncError>> {
+): Promise<Result<Published, ForgeSyncError>> {
   const given = pull === undefined ? ok([]) : await adapter.approvals(pull);
   if (!given.ok) return given;
   const approvals: Attestation[] = given.value
@@ -191,7 +199,7 @@ async function publish(
     const set = await adapter.setStatus(proposal.head, status);
     if (!set.ok) return set;
   }
-  return ok({ policy, checks });
+  return ok({ policy, checks, unmet: unmet.map((r) => r.requirement) });
 }
 
 interface Prepared {
@@ -222,7 +230,7 @@ function describe(proposal: Proposal): { title: string; body: string } {
 /** Pushes an actor's proposal and the package's notes, opens or updates its pull request, and publishes its statuses. */
 export async function proposeToForge(
   deps: ForgeDeps, vault: VaultLocation, actor: string,
-): Promise<Result<{ pull: PullRequest; opened: boolean; policy: PolicyStatus }, ForgeSyncError>> {
+): Promise<Result<{ pull: PullRequest; opened: boolean; policy: PolicyStatus; unmet: string[] }, ForgeSyncError>> {
   const prepared = await prepare(deps, vault, actor);
   if (!prepared.ok) return prepared;
   const { proposal, adapter } = prepared.value;
@@ -250,17 +258,22 @@ export async function proposeToForge(
     pull = found.value;
   }
   const published = await publish(deps, adapter, vault, prepared.value.accepted, prepared.value.owners, proposal, pull);
-  return published.ok ? ok({ pull, opened: found.value === undefined, policy: published.value.policy }) : published;
+  return published.ok ? ok({ pull, opened: found.value === undefined, policy: published.value.policy, unmet: published.value.unmet }) : published;
 }
 
-/** Re-evaluates an actor's proposal and publishes its statuses — after a review in the forge, or new attestations. */
+/**
+ * Re-evaluates an actor's proposal and publishes its statuses — after a review in the forge, or new attestations.
+ * Only while the forge has it proposed: an open pull request whose head is the proposal's; `not-proposed` otherwise,
+ * so statuses never land on a commit the forge was not given.
+ */
 export async function publishStatuses(
   deps: ForgeDeps, vault: VaultLocation, actor: string,
-): Promise<Result<{ policy: PolicyStatus; checks: CommitStatus[] }, ForgeSyncError>> {
+): Promise<Result<Published, ForgeSyncError>> {
   const prepared = await prepare(deps, vault, actor);
   if (!prepared.ok) return prepared;
   const found = await prepared.value.adapter.findPullRequest(actorBranch(actor), MAIN_BRANCH);
   if (!found.ok) return found;
+  if (found.value === undefined || found.value.headSha !== prepared.value.proposal.head) return err({ reason: 'not-proposed', actor });
   return publish(deps, prepared.value.adapter, vault, prepared.value.accepted, prepared.value.owners, prepared.value.proposal, found.value);
 }
 
