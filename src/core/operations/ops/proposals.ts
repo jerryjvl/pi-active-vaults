@@ -24,7 +24,7 @@ import { fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Caller, Operation } from '../types.ts';
 import { jobsWithoutModel, unavailableText } from '../models.ts';
 import { requestSpawns, spawnLines } from '../spawning.ts';
-import { flag, forgeDeps, identityOf, ownWorktree, personOf, readingFrom, text, texts, theVault, writerOf } from './common.ts';
+import { flag, forgeDeps, identityOf, judgeForProposal, ownWorktree, personOf, readingFrom, text, texts, theVault, writerOf } from './common.ts';
 
 const ACTOR_PARAM = { name: 'actor', kind: 'string', positional: true, description: 'The actor whose proposal it is' } as const;
 
@@ -125,10 +125,13 @@ export const reviewOperation: Operation = {
     const vault = theVault(request);
     const person = personOf(request.caller);
     if (!person.ok) return fromError(person.error);
-    const reviewed = await review({ git: context.git, store: context.state, clock: context.clock, reads: context.reads }, vault, text(request.params, 'actor') ?? '', person.value);
+    const actor = text(request.params, 'actor') ?? '';
+    // Judged first, so the review shows the verdicts for exactly the content it records.
+    const judged = await judgeForProposal(context, vault, actor, person.value);
+    const reviewed = await review({ git: context.git, store: context.state, clock: context.clock, reads: context.reads }, vault, actor, person.value);
     if (!reviewed.ok) return fromError(reviewed.error);
     const diff = await diffText(context.git, vault.path, reviewed.value.proposal.base, reviewed.value.proposal.head);
-    return succeeded(reviewText(reviewed.value, diff.ok ? diff.value : ''), reviewed.value);
+    return succeeded([...judged, reviewText(reviewed.value, diff.ok ? diff.value : '')].join('\n'), reviewed.value);
   },
 };
 
@@ -239,10 +242,11 @@ export const proposeOperation: Operation = {
   async run(context, request) {
     const vault = theVault(request);
     const actor = text(request.params, 'actor') ?? '';
+    const judged = await judgeForProposal(context, vault, actor, request.caller.person ?? actor);
     const proposed = await proposeToForge(forgeDeps(context, request.caller.person ?? actor), vault, actor);
     if (!proposed.ok) return fromError(proposed.error);
     const { pull, opened, policy } = proposed.value;
-    return succeeded(`${opened ? 'Opened' : 'Updated'} pull request #${pull.number} (${pull.url}); vault/policy: ${policy.state}.`, proposed.value);
+    return succeeded([...judged, `${opened ? 'Opened' : 'Updated'} pull request #${pull.number} (${pull.url}); vault/policy: ${policy.state}.`].join('\n'), proposed.value);
   },
 };
 
@@ -287,8 +291,11 @@ export const commitOperation: Operation = {
       since: accepted.value.sha, commit: committed.value.sha, record: caller.traceOf(vault.id), attribution: { identity, date: context.clock.now() },
     });
     const traceLines = traced === undefined || traced.ok ? [] : [`Its trace record could not be written (${traced.error.reason}).`];
+    // Judgements are checks that call a model: they run once the blocking checks have passed and the commit has landed,
+    // and one that cannot be made only leaves its requirement unmet (concepts.md "Judgement axes").
+    const judged = await judgeForProposal(context, vault, actor.value, actor.value);
     const spawned = await spawnsOfCommit(context, vault, committed.value.sha, caller.trace);
-    return succeeded([`Committed ${committed.value.sha} on actor/${actor.value}.`, ...checks, ...traceLines, ...spawned.lines].join('\n'), { ...committed.value, spawns: spawned.entries });
+    return succeeded([`Committed ${committed.value.sha} on actor/${actor.value}.`, ...checks, ...judged, ...traceLines, ...spawned.lines].join('\n'), { ...committed.value, spawns: spawned.entries });
   },
 };
 

@@ -23,7 +23,7 @@
 import { readProposal, resetActorBranch, type ResetOutcome } from '../actors/index.ts';
 import { checkMerges, lostMergeNotice, lostMerges, proposeToForge, publishStatuses, syncWithForge, uncheckedMerges, type MergedProposal } from '../forge/index.ts';
 import { acceptedIdentity, type AcceptedMain } from '../integrity/index.ts';
-import { forgeDeps, identityOf, type OperationContext } from '../operations/index.ts';
+import { forgeDeps, identityOf, judgeForProposal, type OperationContext } from '../operations/index.ts';
 import { writersOf, type RegisteredVault } from '../registry/index.ts';
 import { notifyOwners } from './vaults.ts';
 
@@ -71,6 +71,9 @@ export function createForgeSync(context: OperationContext): ForgeSync {
         if (proposal.error.reason !== 'no-proposal') error ??= proposal.error.reason;
         continue;
       }
+      // What the proposal still needs judged is judged before its statuses go out, so `vault/policy` counts it;
+      // a judgement already recorded for the same content is reused, so a republish asks no model.
+      await judgeForProposal(context, vault, actor, actor);
       const last = current.get(key);
       if (last?.head !== proposal.value.head) {
         const pushed = await proposeToForge(deps(), vault, actor);

@@ -143,7 +143,8 @@ Each minute, every `forge`-mode vault is fetched first: the forge's `main`
 becomes the accepted `main`, the local `main` follows it forward, and merges
 are matched like any other. For the vaults this daemon runs:
 
-- **Proposals.** Each of the vault's `actors` with a proposal is kept current:
+- **Proposals.** Each of the vault's `actors` with a proposal is judged for
+  what its merge policy still needs, then kept current:
   when its head moves, the branch is pushed and its pull request opened or
   updated with its statuses; otherwise the statuses are republished every five
   minutes, to pick up reviews made in the forge. Failures show in `vault daemon

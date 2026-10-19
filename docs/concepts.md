@@ -206,6 +206,14 @@ model — never passes: nothing is recorded, and its requirement stays unmet.
 Axes that have a model are still judged: one that has none is reported
 unjudged, and the judgement does not pass.
 
+**When judgements run:** a commit, once its blocking checks pass, judges the
+documents its proposal's merge rules still need judged; `vault review`,
+`vault propose` and the daemon's forge sync judge whatever is still missing
+for the current content. A judgement already recorded for the same content,
+model and axis version is reused. One that cannot be made never fails the
+commit or the review — it only leaves its requirement unmet. Accepting never
+asks a model: it evaluates what is recorded.
+
 An axis may name the judgement model that answers it (`model`); without one,
 the default `judgement` does. Naming a faster model is an optimisation for
 routine questions. Questions that guard against manipulation or sensitive data
@@ -400,14 +408,14 @@ vaults:
     worktrees: ~/vaults/home-knowledge-worktrees
     host: true                 # run this vault's background jobs here (default false)
 models:                        # see Models below
-  embed:     { url: https://…/v1, token: ${EMBED_TOKEN}, model: mxbai-embed-large-v1, batch: 32, parallel: 4 }
-  rerank:    { url: https://…/v1, token: ${RERANK_TOKEN}, model: qwen3-reranker }
-  judgement: { url: https://…/v1, token: ${JUDGE_TOKEN}, model: d3 }        # strongest: the default
-  classify:  { role: judgement, url: https://…/v1, token: ${JUDGE_TOKEN}, model: d3-flash, parallel: 4 }
+  embed:     { url: "https://…/v1", token: "${EMBED_TOKEN}", model: mxbai-embed-large-v1, batch: 32, parallel: 4 }
+  rerank:    { url: "https://…/v1", token: "${RERANK_TOKEN}", model: qwen3-reranker }
+  judgement: { url: "https://…/v1", token: "${JUDGE_TOKEN}", model: d3 }        # strongest: the default
+  classify:  { role: judgement, url: "https://…/v1", token: "${JUDGE_TOKEN}", model: d3-flash, parallel: 4 }
   agent:     { model: homeserver/qwen3.8-27b }                            # a model as Pi names it
   quick:     { role: agent, model: homeserver/qwen3.8-flash }
 forges:
-  - { host: git.example.net, type: gitea, token: ${FORGE_TOKEN} }   # api: optional, when the API is not at the usual place
+  - { host: git.example.net, type: gitea, token: "${FORGE_TOKEN}" }   # api: optional, when the API is not at the usual place
 mcp: { … }                     # see mcp.md
 labels:
   equivalent: [[private:geopolitics, digests:geopolitics]]

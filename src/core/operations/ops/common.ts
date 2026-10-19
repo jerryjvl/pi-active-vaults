@@ -6,6 +6,7 @@
 import { actorWorktreePath } from '../../actors/index.ts';
 import type { ForgeDeps } from '../../forge/index.ts';
 import { MAIN_BRANCH, acceptedIdentity, acceptedMain, type AcceptedMain } from '../../integrity/index.ts';
+import { judgeProposal } from '../../judgements/index.ts';
 import type { NotifyDeps } from '../../notify/index.ts';
 import { isOwner, isVaultActor, readVaultIdentity, type IdentityError, type RegisteredVault, type VaultIdentity } from '../../registry/index.ts';
 import { err, ok, type Result } from '../../result/index.ts';
@@ -85,6 +86,33 @@ export function searchContext(context: OperationContext, index: SearchContext['i
     clock: context.clock,
     models: { client: { ...context.http, secrets: context.secrets }, config: context.installation.config },
   };
+}
+
+/**
+ * Judges what an actor's proposal still needs judged by its merge policy
+ * (core.md "Judgements"), recording each outcome; one line per document.
+ * Judging never fails the caller: a judgement that cannot be made only leaves
+ * its requirement unmet, and the line says why. No proposal, no lines.
+ */
+export async function judgeForProposal(context: OperationContext, vault: RegisteredVault, actor: string, as: string): Promise<string[]> {
+  const judged = await judgeProposal({
+    git: context.git,
+    store: context.state,
+    config: context.installation.config,
+    client: { ...context.http, secrets: context.secrets },
+    clock: context.clock,
+    attribution: { identity: packageIdentity(context.installation, as), date: context.clock.now() },
+    reads: context.reads,
+  }, { vault, actor });
+  if (!judged.ok) return judged.error.reason === 'no-proposal' ? [] : [`Judgements could not be run (${judged.error.reason}).`];
+  return judged.value.flatMap(({ path, outcome }) => {
+    if (!outcome.ok) return [`${path} could not be judged (${outcome.error.reason}); its judgement requirements stay unmet.`];
+    const { axes, unjudged } = outcome.value;
+    return [
+      ...(axes.length === 0 ? [] : [`judged ${path}: ${axes.map((a) => `${a.name} ${a.result}`).join(', ')}`]),
+      ...unjudged.map((u) => `${path}: ${u.name} not judged (${u.reason.reason}).`),
+    ];
+  });
 }
 
 export function forgeDeps(context: OperationContext, person: string): ForgeDeps {

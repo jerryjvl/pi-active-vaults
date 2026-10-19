@@ -59,12 +59,12 @@ its operation's parameters (`vault <command> --help`).
 | Command | Does |
 |---|---|
 | `vault status` | The installation `person`'s worktree in each vault (not over MCP), pending proposals, failing checks, queued work, jobs that cannot run for lack of a model, holds, merged proposals whose commits did not reach `main`, undelivered notifications |
-| `vault review <actor>` | Commits, diff, checks and control-change flags; records the reviewed SHA |
+| `vault review <actor>` | Judges what the proposal still needs judged; shows commits, diff, checks, judgements and control-change flags; records the reviewed SHA |
 | `vault accept <actor>` | Merge the SHA you last reviewed if the merge policy is satisfied |
 | `vault accept --adopt <sha>` | Show failed checks and control changes in the delta from the accepted `main` first, to be acknowledged; then the delta, and accept once confirmed. Without a terminal, it shows them and exits `3`; `--acknowledge <digest> --yes` confirms what was shown |
 | `vault sync [actor]` | Bring actor branches up to date with the accepted `main` — forward, or with a merge that the checks assess; in `forge` mode, fetch first |
-| `vault propose <actor>` | In `forge` mode: push the actor branch and open or update its pull request |
-| `vault commit -m <msg> [paths] [--actor <name>]` | Commit the actor's worktree as the current actor (else `--actor`, else the installation's `person`), with trailers, if every check passes |
+| `vault propose <actor>` | In `forge` mode: judge what the proposal still needs, push the actor branch and open or update its pull request |
+| `vault commit -m <msg> [paths] [--actor <name>]` | Commit the actor's worktree as the current actor (else `--actor`, else the installation's `person`), with trailers, if every check passes; then judges what the proposal's merge rules need |
 
 ### Work
 

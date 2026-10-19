@@ -132,6 +132,9 @@ models are still judged.
   is not asked again.
 - **A judgement that cannot be made records nothing**: the requirement stays
   unmet.
+- **Who runs them:** the operations layer judges a proposal after each commit
+  and before each review and proposal; the daemon before publishing forge
+  statuses. Only what the merge policy still needs is asked.
 
 The model speaks the System One protocol, as served by llama.cpp's decision
 models and by TypeSafe. One request answers every axis:
