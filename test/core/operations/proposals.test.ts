@@ -183,3 +183,17 @@ test('a commit outside a session starts a new tree for what it spawns', withInst
   const spawns = listSpawns(t.context.state);
   assert.deepEqual(spawns.map((s) => [s.document, s.state, s.parent, s.depth]), [['jobs/tidy.md', 'queued', undefined, 0]]);
 }));
+
+// concepts.md "Models": nothing missing stops anything else, but it is visible — `status` lists the jobs that cannot run for lack of a model.
+test('status lists the jobs that cannot run for lack of an agent model', withInstallation(async (t) => {
+  t.repo.write('jobs/ok.md', '---\napplies-when: [{ on: external, name: go, effect: spawn }]\nbudget: { tokens: 500, ttl: 2m }\nactor: gardener\n---\nGo.\n');
+  t.repo.write('jobs/quick.md', '---\napplies-when: [{ on: external, name: go, effect: spawn }]\nbudget: { tokens: 500, ttl: 2m }\nactor: gardener\nmodel: quick\n---\nGo.\n');
+  t.repo.commit('jobs');
+  t.accept();
+  const status = await t.run('status');
+  assert.equal(status.status, 'ok');
+  assert.match(status.text, /cannot run: jobs\/quick\.md \(no agent model it may use: the policy does not allow "quick" for home\)/);
+  assert.doesNotMatch(status.text, /cannot run: jobs\/ok\.md/);
+  const vault = (status.data as { vaults: { unrunnable: { document: string }[] }[] }).vaults[0];
+  assert.deepEqual(vault?.unrunnable.map((u) => u.document), ['jobs/quick.md']);
+}, { noDefaultModels: true, config: 'models:\n  agent: { model: p/big }\n  quick: { role: agent, model: p/small }\npolicy:\n  - { vaults: [home], allow-models: [agent] }' }));

@@ -19,6 +19,7 @@ import type { OperationContext } from '../context.ts';
 import { locate } from '../locate.ts';
 import { fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Operation, OperationRequest } from '../types.ts';
+import { hasSpawnCondition, jobModel, unavailableText } from '../models.ts';
 import { queueContext, requestSpawns, spawnLines } from '../spawning.ts';
 import { notifyDeps, readingFrom, text, texts, theVault } from './common.ts';
 
@@ -58,10 +59,17 @@ export const jobsOperation: Operation = {
         const runs = spawns.filter((s) => s.document === job.path);
         const last = runs.reduce<SpawnEntry | undefined>((latest, s) => (latest === undefined || s.claimed > latest.claimed ? s : latest), undefined);
         const pending = runs.filter((s) => s.state === 'queued').length;
-        listed.push({ vault: vault.id, document: job.path, conditions: job.conditions, budget: job.budget, issues: job.issues, last, pending });
+        const model = hasSpawnCondition(job) ? jobModel(context.installation.config, vault.id, job) : undefined;
+        listed.push({
+          vault: vault.id, document: job.path, conditions: job.conditions, budget: job.budget, issues: job.issues, last, pending,
+          ...(model === undefined ? {} : model.ok ? { model: { name: model.value.name, model: model.value.entry.model } } : { noModel: model.error }),
+        });
         lines.push(`${vault.id}:${job.path}`);
         for (const condition of job.conditions.filter((c) => c.effect === 'spawn')) lines.push(`  ${conditionText(condition)}`);
         for (const issue of job.issues) lines.push(`  problem: ${issue.path}: ${issue.message}`);
+        // The default needs no mention; a model the job asks for, or that cannot be had, does.
+        if (model?.ok === false) lines.push(`  problem: no agent model it may use (${unavailableText(model.error)})`);
+        else if (model !== undefined && job.model !== undefined) lines.push(`  model: ${model.value.name}${model.value.substitutedFor === undefined ? '' : ` (asked for "${model.value.substitutedFor}", which is not configured)`}`);
         lines.push(`  last run: ${last === undefined ? 'never' : `${last.state} (claimed ${last.claimed}, trace ${last.trace})`}; pending: ${pending}`);
       }
     }

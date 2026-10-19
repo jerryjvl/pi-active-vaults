@@ -7,12 +7,14 @@
 // running, runs its start-up recovery. A problem makes the
 // command fail; warnings do not.
 //
-// Checks: the config file, Git, Pi, each model role's token; per vault, its
+// Checks: the config file, Git, Pi, each model's token and the policy's names; per vault, its
 // identity, a `core.hooksPath` that bypasses the package's hooks, the
 // pre-push guard, a remote on a `local` vault, locks left in main's worktree,
 // forge protection and merge methods in `forge` mode, merged proposals whose
 // commits did not reach main, hosting conflicts, search falling back to
-// keywords because no policy entry names the vault, and jobs that cannot run; then sessions holding
+// keywords because no policy entry names the vault, jobs that cannot run
+// (for lack of an `agent` model too), and the models its jobs and axes ask for;
+// then sessions holding
 // actors (and those whose holder cannot be told apart from a reused process),
 // undelivered notifications, notify not being configured, and no daily token
 // ceiling, and a directory the installed daemon service was given for its PATH
@@ -28,6 +30,7 @@ import {
 } from '../../git/index.ts';
 import { MAIN_BRANCH, type AcceptedMain } from '../../integrity/index.ts';
 import { resolveModel } from '../../models/index.ts';
+import { jobsWithoutModel, modelMessages, unavailableText } from '../models.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
 import { daemonRecord, recordedServiceTools, recoverRuns, vaultJobs } from '../../queue/index.ts';
 import { runProcess } from '../../process/index.ts';
@@ -78,6 +81,12 @@ async function installationFindings(context: OperationContext): Promise<Finding[
     findings.push(token.ok
       ? { level: 'ok', check: 'models', message: `${name}: ${entry.role} model ${entry.model} at ${entry.url}; its token resolves (the endpoint is not contacted)` }
       : { level: 'problem', check: 'models', message: `${name}: the token in ${token.error.where} cannot be resolved (${token.error.reason}).` });
+  }
+  const { models, policy } = installation.config;
+  for (const entry of policy) {
+    for (const name of new Set(entry.allowModels)) {
+      if (!Object.hasOwn(models, name)) findings.push({ level: 'warning', check: 'models', message: `policy allows "${name}" for ${entry.vaults.join(', ')}, but no model of that name is configured.` });
+    }
   }
   return findings;
 }
@@ -131,17 +140,23 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
   if (!embed.ok && embed.error.reason === 'not-allowed') {
     findings.push(at('warning', 'search', 'Search is keyword-only: no policy entry allows the embed model for this vault.'));
   }
-  if (accepted.ok) findings.push(...(await jobFindings(context, vault, accepted.value)));
+  if (accepted.ok) {
+    findings.push(...(await jobFindings(context, vault, accepted.value)));
+    for (const message of await modelMessages(installation.config, git, vault.path, vault.id, accepted.value, context.reads)) findings.push(at('warning', 'models', message));
+  }
   return findings;
 }
 
-/** Each job on the accepted main that cannot run — no readable budget, no actor that may write — with why. */
+/** Each job on the accepted main that cannot run — no readable budget, no actor that may write, no `agent` model it may use — with why. */
 async function jobFindings(context: OperationContext, vault: RegisteredVault, accepted: AcceptedMain): Promise<Finding[]> {
   const jobs = await vaultJobs(context.git, vault.path, accepted, context.reads);
   if (!jobs.ok) return [{ level: 'problem', check: 'jobs', vault: vault.id, message: `Its jobs cannot be read (${jobs.error.reason}).` }];
-  return jobs.value
-    .filter((job) => job.issues.length > 0)
-    .map((job) => ({ level: 'warning', check: 'jobs', vault: vault.id, message: `${job.path} cannot run: ${job.issues.map((i) => `${i.path}: ${i.message}`).join('; ')}` }));
+  const unmodelled = new Map(jobsWithoutModel(context.installation.config, vault.id, jobs.value).map(({ job, why }) => [job.path, why]));
+  return jobs.value.flatMap((job) => {
+    const why = unmodelled.get(job.path);
+    const reasons = [...job.issues.map((i) => `${i.path}: ${i.message}`), ...(why === undefined ? [] : [`no agent model it may use (${unavailableText(why)})`])];
+    return reasons.length === 0 ? [] : [{ level: 'warning' as const, check: 'jobs', vault: vault.id, message: `${job.path} cannot run: ${reasons.join('; ')}` }];
+  });
 }
 
 async function forgeFindings(context: OperationContext, vault: RegisteredVault, owners: readonly string[]): Promise<Finding[]> {

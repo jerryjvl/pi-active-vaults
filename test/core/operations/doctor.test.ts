@@ -156,3 +156,84 @@ test('doctor checks the forge\'s merge methods: squash or rebase merges allowed 
   assert.deepEqual(unreadable.map(([level]) => level), ['warning'], 'settings the executor may not read are a warning, not a failure');
   assert.match(unreadable[0]?.[1] ?? '', /cannot verify whether squash and rebase merges are allowed \(http-error\)/i);
 }));
+
+// cli.md `vault doctor`: models — requested names that are not configured (and the default that answers
+// instead), names with the wrong role, defaults that documents need but are missing, and models the policy
+// does not allow where they are asked for; and the jobs that cannot run for lack of an agent model.
+const JOB = (extra = '') => `---\napplies-when:\n  - { on: external, name: go, effect: spawn }\nbudget: { tokens: 500, ttl: 2m }\nactor: gardener\n${extra}---\nGo.\n`;
+const JUDGE = 'url: "https://models.example.net/v1", token: "${T}", model: j';
+const AXIS = (model = '') => `axes:\n  evidence:\n    type: bool\n${model === '' ? '' : `    model: ${model}\n`}    instructions: Backed?\n    true: Yes\n    false: No\n    pass-when: { value: true, probability: 0.8 }\n`;
+const models = (entries: string, allowed: string[]) => ({ noDefaultModels: true, config: `models:\n${entries}\npolicy:\n  - { vaults: [home], allow-models: [${allowed.join(', ')}] }` });
+
+test('doctor says when a job or an axis asks for a model that is not configured, and which default answers instead', withInstallation(async (t) => {
+  t.repo.write('jobs/a.md', JOB('model: telepathy\n'));
+  t.repo.write('topics/_contract.md', `---\n${AXIS('telepathy')}---\n`);
+  t.repo.commit('documents');
+  t.accept();
+  const found = about((await findings(t)).found, 'models').filter((f) => f.vault === 'home');
+  assert.deepEqual(found.map((f) => f.level), ['warning', 'warning']);
+  assert.match(found[0]?.message ?? '', /jobs\/a\.md asks for the agent model "telepathy", which is not configured; the default "agent" answers instead/);
+  assert.match(found[1]?.message ?? '', /axis evidence \(topics\/_contract\.md\) asks for the judgement model "telepathy", which is not configured; the default "judgement" answers instead/);
+}, models(`  agent: { model: p/big }\n  judgement: { ${JUDGE} }`, ['agent', 'judgement'])));
+
+test('doctor reports a name with the wrong role, which the default does not answer', withInstallation(async (t) => {
+  t.repo.write('jobs/a.md', JOB('model: judge\n'));
+  t.repo.write('topics/_contract.md', `---\n${AXIS('quick')}---\n`);
+  t.repo.commit('documents');
+  t.accept();
+  const found = about((await findings(t)).found, 'models').filter((f) => f.vault === 'home');
+  assert.match(found[0]?.message ?? '', /jobs\/a\.md asks for "judge", which is a judgement model, not an agent model; it cannot run/);
+  assert.match(found[1]?.message ?? '', /axis evidence \(topics\/_contract\.md\) asks for "quick", which is an agent model, not a judgement model; it stays unjudged/);
+  assert.match(about((await findings(t)).found, 'jobs').map((f) => f.message).join('\n'), /jobs\/a\.md cannot run: no agent model it may use/);
+}, models(`  agent: { model: p/big }\n  quick: { role: agent, model: p/small }\n  judgement: { ${JUDGE} }\n  judge: { role: judgement, ${JUDGE} }`, ['agent', 'quick', 'judgement', 'judge'])));
+
+test('doctor reports a default that documents need but is missing, once per role, and the jobs that cannot run without it', withInstallation(async (t) => {
+  t.repo.write('jobs/a.md', JOB());
+  t.repo.write('jobs/b.md', JOB('model: quick\n'));
+  t.repo.write('topics/_contract.md', `---\n${AXIS()}---\n`);
+  t.repo.commit('documents');
+  t.accept();
+  const { found } = await findings(t);
+  const missing = about(found, 'models').filter((f) => f.vault === 'home');
+  assert.equal(missing.length, 2);
+  assert.match(missing[0]?.message ?? '', /the default agent model is not configured, which jobs\/a\.md needs; it cannot run/);
+  assert.match(missing[1]?.message ?? '', /the default judgement model is not configured, which axis evidence \(topics\/_contract\.md\) needs; it stays unjudged/);
+  const cannot = about(found, 'jobs').map((f) => f.message);
+  assert.equal(cannot.length, 1, 'jobs/b.md asks for a model that is configured and allowed, so it can run');
+  assert.match(cannot[0] ?? '', /jobs\/a\.md cannot run: no agent model it may use/);
+}, models(`  quick: { role: agent, model: p/small }`, ['quick'])));
+
+test('doctor reports a configured model the policy does not allow where it is asked for, and no replacement', withInstallation(async (t) => {
+  t.repo.write('jobs/a.md', JOB('model: quick\n'));
+  t.repo.write('jobs/b.md', JOB());
+  t.repo.commit('documents');
+  t.accept();
+  const { found } = await findings(t);
+  const refused = about(found, 'models').filter((f) => f.vault === 'home');
+  assert.equal(refused.length, 1, 'jobs/b.md uses the allowed default');
+  assert.match(refused[0]?.message ?? '', /jobs\/a\.md: the policy does not allow the agent model "quick" for this vault, and the default does not take its place; it cannot run/);
+  assert.match(about(found, 'jobs').map((f) => f.message).join('\n'), /jobs\/a\.md cannot run: no agent model it may use/);
+}, models(`  agent: { model: p/big }\n  quick: { role: agent, model: p/small }`, ['agent'])));
+
+test('doctor says nothing of models when documents ask for nothing unusual', withInstallation(async (t) => {
+  t.repo.write('jobs/a.md', JOB('model: quick\n'));
+  t.repo.commit('documents');
+  t.accept();
+  const { found } = await findings(t);
+  assert.deepEqual(about(found, 'models').filter((f) => f.vault === 'home'), []);
+  assert.deepEqual(about(found, 'jobs'), []);
+}, models(`  agent: { model: p/big }\n  quick: { role: agent, model: p/small }`, ['agent', 'quick'])));
+
+test('doctor warns of a policy that names a model that is not configured, as a typo would', withInstallation(async (t) => {
+  const { found } = await findings(t);
+  const policy = about(found, 'models').filter((f) => f.vault === undefined && f.level === 'warning');
+  assert.equal(policy.length, 1);
+  assert.match(policy[0]?.message ?? '', /policy allows "agnet" for home, but no model of that name is configured/);
+}, models(`  agent: { model: p/big }`, ['agent', 'agnet'])));
+
+test('doctor lists each configured model; an agent model needs no token', withInstallation(async (t) => {
+  const { found } = await findings(t);
+  const listed = about(found, 'models').map((f) => f.message);
+  assert.ok(listed.some((m) => /^agent: agent model p\/big, as Pi names it/.test(m)), listed.join('\n'));
+  assert.ok(listed.some((m) => /^judge: judgement model j at https:\/\/models\.example\.net\/v1; its token resolves/.test(m)), listed.join('\n'));
+}, { ...models(`  agent: { model: p/big }\n  judge: { role: judgement, ${JUDGE} }`, ['agent', 'judge']), env: { T: 'secret' } }));

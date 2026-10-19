@@ -15,13 +15,14 @@ import { diffText } from '../../git/index.ts';
 import { requireNoUnacceptedChange } from '../../integrity/index.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
 import { evaluateMerge, type MergeEvaluation } from '../../policy/index.ts';
-import { listSpawns, type SpawnEntry } from '../../queue/index.ts';
+import { listSpawns, vaultJobs, type SpawnEntry } from '../../queue/index.ts';
 import { writersOf, type RegisteredVault } from '../../registry/index.ts';
 import { newTraceId, recordRun } from '../../traces/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
 import { vaultRelative } from '../locate.ts';
 import { fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Caller, Operation } from '../types.ts';
+import { jobsWithoutModel, unavailableText } from '../models.ts';
 import { requestSpawns, spawnLines } from '../spawning.ts';
 import { flag, forgeDeps, identityOf, ownWorktree, personOf, readingFrom, text, texts, theVault, writerOf } from './common.ts';
 
@@ -81,13 +82,16 @@ export const statusOperation: Operation = {
       }
       const work = listSpawns(context.state, { vault: vault.id, states: ['queued', 'running'] });
       for (const spawn of work) lines.push(`  ${spawn.state}: ${spawn.document} (trace ${spawn.trace})`);
+      const jobs = accepted.ok ? await vaultJobs(context.git, vault.path, accepted.value, context.reads) : undefined;
+      const unrunnable = jobs?.ok === true ? jobsWithoutModel(context.installation.config, vault.id, jobs.value).map(({ job, why }) => ({ document: job.path, why })) : [];
+      for (const { document, why } of unrunnable) lines.push(`  cannot run: ${document} (no agent model it may use: ${unavailableText(why)})`);
       const worktree = request.caller.surface === 'mcp' ? undefined : ownWorktree(context, vault);
       if (worktree !== undefined) lines.push(`  your worktree: ${worktree}`);
       const held = holds.filter((h) => h.vault === vault.id);
       for (const hold of held) lines.push(`  ${hold.actor} held by session ${hold.holder.session} (process ${hold.holder.process.pid}${hold.standing === 'cannot-tell' ? ', cannot tell whether it still runs' : ''})`);
       const lost = await lostMerges(context.git, context.state, vault);
       for (const merge of lost) lines.push(`  ${lostMergeReport(merge, vault)}`);
-      vaults.push({ vault: vault.id, accepted: accepted.ok ? accepted.value.sha : null, ...(worktree === undefined ? {} : { worktree }), proposals, work, holds: held, lostMerges: lost });
+      vaults.push({ vault: vault.id, accepted: accepted.ok ? accepted.value.sha : null, ...(worktree === undefined ? {} : { worktree }), proposals, work, unrunnable, holds: held, lostMerges: lost });
     }
     // The outbox is the whole installation's, so a remote client — permitted for some vaults — does not see it.
     const undelivered = request.caller.surface === 'mcp' ? [] : undeliveredNotifications(context.state);

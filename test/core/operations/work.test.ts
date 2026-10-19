@@ -116,3 +116,34 @@ test('a job with no actor is listed with the problem, and neither runs nor is tr
   assert.match((await t.run('trigger', { name: 'bell' })).text, /Nothing matched/);
   assert.deepEqual(listSpawns(t.context.state, { vault: 'home' }), []);
 }));
+
+// concepts.md "Models": a job that cannot run for lack of a model is shown, not hidden — `jobs` says which model each uses.
+const JOB_ON = (model: string): string => `---\napplies-when:\n  - { on: external, name: go, effect: spawn }\nbudget: { tokens: 500, ttl: 2m }\nactor: gardener\n${model}---\nGo.\n`;
+const QUICK = { noDefaultModels: true, config: 'models:\n  agent: { model: p/big }\n  quick: { role: agent, model: p/small }\n  judge: { role: judgement, url: "https://x.example.net/v1", token: "${T}", model: j }\npolicy:\n  - { vaults: [home], allow-models: [agent, judge] }' };
+
+test('jobs says which model a job asks for, and which cannot run for lack of one', withInstallation(async (t) => {
+  t.repo.write('jobs/plain.md', JOB_ON(''));
+  t.repo.write('jobs/unknown.md', JOB_ON('model: telepathy\n'));
+  t.repo.write('jobs/quick.md', JOB_ON('model: quick\n'));
+  t.repo.write('jobs/judge.md', JOB_ON('model: judge\n'));
+  t.repo.commit('jobs');
+  t.accept();
+  const listed = await t.run('jobs');
+  assert.equal(listed.status, 'ok');
+  assert.match(listed.text, /home:jobs\/plain\.md\n {2}on external \(name go\)\n {2}last run/, 'the default is not mentioned');
+  assert.match(listed.text, /home:jobs\/quick\.md\n/);
+  assert.match(listed.text, /home:jobs\/unknown\.md\n[^]*? {2}model: agent \(asked for "telepathy", which is not configured\)\n/);
+  assert.match(listed.text, /home:jobs\/quick\.md\n[^]*? {2}problem: no agent model it may use \(the policy does not allow "quick" for home\)\n/);
+  assert.match(listed.text, /home:jobs\/judge\.md\n[^]*? {2}problem: no agent model it may use \("judge" is a judgement model\)\n/);
+  const data = (listed.data as { jobs: { document: string; model?: { name: string } }[] }).jobs;
+  assert.deepEqual(data.map((j) => [j.document, j.model?.name]), [['jobs/judge.md', undefined], ['jobs/plain.md', 'agent'], ['jobs/quick.md', undefined], ['jobs/unknown.md', 'agent']]);
+}, QUICK));
+
+test('with no agent model at all, jobs say so and the rest of the vault still answers', withInstallation(async (t) => {
+  t.repo.write('jobs/plain.md', JOB_ON(''));
+  t.repo.commit('jobs');
+  t.accept();
+  const listed = await t.run('jobs');
+  assert.match(listed.text, /problem: no agent model it may use \(the default agent model is not configured\)/);
+  assert.equal((await t.run('status')).status, 'ok');
+}, { noDefaultModels: true }));
