@@ -103,7 +103,9 @@ export const contractOperation: Operation = {
 };
 
 function reportText(report: IndexReport): string {
-  const vectors = report.vectors.state === 'complete' ? 'vectors complete'
+  const vectors = report.vectors.state === 'complete'
+    ? (report.vectors.unembedded === undefined ? 'vectors complete'
+      : `vectors complete except ${report.vectors.unembedded.length} document(s) the embedding model refused even in small chunks, found by keyword only: ${report.vectors.unembedded.join(', ')}`)
     : report.vectors.state === 'none' ? `keyword only (${report.vectors.reason})`
     : `vectors failed (${report.vectors.error.reason})`;
   return `${report.vault}: indexed at ${report.sha}: ${report.added.length} added, ${report.changed.length} changed, ${report.removed.length} removed, ${report.skipped.length} skipped; ${vectors}.`;

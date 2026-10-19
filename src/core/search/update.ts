@@ -13,8 +13,18 @@
 // reader sees the vault as of one accepted `main` or the next. Vectors are
 // added afterwards, for chunks without one, when an embedding model is
 // configured and allowed for the vault; a model other than the one the index
-// recorded drops every vector first (a different model needs a rebuild). A
-// failure to embed leaves keyword search intact and is retried next time.
+// recorded drops every vector first (a different model needs a rebuild).
+//
+// Vectors are made a batch of whole documents at a time, so one refusal never
+// costs the rest of the vault its vectors. Characters are a poor guide to an
+// embedding model's token limit — tables of serials and addresses tokenise
+// densely — so chunks aim high, and a document the model refuses is embedded
+// alone and, if still refused, re-chunked at successively smaller sizes; its
+// keyword chunks are replaced too, so both describe the same pieces. Nothing
+// is truncated. A document refused even at the smallest size keeps keyword
+// search and is reported. A failure that smaller chunks cannot cure — the
+// model unreachable, timing out, refusing the credentials — stops the pass;
+// the vectors made so far are kept, and the rest are retried next time.
 
 import { contractReader } from '../contracts/index.ts';
 import { inPackageDirectory, isDocumentPath } from '../documents/index.ts';
@@ -22,7 +32,7 @@ import { TREE_MODES, listTree, readTextAt, type GitError, type Sha } from '../gi
 import { requireNoUnacceptedChange, type UnacceptedChangeError, type VaultLocation } from '../integrity/index.ts';
 import { embed, type ModelError } from '../models/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
-import type { Queryable } from '../store/index.ts';
+import type { Queryable, Store } from '../store/index.ts';
 import { chunkDocument, embeddingText, type Chunk } from './chunks.ts';
 import { searchModel, vectorBlob, type SearchContext } from './context.ts';
 import { EMBEDDING_MODEL_KEY } from './schema.ts';
@@ -30,7 +40,8 @@ import { EMBEDDING_MODEL_KEY } from './schema.ts';
 export type IndexScope = 'default' | 'opt-in';
 
 export type VectorState =
-  | { readonly state: 'complete' }
+  /** Every chunk has its vector, except those of the documents listed, which the model refused even in the smallest chunks. */
+  | { readonly state: 'complete'; readonly unembedded?: readonly string[] }
   | { readonly state: 'none'; readonly reason: 'no-embed-model' | 'not-allowed' | 'no-vector-extension' }
   | { readonly state: 'failed'; readonly error: ModelError };
 
@@ -75,8 +86,40 @@ function removeDocument(tx: Queryable, vault: string, path: string): void {
   tx.run('DELETE FROM search_documents WHERE vault = ? AND path = ?', [vault, path]);
 }
 
-async function addVectors(context: SearchContext, vault: string): Promise<VectorState> {
-  const model = searchModel(context, 'embed', [vault]);
+/** Successively smaller chunk sizes for a document the embedding model refuses at the usual size. */
+const RECHUNK_SIZES = [1000, 700, 450, 300];
+
+/** A refusal smaller chunks might cure: the model answered, but not with a credentials, missing-model or rate-limit status. */
+function refusedContent(error: ModelError): boolean {
+  return error.reason === 'http-error' && ![401, 403, 404, 407, 429].includes(error.status);
+}
+
+interface MissingDocument {
+  readonly path: string;
+  readonly blob: string;
+  readonly chunks: readonly { readonly id: number; readonly header: string; readonly body: string }[];
+}
+
+/** Whole documents in groups of about `batch` chunks (a larger document is a group of its own). */
+function groupsOf(documents: readonly MissingDocument[], batch: number): MissingDocument[][] {
+  const groups: MissingDocument[][] = [];
+  let current: MissingDocument[] = [];
+  let size = 0;
+  for (const document of documents) {
+    if (current.length > 0 && size + document.chunks.length > batch) {
+      groups.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(document);
+    size += document.chunks.length;
+  }
+  if (current.length > 0) groups.push(current);
+  return groups;
+}
+
+async function addVectors(context: SearchContext, vault: VaultLocation, sha: Sha): Promise<VectorState> {
+  const model = searchModel(context, 'embed', [vault.id]);
   if (!model.ok) return { state: 'none', reason: model.error.reason === 'no-default' ? 'no-embed-model' : 'not-allowed' };
   if (!context.index.vectors) return { state: 'none', reason: 'no-vector-extension' };
   const { index } = context;
@@ -87,22 +130,94 @@ async function addVectors(context: SearchContext, vault: string): Promise<Vector
     tx.run('DELETE FROM search_vectors');
     tx.run('INSERT INTO search_meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', [EMBEDDING_MODEL_KEY, modelId]);
   });
-  const missing = index.all<{ id: number; header: string; body: string }>(
-    `SELECT c.id, c.header, c.body FROM search_chunks c LEFT JOIN search_vectors v ON v.chunk = c.id
-     WHERE c.vault = ? AND v.chunk IS NULL ORDER BY c.id`,
-    [vault],
+  const rows = index.all<{ id: number; path: string; blob: string; header: string; body: string }>(
+    `SELECT c.id, c.path, d.blob, c.header, c.body FROM search_chunks c
+     JOIN search_documents d ON d.vault = c.vault AND d.path = c.path
+     LEFT JOIN search_vectors v ON v.chunk = c.id
+     WHERE c.vault = ? AND v.chunk IS NULL ORDER BY c.path, c.ordinal`,
+    [vault.id],
   );
-  if (missing.length === 0 || context.models === undefined) return { state: 'complete' };
-  const vectors = await embed(context.models.client, model.value, missing.map(embeddingText));
-  if (!vectors.ok) return { state: 'failed', error: vectors.error };
-  index.transaction((tx) => {
-    // A chunk replaced while its vector was being made gets none; the next update embeds its successor.
-    missing.forEach(({ id }, i) => {
-      tx.run('INSERT OR REPLACE INTO search_vectors (chunk, embedding) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM search_chunks WHERE id = ?)',
-        [id, vectorBlob(vectors.value[i] ?? []), id]);
+  if (rows.length === 0 || context.models === undefined) return { state: 'complete' };
+  const { client } = context.models;
+  const byPath = new Map<string, MissingDocument>();
+  for (const row of rows) {
+    const document = byPath.get(row.path) ?? { path: row.path, blob: row.blob, chunks: [] };
+    (document.chunks as { id: number; header: string; body: string }[]).push(row);
+    byPath.set(row.path, document);
+  }
+
+  const store = (chunks: readonly { readonly id: number }[], vectors: readonly number[][]): void => {
+    index.transaction((tx) => {
+      // A chunk replaced while its vector was being made gets none; the next update embeds its successor.
+      chunks.forEach(({ id }, i) => {
+        tx.run('INSERT OR REPLACE INTO search_vectors (chunk, embedding) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM search_chunks WHERE id = ?)',
+          [id, vectorBlob(vectors[i] ?? []), id]);
+      });
     });
-  });
-  return { state: 'complete' };
+  };
+
+  /** Embeds one document, re-chunking it smaller while the model refuses it; its error only if smaller chunks cannot help. */
+  const embedAlone = async (document: MissingDocument): Promise<Result<'embedded' | 'refused', ModelError>> => {
+    const first = await embed(client, model.value, document.chunks.map(embeddingText));
+    if (first.ok) {
+      store(document.chunks, first.value);
+      return ok('embedded');
+    }
+    if (!refusedContent(first.error)) return err(first.error);
+    const text = await readTextAt(context.git, vault.path, sha, document.path);
+    if (!text.ok) return ok('refused');
+    for (const size of RECHUNK_SIZES) {
+      const { chunks } = chunkDocument(vault.id, document.path, text.value ?? '', size);
+      const vectors = await embed(client, model.value, chunks.map(embeddingText));
+      if (!vectors.ok) {
+        if (refusedContent(vectors.error)) continue;
+        return err(vectors.error);
+      }
+      index.transaction((tx) => {
+        // Only if the document is still the one these chunks were made from.
+        if (tx.get('SELECT 1 FROM search_documents WHERE vault = ? AND path = ? AND blob = ?', [vault.id, document.path, document.blob]) === undefined) return;
+        tx.run('DELETE FROM search_chunks WHERE vault = ? AND path = ?', [vault.id, document.path]);
+        chunks.forEach((chunk, ordinal) => {
+          const { lastInsertRowid } = tx.run('INSERT INTO search_chunks (vault, path, ordinal, heading, header, body) VALUES (?, ?, ?, ?, ?, ?)',
+            [vault.id, document.path, ordinal, JSON.stringify(chunk.heading), chunk.header, chunk.body]);
+          tx.run('INSERT INTO search_vectors (chunk, embedding) VALUES (?, ?)', [Number(lastInsertRowid), vectorBlob(vectors.value[ordinal] ?? [])]);
+        });
+      });
+      return ok('embedded');
+    }
+    return ok('refused');
+  };
+
+  const unembedded: string[] = [];
+  let failure: ModelError | undefined;
+  const groups = groupsOf([...byPath.values()], model.value.entry.batch);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (failure === undefined && next < groups.length) {
+      const group = groups[next++] as MissingDocument[];
+      const chunks = group.flatMap((d) => d.chunks);
+      const vectors = await embed(client, model.value, chunks.map(embeddingText));
+      if (vectors.ok) {
+        store(chunks, vectors.value);
+        continue;
+      }
+      if (!refusedContent(vectors.error)) {
+        failure ??= vectors.error;
+        return;
+      }
+      for (const document of group) {
+        const alone = await embedAlone(document);
+        if (!alone.ok) {
+          failure ??= alone.error;
+          return;
+        }
+        if (alone.value === 'refused') unembedded.push(document.path);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(model.value.entry.parallel, groups.length) }, worker));
+  if (failure !== undefined) return { state: 'failed', error: failure };
+  return unembedded.length === 0 ? { state: 'complete' } : { state: 'complete', unembedded: unembedded.sort() };
 }
 
 /** Brings the vault's part of the index up to its accepted `main`. */
@@ -162,6 +277,16 @@ export async function updateIndex(context: SearchContext, vault: VaultLocation):
     changed: prepared.filter((d) => indexed.has(d.path)).map((d) => d.path).sort(),
     removed,
     skipped,
-    vectors: await addVectors(context, vault.id),
+    vectors: await addVectors(context, vault, sha),
   });
+}
+
+/** The vault's indexed documents with a chunk that has no vector, by path; empty without the vector extension. */
+export function documentsWithoutVectors(index: Store, vault: string): string[] {
+  if (!index.vectors) return [];
+  return index.all<{ path: string }>(
+    `SELECT DISTINCT c.path FROM search_chunks c LEFT JOIN search_vectors v ON v.chunk = c.id
+     WHERE c.vault = ? AND v.chunk IS NULL ORDER BY c.path`,
+    [vault],
+  ).map((row) => row.path);
 }

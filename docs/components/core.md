@@ -99,6 +99,14 @@ enforces this; a new module must be given a layer.
   document whose governing contract cannot be read.
 - Each chunk is indexed with a header naming its vault, document title and
   heading path; vectors are made from the header and the chunk's text.
+- Chunks aim high (up to 1,500 characters), since characters are a poor guide
+  to an embedding model's token limit. Vectors are made a batch of whole
+  documents at a time; a document the model refuses is embedded alone and, if
+  still refused, re-chunked at 1,000, 700, 450 and then 300 characters, its
+  keyword chunks replaced to match. Nothing is truncated. A document refused
+  even at 300 keeps keyword search and is named by `vault reindex` and
+  `vault doctor`. Unreachable models, time-outs and refused credentials stop
+  the pass instead; vectors made so far are kept.
 - Ranking: keyword and vector results fused by rank, then reranked when a rerank
   model is configured.
 - Each returned hit is checked against the accepted `main`: `current`,

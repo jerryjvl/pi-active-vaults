@@ -15,7 +15,7 @@ import type { EndpointRole, InstallationConfig, ModelEntry } from '../../../src/
 import { recordAccepted, type VaultLocation } from '../../../src/core/integrity/index.ts';
 import type { ModelClient } from '../../../src/core/models/index.ts';
 import { INDEX_MODULES, openIndexStore } from '../../../src/core/operations/index.ts';
-import { search, updateIndex, type SearchContext, type SearchRequest } from '../../../src/core/search/index.ts';
+import { documentsWithoutVectors, search, updateIndex, type SearchContext, type SearchRequest } from '../../../src/core/search/index.ts';
 import { INDEX_FILE, openStore, type Store } from '../../../src/core/store/index.ts';
 import { createTempRepo, gitFor } from '../../support/git-repo.ts';
 import { startStubServer, type StubHandler, type StubServer } from '../../support/stub-server.ts';
@@ -312,4 +312,65 @@ test('query text is matched as words, never as search syntax; an empty query is 
   assert.deepEqual((await found(context(), { query: 'NEAR(things)', vaults: [v.vault] })).hits.map((h) => h.path), ['a.md']);
   const empty = await search(context(), { query: '  ?! ', vaults: [v.vault] });
   assert.deepEqual(!empty.ok && empty.error, { reason: 'empty-query' });
+}));
+
+/** An embedding model that refuses (HTTP 500, as llama.cpp does) any request holding an input longer than `limit` characters. */
+const limitedEmbeddings = (limit: number): StubHandler => (request) => {
+  const { input } = JSON.parse(request.body) as { input: string[] };
+  return input.some((text) => text.length > limit) ? { status: 500, body: { error: 'input is too large to process' } } : embeddings(request);
+};
+
+const paragraph = (word: string, n: number): string => Array.from({ length: n }, (_, i) => `${word} ${i}`).join(' ');
+
+function chunksOf(index: Store, path: string): { id: number; body: string }[] {
+  return index.all<{ id: number; body: string }>('SELECT id, body FROM search_chunks WHERE path = ? ORDER BY ordinal', [path]);
+}
+
+const vectorCount = (index: Store): number => index.get<{ n: number }>('SELECT COUNT(*) AS n FROM search_vectors')?.n ?? -1;
+const chunkCount = (index: Store): number => index.get<{ n: number }>('SELECT COUNT(*) AS n FROM search_chunks')?.n ?? -1;
+
+test('a document too dense for the embedding model is re-chunked smaller, never truncated; the rest of the vault is unaffected', withSearch(async ({ v, index, context }) => {
+  // Three ~620-character paragraphs: together they make chunks over the model's 900-character limit.
+  const paragraphs = [paragraph('router', 70), paragraph('network', 60), paragraph('hall', 90)];
+  v.repo.write('dense.md', `# Dense\n${paragraphs.join('\n\n')}`);
+  v.repo.write('cars.md', '# Car\nMy car needs new brakes.');
+  v.repo.commit('notes');
+  v.accept();
+  await withStubs({ embed: limitedEmbeddings(900) }, async ({ embed }) => {
+    const report = await indexed(context({ embed: { url: embed!.url } }), v.vault);
+    assert.deepEqual(report.vectors, { state: 'complete' });
+    assert.equal(vectorCount(index), chunkCount(index), 'every chunk has its vector');
+    const dense = chunksOf(index, 'dense.md');
+    assert.ok(dense.length >= 3, 'split into smaller chunks');
+    for (const p of paragraphs) assert.ok(dense.some((c) => c.body.includes(p)), 'nothing is truncated');
+    assert.equal((await found(context({ embed: { url: embed!.url } }), { query: 'hall', vaults: [v.vault] })).hits[0]?.path, 'dense.md', 'the smaller chunks are what keyword search finds too');
+  });
+}));
+
+test('a document too long for the model even in the smallest chunks keeps keyword search, has no vectors, and is reported; the others get theirs', withSearch(async ({ v, index, context }) => {
+  v.repo.write('dense.md', `# Dense\n${paragraph('router', 200)}`);
+  v.repo.write('cars.md', '# Car\nMy car needs new brakes.');
+  v.repo.commit('notes');
+  v.accept();
+  await withStubs({ embed: limitedEmbeddings(120) }, async ({ embed }) => {
+    const report = await indexed(context({ embed: { url: embed!.url } }), v.vault);
+    assert.deepEqual(report.vectors, { state: 'complete', unembedded: ['dense.md'] });
+    assert.deepEqual(documentsWithoutVectors(index, 'home'), ['dense.md'], 'what doctor reports');
+    const cars = chunksOf(index, 'cars.md');
+    assert.equal(index.get<{ n: number }>('SELECT COUNT(*) AS n FROM search_vectors WHERE chunk = ?', [cars[0]?.id ?? -1])?.n, 1, 'the other document has its vector');
+    const hits = (await found(context({ embed: { url: embed!.url } }), { query: 'router', vaults: [v.vault] })).hits;
+    assert.ok(hits.some((h) => h.path === 'dense.md'), 'still found by keyword');
+  });
+}));
+
+test('an embedding model that refuses the credentials stops the vector pass without re-chunking anything', withSearch(async ({ v, index, context }) => {
+  v.repo.write('dense.md', `# Dense\n${[paragraph('router', 70), paragraph('network', 60)].join('\n\n')}`);
+  v.repo.commit('notes');
+  v.accept();
+  await withStubs({ embed: () => ({ status: 401 }) }, async ({ embed }) => {
+    const report = await indexed(context({ embed: { url: embed!.url } }), v.vault);
+    assert.equal(report.vectors.state, 'failed');
+    assert.equal(chunksOf(index, 'dense.md').length, 1, 'the chunks are as first made');
+    assert.equal(embed!.requests.length, 1, 'one request, no retries at smaller sizes');
+  });
 }));

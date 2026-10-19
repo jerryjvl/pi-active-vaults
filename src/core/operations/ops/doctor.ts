@@ -30,6 +30,7 @@ import {
 } from '../../git/index.ts';
 import { MAIN_BRANCH, type AcceptedMain } from '../../integrity/index.ts';
 import { resolveModel } from '../../models/index.ts';
+import { documentsWithoutVectors } from '../../search/index.ts';
 import { jobsWithoutModel, modelMessages, unavailableText } from '../models.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
 import { daemonRecord, recordedServiceTools, recoverRuns, vaultJobs } from '../../queue/index.ts';
@@ -139,6 +140,14 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
   const embed = resolveModel(installation.config, 'embed', [vault.id]);
   if (!embed.ok && embed.error.reason === 'not-allowed') {
     findings.push(at('warning', 'search', 'Search is keyword-only: no policy entry allows the embed model for this vault.'));
+  }
+  if (embed.ok) {
+    // Documents the embedding model refused even in small chunks are searchable by keyword only.
+    const index = context.index();
+    const missing = index.ok ? documentsWithoutVectors(index.value, vault.id) : [];
+    if (missing.length > 0) {
+      findings.push(at('warning', 'search', `${missing.length} document(s) have no vectors, so only keyword search finds them ("vault reindex" retries; a document refused even in small chunks stays so): ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}.`));
+    }
   }
   if (accepted.ok) {
     findings.push(...(await jobFindings(context, vault, accepted.value)));
