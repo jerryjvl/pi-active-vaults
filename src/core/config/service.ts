@@ -26,7 +26,7 @@
 // `%SystemRoot%`.
 
 import { err, ok, type Result } from '../result/index.ts';
-import { pathEntries, pathFor, systemFiles, type FileView, type Host } from './platform.ts';
+import { CONFIG_OVERRIDE_VARIABLE, STATE_OVERRIDE_VARIABLE, pathEntries, pathFor, systemFiles, type FileView, type Host } from './platform.ts';
 
 /** A program and its arguments: what the service commands are. */
 export interface ServiceProgram {
@@ -84,7 +84,7 @@ const toolDirs = (tools: readonly ServiceTool[]): string[] => [...new Set(tools.
 /** One systemd assignment, double-quoted: backslashes and quotes escaped, `%` specifiers made literal (`$` is not expanded here). */
 const systemdAssignment = (name: string, value: string): string => `${name}="${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('%', '%%')}"`;
 
-function linux(host: Host, program: string, dirs: readonly string[]): ServiceDefinition {
+function linux(host: Host, program: string, dirs: readonly string[], overrides: readonly (readonly [string, string])[]): ServiceDefinition {
   const config = host.env['XDG_CONFIG_HOME'] !== undefined && host.env['XDG_CONFIG_HOME'] !== '' ? host.env['XDG_CONFIG_HOME'] : `${host.home}/.config`;
   const unit = `${NAME}.service`;
   const systemctl = (...args: string[]): ServiceProgram => ({ file: 'systemctl', args: ['--user', ...args] });
@@ -99,6 +99,7 @@ function linux(host: Host, program: string, dirs: readonly string[]): ServiceDef
       '[Service]',
       'Type=simple',
       systemdAssignment('Environment', `PATH=${[...dirs, ...USUAL_PATH.linux].join(':')}`),
+      ...overrides.map(([name, value]) => systemdAssignment('Environment', `${name}=${value}`)),
       // Not a login shell: it would rebuild PATH without the directories recorded above.
       `ExecStart=/bin/sh -c 'exec node "$$0" daemon run' ${systemdQuoted(program)}`,
       'Restart=on-failure',
@@ -122,7 +123,7 @@ function linux(host: Host, program: string, dirs: readonly string[]): ServiceDef
  * daemon in the system domain, run as the user with their home, for a Mac
  * nobody logs in to (installing it needs administrator rights).
  */
-function macos(host: Host, program: string, logs: string, uid: number | undefined, headless: boolean, dirs: readonly string[]): ServiceDefinition {
+function macos(host: Host, program: string, logs: string, uid: number | undefined, headless: boolean, dirs: readonly string[], overrides: readonly (readonly [string, string])[]): ServiceDefinition {
   const file = headless ? `/Library/LaunchDaemons/${LAUNCHD_LABEL}.plist` : `${host.home}/Library/LaunchAgents/${LAUNCHD_LABEL}.plist`;
   const domain = headless ? 'system' : `gui/${uid ?? 0}`;
   const launchctl = (...args: string[]): ServiceProgram => ({ file: '/bin/launchctl', args });
@@ -139,6 +140,7 @@ function macos(host: Host, program: string, logs: string, uid: number | undefine
       '  <key>EnvironmentVariables</key>\n  <dict>',
       ...(headless ? [`    <key>HOME</key>\n    <string>${xml(host.home)}</string>`] : []),
       `    <key>PATH</key>\n    <string>${xml([...dirs, ...USUAL_PATH.darwin].join(':'))}</string>`,
+      ...overrides.map(([name, value]) => `    <key>${name}</key>\n    <string>${xml(value)}</string>`),
       '  </dict>',
       '  <key>ProgramArguments</key>',
       '  <array>',
@@ -215,14 +217,21 @@ export function serviceFor(
   if (unsafe !== undefined) return err({ reason: 'unsafe-path', program: unsafe });
   const headless = where.headless === true;
   if (headless && host.os !== 'darwin') return err({ reason: 'not-supported', os: host.os });
+  // An installation kept elsewhere is the daemon's too: without these it would read and write the default places.
+  const overrides = [CONFIG_OVERRIDE_VARIABLE, STATE_OVERRIDE_VARIABLE].flatMap((name) => {
+    const value = host.env[name];
+    return value === undefined || value === '' ? [] : [[name, value] as const];
+  });
+  const unsafeOverride = overrides.find(([, value]) => /[\r\n\0]/.test(value));
+  if (unsafeOverride !== undefined) return err({ reason: 'unsafe-path', program: unsafeOverride[1] });
   const logs = pathFor(host.os).join(where.state, 'logs');
   switch (host.os) {
     case 'win32':
       return /["%]/.test(program) ? err({ reason: 'unsafe-path', program }) : windows(host, program, where.state, dirs);
     case 'darwin':
-      return ok(macos(host, program, logs, where.uid, headless, dirs));
+      return ok(macos(host, program, logs, where.uid, headless, dirs, overrides));
     default:
-      return ok(linux(host, program, dirs));
+      return ok(linux(host, program, dirs, overrides));
   }
 }
 

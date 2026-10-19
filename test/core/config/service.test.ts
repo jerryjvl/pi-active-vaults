@@ -72,6 +72,18 @@ test('macOS, headless: a launchd daemon in /Library/LaunchDaemons, run as the us
   }
 });
 
+test('an installation kept elsewhere (PI_ACTIVE_VAULTS_CONFIG, _STATE) is the daemon\'s too: the unit carries the overrides', () => {
+  const env = { PI_ACTIVE_VAULTS_CONFIG: '/opt/ai/etc/vaults', PI_ACTIVE_VAULTS_STATE: '/opt/ai/vaults/state' };
+  const mac = serviceFor(testHost({ os: 'darwin', home: '/opt/ai/vaults', user: '_vaults', env }), PROGRAM, { state: '/s', headless: true });
+  assert.ok(mac.ok);
+  assert.match(mac.value.text, /<key>PI_ACTIVE_VAULTS_CONFIG<\/key>\s*<string>\/opt\/ai\/etc\/vaults<\/string>\s*<key>PI_ACTIVE_VAULTS_STATE<\/key>\s*<string>\/opt\/ai\/vaults\/state<\/string>/);
+  const unit = serviceFor(testHost({ os: 'linux', home: '/home/alice', env: { PI_ACTIVE_VAULTS_CONFIG: '/etc/vaults' } }), PROGRAM, { state: '/s' });
+  assert.ok(unit.ok);
+  assert.match(unit.value.text, /^Environment="PI_ACTIVE_VAULTS_CONFIG=\/etc\/vaults"$/m);
+  assert.doesNotMatch(unit.value.text, /PI_ACTIVE_VAULTS_STATE/, 'only what is set');
+  assert.equal(serviceFor(testHost({ os: 'linux', env: { PI_ACTIVE_VAULTS_STATE: '/a\nExecStart=/evil' } }), PROGRAM, { state: '/s' }).ok, false, 'a line break cannot add a directive');
+});
+
 test('Windows: a Task Scheduler task at logon, registered with schtasks by its absolute path', () => {
   const host = testHost({ os: 'win32', home: 'C:\\Users\\alice', user: 'alice', env: { SystemRoot: 'C:\\Windows', LOCALAPPDATA: 'C:\\Users\\alice\\AppData\\Local' } });
   const service = serviceFor(host, 'C:\\pkg\\dist\\cli\\main.js', { state: 'C:\\s', tools: [{ tool: 'node', dir: 'C:\\Users\\alice\\AppData\\Local\\fnm\\aliases\\default' }, { tool: 'pi', dir: 'C:\\Users\\alice\\AppData\\Roaming\\npm' }] });

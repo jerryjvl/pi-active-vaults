@@ -211,7 +211,10 @@ root?, outcome?, reason?, commit? }`.
 ## Service installation
 
 `vault daemon install` writes a definition for the platform; `print-unit`
-prints it without installing.
+prints it without installing. An installation kept outside the default places
+(`PI_ACTIVE_VAULTS_CONFIG`, `PI_ACTIVE_VAULTS_STATE`, set when installing) is
+the daemon's too: the systemd and launchd definitions carry those variables.
+Windows' scheduled task cannot; there, keep the default places.
 
 | Platform | Service |
 |---|---|
