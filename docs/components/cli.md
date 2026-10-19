@@ -42,7 +42,8 @@ its operation's parameters (`vault <command> --help`).
 - actor holds, including any whose holder cannot be told;
 - a leftover Git lock in `main`'s worktree, and undelivered notifications;
 - search that is keyword-only because no `policy` entry names the vault;
-- jobs that cannot run (no budget, or no permitted actor), and an unset `budgets.daily-tokens`.
+- jobs that cannot run (no budget, no permitted actor, or no `agent` model it may use), and an unset `budgets.daily-tokens`;
+- models: requested names that are not configured (and the default that answers instead), names with the wrong role, defaults that documents need but are missing, and models `policy` does not allow where they are asked for.
 
 ### Knowledge
 

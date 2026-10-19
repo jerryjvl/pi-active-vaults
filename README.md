@@ -91,9 +91,9 @@ as in step 3.
 **Check the setup** at any time with `vault doctor` (`--fix` repairs what it
 can). Before relying on it, also:
 
-- configure model roles and the `policy` that allows them
-  ([Installation](docs/concepts.md#installation)) — without an embedding model,
-  search is keyword-only;
+- configure models — at least `agent` (background jobs) and `judgement` (merge
+  judgements), each the strongest you have — and the `policy` that allows them
+  ([Models](docs/concepts.md#models)); without `embed`, search is keyword-only;
 - list the tools that do not taint a session in `taint.trusted-tools` — by
   default every tool does, so `when-tainted` merge rules always apply;
 - give secrets as `!command` (a keyring lookup) rather than `${ENV}`: the

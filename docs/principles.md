@@ -44,9 +44,11 @@ with one needs the principle changed first, deliberately.
 
 ## Configuration and access
 
-10. **No models are built in.** Every model is configured as a URL, a token and
-    a model ID, assigned to a role. An unconfigured role disables its feature;
-    it never causes an error.
+10. **No models are built in.** Models are named entries in the installation
+    config, each with a role. Documents ask for a model by name, never by
+    what it is; each role has a default entry named after it, which answers
+    when a requested name is not configured. A missing default disables its
+    feature visibly; it never causes an error.
 
 11. **Access control is Git's job.** Whoever can clone a vault can read all of
     it. The package does not pretend to enforce anything beyond that.

@@ -75,6 +75,7 @@ adopting locally.
 | Protected `main` with required owner approval | Forge | Anything reaching the shared `main` unreviewed — even from a compromised machine |
 | Merge commits or fast-forwards only, and each merge checked for the proposal's commits | Forge | Attestations and trace notes left attached to commits `main` does not contain |
 | Content is data | Both | Text in documents, pages or tool results acting as instructions |
+| Models only as `policy` allows, background jobs included | Both | A vault's content reaching a model its installation has not agreed to |
 
 The Git hooks only speed things up and guard against accidents. Every safeguard
 is checked by the action itself, and the daemon also polls each minute. A
@@ -83,6 +84,10 @@ to a minute later and loses the pre-push guard; `vault doctor` reports it.
 
 ## What is not guaranteed
 
+- **A judgement is not proof against manipulation.** Decision models judge
+  whatever content says, including text planted to steer them; weaker ones are
+  easily swayed. Use the strongest judgement model for safety questions, and
+  keep `owner` among the requirements for tainted proposals.
 - **Locally, a deliberate same-user process can defeat the safeguards** — for
   example by editing the state database. Local mode is about accidents. Use a
   forge where a misbehaving agent must not be able to change accepted knowledge.

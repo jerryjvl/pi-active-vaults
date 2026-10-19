@@ -47,6 +47,7 @@ state change is one transaction.
 | `queue-time` | Queued longer than `daemon.queue-time` |
 | `requested` | Stopped through the socket |
 | `no-session` | Its condition is `session-required` and the originating session is not known here |
+| `no-model` | No `agent` model it may use: none configured, or not allowed by `policy` for its vault |
 
 ## Matching
 
@@ -71,7 +72,10 @@ down: on start it catches up from each cursor.
 
 Queued spawns start in the order of [Architecture](../architecture.md#scheduling),
 at most `daemon.parallel` at a time, and one per actor. A spawn's actor is the
-job's `actor` on the accepted `main` at claim time; while that actor is running
+job's `actor`, and its model the job's `model` (else the default `agent`), both on
+the accepted `main` at claim time. A spawn with no `agent` model it may use —
+none configured, or not allowed for its vault by `policy` — is stopped with
+`no-model` and reported by `vault doctor`. While the spawn's actor is running
 a job, claimed by an earlier spawn or held by an interactive session, the
 spawn waits in place. Nothing starts in a paused vault.
 
@@ -86,7 +90,7 @@ daemon:
 A spawn runs in its actor's worktree as
 
 ```
-pi --mode rpc --vault-run <state>/runs/<trace>.json --session-id <trace> [--fork <session file>]
+pi --mode rpc --model <agent model> --vault-run <state>/runs/<trace>.json --session-id <trace> [--fork <session file>]
 ```
 
 It forks the originating session when that session subscribed here (giving

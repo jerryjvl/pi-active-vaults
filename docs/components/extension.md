@@ -92,8 +92,9 @@ tainted session carry a `Vault-Tainted` trailer, so merge rules with
 The daemon runs jobs as `pi --mode rpc` sessions that load this same extension.
 In headless mode the extension takes its actor, budget and trace context from
 the daemon instead of from configuration: the run file given with `--vault-run`
-is JSON with `vault`, `document`, `actor`, `trace` (the spawn's, whose
-allotment is its budget) and `event`. The run is briefed with its job document
+is JSON with `vault`, `document`, `actor`, `model` (the `agent` model the
+daemon started it with), `trace` (the spawn's, whose allotment is its budget)
+and `event`. The run is briefed with its job document
 as on the accepted `main` and the triggering event as structured data (see
 [Concepts](../concepts.md#applies-when)). A run does not start without a
 readable run file, an allotment, its job on the accepted `main`, a permitted

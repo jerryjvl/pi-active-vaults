@@ -60,14 +60,14 @@ enforces this; a new module must be given a layer.
 | `integrity` | The accepted `main` per vault: record it on accept and adopt, detect unaccepted changes, provide the notice every surface shows; the one cache of what is read from it (see [Architecture](../architecture.md#reads-from-the-accepted-main)) |
 | `scripts` | Resolve built-ins and the vault's scripts and checks from the accepted `main`, parse headers, run them with their declared limits; run the checks against an exact commit and record their verdicts |
 | `templates` | Validate a template's marker, create a vault from it with fresh history and recorded origin — or an empty vault |
-| `judgements` | Run judgement checks: build the state from a document, ask the contract's axes of the judgement model, apply `pass-when`, record the attestation (see Judgements) |
+| `judgements` | Run judgement checks: build the state from a document, ask each of the contract's axes of the judgement model it names (else the default), apply `pass-when`, record the attestation (see Judgements) |
 | `notify` | Validate recipients and messages, write to the outbox, deliver through the configured transport, retry |
 | `budgets` | Allot budgets down a session tree; account for tokens; enforce limits |
 | `traces` | Issue trace IDs; write compact records as notes on a run's commits and find them by trailer; provenance; write and rotate full logs |
 | `store` | The only access to `state.sqlite` and `index.sqlite`: connections, pragmas, transactions, loading `sqlite-vec` into the index, and applying the schema migrations each module supplies for its own tables |
 | `queue` | A vault's jobs; matching an event to spawn requests with their identity fixed; the spawn queue, claims and cursors; scheduling; the daemon's record, its runs' processes and start-up recovery |
 | `search` | Index documents per vault; keyword, vector and hybrid search; rerank; check each hit against the current content |
-| `models` | Clients for configured model roles: embeddings, rerank, judgement. Splits work into batches of the role's `batch` size and sends up to `parallel` requests at a time. Never follows redirects, so content goes only to the configured URL |
+| `models` | The installation's named models: resolve a request (a name, else the role's default) to a model, check `policy` for the vaults involved, and report what is missing or substituted; clients for `judgement`, `embed` and `rerank` (batches of `batch`, up to `parallel` at once); the `agent` model to pass to Pi. Requests never follow redirects, so content goes only to the configured URL |
 | `forge` | Gitea, GitHub and GitLab adapters: push actor branches and notes, open or update pull requests, publish statuses and `vault/policy`, read approvals and merges, check branch protection and merge methods; record whether merged proposals kept their commits |
 | `sessions` | What a Pi session — interactive, or a headless run from the daemon's run file — is to the vaults: its actor, hold, trace and budget; the write guard; taint; injecting contracts and `inject` documents; session events and the spawns they request; per-turn budget records; the vault catalog for its prompt |
 | `operations` | The catalogue of operations — name (also its permission), parameters, implementation and surfaces — from which every surface is generated; for every surface alike: parsing requests, choosing vaults, results and messages, unaccepted-change notices and requesting spawns; permission sets and what an MCP client may see and call; loading the installation; the schemas each local store is opened with |
@@ -112,7 +112,8 @@ enforces this; a new module must be given a layer.
 ## Judgements
 
 A judgement check sends a document's content as state, with questions from the
-contract's axes, to the judgement model, applies each axis's `pass-when` (see
+contract's axes, to the judgement model each axis names (else the default
+`judgement`; axes for one model share a request), applies each axis's `pass-when` (see
 [Concepts](../concepts.md#judgement-axes)), and records each axis's outcome as
 an attestation. The content hash, model and axis version are part of each
 record. A judgement whose content has since changed is treated as missing.

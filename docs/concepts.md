@@ -22,6 +22,7 @@ A Markdown file with optional YAML frontmatter. Standard keys:
 | `applies-when` | Conditions under which the document is injected into a session or spawns work |
 | `budget` | `{ tokens, ttl }` — required on any document that can spawn work; `ttl` in whole seconds, minutes or hours (`90s`, `30m`, `2h`) |
 | `actor` | The actor its spawned work writes as: one of the vault's `actors`, never an owner; else the nearest contract's `actor`. A spawning document without one does not run (`vault jobs` and `vault doctor` report it) |
+| `model` | The `agent` model its spawned work runs on, by name (see [Installation](#models)); else the nearest contract's `model`; else the default `agent` |
 | `provenance` | Written by the runtime: trace ID and a compact causal path |
 
 Any other key is the vault's own.
@@ -53,7 +54,7 @@ applies-when:
 | `paths`, `change` | Path globs and change kinds (`created`, `modified`, `deleted`, `renamed`) |
 | `labels` | Match if the changed document carries any of these labels |
 | `actor` | Git events: match if the changes were made by one of these actors (their `Vault-Actor` trailer) |
-| `tools`, `model` | Session events: tool names; model ID |
+| `tools`, `model` | Session events: tool names; model names — matching a session whose model is one these names map to on this installation (the model actually used, not one requested) |
 | `name` | External events: the event name given to `vault trigger` |
 | `script` | Spawn only: an approved script that receives the event as JSON on standard input; the spawn happens only if it exits `0` |
 | `context` | Spawn only: `session-preferred` (default), `bare`, `session-required` |
@@ -116,6 +117,7 @@ Contract keys:
 | `axes` | `merge` | Judgement questions (below) |
 | `applies-when` | `list-ops` | Conditions that apply to every document in the subtree |
 | `actor` | `nearest` | The actor of jobs in the subtree that name none themselves |
+| `model` | `nearest` | The `agent` model of jobs in the subtree that name none themselves |
 
 Any other key is the vault's own and merges `nearest`. Paths in contracts and
 conditions are relative to the vault root.
@@ -159,7 +161,7 @@ its commits carries a `Vault-Tainted` trailer, or was not made by the package
 
 **Control changes always need an owner.** Whatever the contracts say, a change
 to any `_contract.md`, anything under `.vault/`, or the `applies-when`,
-`budget` or `actor` of any document requires `owner`. Agents may propose such
+`budget`, `actor` or `model` of any document requires `owner`. Agents may propose such
 changes; review flags them.
 
 ### Judgement axes
@@ -184,6 +186,7 @@ axes:
     pass-when: { level: relevant }
   personal-data:
     type: bool
+    model: judgement            # optional: a judgement model by name; default `judgement`
     instructions: Does this contain personal health or financial data?
     true: Contains such data
     false: Contains none
@@ -200,6 +203,15 @@ Each axis is judged and recorded on its own, so a rule requires exactly the
 axes it names (`require: [judgement:evidence, judgement:relevance]`). An axis
 that cannot be judged — no permitted model, an error, content too large for the
 model — never passes: nothing is recorded, and its requirement stays unmet.
+
+An axis may name the judgement model that answers it (`model`); without one,
+the default `judgement` does. Naming a faster model is an optimisation for
+routine questions. Questions that guard against manipulation or sensitive data
+should use the default, which should be the strongest judgement model
+available: decision models judge whatever the content says, including text
+planted to steer them, and stronger ones resist it far better. An axis's
+`pass-when` is tuned for the model that answers it; if a named model is not
+configured and the default answers instead, `vault doctor` reports it.
 
 ## Session tree
 
@@ -385,10 +397,13 @@ vaults:
     path: ~/vaults/home-knowledge
     worktrees: ~/vaults/home-knowledge-worktrees
     host: true                 # run this vault's background jobs here (default false)
-models:
+models:                        # see Models below
   embed:     { url: https://…/v1, token: ${EMBED_TOKEN}, model: mxbai-embed-large-v1, batch: 32, parallel: 4 }
   rerank:    { url: https://…/v1, token: ${RERANK_TOKEN}, model: qwen3-reranker }
-  judgement: { url: https://…/v1, token: ${JUDGE_TOKEN}, model: laya, parallel: 4 }
+  judgement: { url: https://…/v1, token: ${JUDGE_TOKEN}, model: d3 }        # strongest: the default
+  classify:  { role: judgement, url: https://…/v1, token: ${JUDGE_TOKEN}, model: d3-flash, parallel: 4 }
+  agent:     { model: homeserver/qwen3.8-27b }                            # a model as Pi names it
+  quick:     { role: agent, model: homeserver/qwen3.8-flash }
 forges:
   - { host: git.example.net, type: gitea, token: ${FORGE_TOKEN} }   # api: optional, when the API is not at the usual place
 mcp: { … }                     # see mcp.md
@@ -397,7 +412,7 @@ labels:
 subscriptions:
   - { from: digests, to: private }
 policy:
-  - { vaults: [home-knowledge], allow-models: [embed, rerank, judgement] }
+  - { vaults: [home-knowledge], allow-models: [embed, rerank, judgement, classify, agent, quick] }
 budgets: { daily-tokens: 2000000, cascade-pool: 300000, depth-decay: 0.5, max-depth: 4 }
 taint:
   trusted-tools: [read, edit, write, vault_search, vault_read]   # all other tools taint a session
@@ -412,27 +427,52 @@ Secrets are given as `${ENV}` references or `!command` (any command that prints
 the secret — a keyring lookup on each platform), never literally. They are
 resolved where they are used, not when the config loads.
 
-`policy` records which model roles may receive each vault's content: a role
-is used for a vault only when an entry lists both, so a vault no entry names
-sends nothing to any model.
+`policy` records which models may receive each vault's content: a model is
+used for a vault only when an entry lists both, so a vault no entry names
+sends nothing to any model. This covers background jobs too: a job's content
+reaches only an `agent` model the policy allows for its vault.
 
 The file is validated strictly when loaded: an unknown key, a literal secret or
 any other invalid value is an error that lists every problem (without repeating
 the values), so a typo cannot silently disable a feature. Vault and worktree
 paths may start with `~` and must otherwise be absolute.
 
-Each model role speaks one HTTP API:
+### Models
 
-| Role | API |
-|---|---|
-| `embed` | OpenAI-compatible `POST /v1/embeddings` |
-| `rerank` | `POST /v1/rerank` (Jina / Cohere style) |
-| `judgement` | `POST /v1/systemone`, the System One decisions protocol of llama.cpp's decision models and TypeSafe (state plus typed questions → probabilities; see [Core library](components/core.md#judgements)) |
+`models` maps names to models. The names are this installation's own: a
+document or contract asks for a model by name, and each installation decides
+what that name is, so a vault never depends on a particular model existing.
 
-Each role has `batch` (inputs per request; default 1) and `parallel` (concurrent
-requests; default 1). Work is split into batches of `batch` inputs, sent up to
-`parallel` at a time — so endpoints that batch properly and endpoints that only
-handle one input per request both get full throughput.
+| Role | Used for | Speaks | Default entry |
+|---|---|---|---|
+| `judgement` | Judgement axes | `POST /v1/systemone`, the System One decisions protocol of llama.cpp's decision models and TypeSafe (see [Core library](components/core.md#judgements)) | `judgement` |
+| `agent` | Background jobs | Pi: `model` is a model as Pi names it (`provider/id`), passed to the session; Pi holds its URL and credentials | `agent` |
+| `embed` | Search vectors | OpenAI-compatible `POST /v1/embeddings` | `embed` (the only `embed` entry) |
+| `rerank` | Search ranking | `POST /v1/rerank` (Jina / Cohere style) | `rerank` (the only `rerank` entry) |
+
+- **Default entries** are named after their role, and their role is implied: a
+  `role` that differs from the name is an error. Other names give their `role`
+  explicitly; only `judgement` and `agent` may have more than one entry.
+- **A request names a model; it never guarantees one.** An axis's or job's
+  `model` that is not configured here is answered by its role's default,
+  which `vault doctor` reports. Choose the strongest available model as each
+  default, so that falling back is never a downgrade and faster models are
+  always an explicit choice.
+- **A named model with the wrong role** (an axis naming an `agent` model) is a
+  problem `vault doctor` reports; the request fails as below.
+- **Policy applies to the model actually used.** A configured model the policy
+  does not allow for the vault is never replaced by the default: the request
+  fails.
+- **A missing model never stops anything else.** Without the model a request
+  needs, its work does not happen, visibly: a job does not run (`vault jobs`,
+  `vault status`), an axis stays unjudged and its requirement unmet, search is
+  keyword-only or unranked — each reported by `vault doctor`. Interactive Pi
+  sessions use the model the person chose in Pi.
+
+HTTP models have `batch` (inputs per request; default 1) and `parallel`
+(concurrent requests; default 1). Work is split into batches of `batch`
+inputs, sent up to `parallel` at a time — so endpoints that batch properly and
+endpoints that only handle one input per request both get full throughput.
 
 ## Built from the core
 
