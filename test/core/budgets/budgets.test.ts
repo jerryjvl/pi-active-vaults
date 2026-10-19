@@ -4,13 +4,17 @@
 // the root's cascade pool (the pool's remaining tokens × depth-decay per level
 // × the trigger's relevance, 1 when it has none); budgets only shrink as work
 // branches; tokens are counted as work (prompt and generated tokens, excluding
-// cached-prefix reads); ttl is run time; no document fires twice in one tree,
+// cached-prefix reads, which a model set to assume prefix caching estimates
+// when its engine reports none); ttl is run time; no document fires twice in one tree,
 // backed by max-depth; and the installation's daily ceiling bounds all of it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   accountUsage,
   allot,
+  assumePrefixCache,
+  newPrefixTracker,
+  usageOf,
   budgetState,
   budgetsSchema,
   finishSession,
@@ -165,3 +169,15 @@ test('accounting for an unknown or finished session is refused', withBudgets((st
   });
   assert.equal(budgetState(store, LIMITS, clock, 'NOPE'), undefined);
 }));
+
+test('an assumed prefix cache counts the previous request of the conversation as read from the cache, when the engine reports none', () => {
+  const conversation = newPrefixTracker();
+  const counts = (input: number, cacheRead = 0) => ({ input, output: 10, cacheRead, cacheWrite: 0 });
+  assert.deepEqual(assumePrefixCache(conversation, counts(1000)), { counts: counts(1000), assumed: 0 }, 'the first request has no prefix to reuse');
+  assert.deepEqual(assumePrefixCache(conversation, counts(1400)), { counts: counts(400, 1000), assumed: 1000 });
+  assert.deepEqual(assumePrefixCache(conversation, counts(1500, 1200)), { counts: counts(1500, 1200), assumed: 0 }, 'what the engine reports wins');
+  assert.deepEqual(assumePrefixCache(conversation, counts(900)), { counts: counts(900), assumed: 0 }, 'a shorter prompt is a new prefix (a compaction, say)');
+  assert.deepEqual(assumePrefixCache(conversation, counts(1000)), { counts: counts(100, 900), assumed: 900 });
+  const assumed = usageOf(assumePrefixCache(newPrefixTracker(1000), counts(1200)).counts);
+  assert.equal(workTokens(assumed), 210, 'only the new prompt tokens and the generated ones are work');
+});

@@ -3,14 +3,17 @@
 // actor, budget and trace from the run file (`--vault-run`) and gives the job
 // the triggering event as structured data. A run that cannot have what it
 // needs does not run; a run over its budget or run time is stopped
-// (principle 7, gates fail closed). Writes stay in its worktree.
+// (principle 7, gates fail closed), with turns counted as work (concepts.md
+// "Models": a model set to assume a prefix cache). Writes stay in its worktree.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { fauxAssistantMessage } from '@earendil-works/pi-ai';
 import { actorHold } from '../../src/core/actors/index.ts';
+import { budgetState } from '../../src/core/budgets/index.ts';
 import { eventJson } from '../../src/core/conditions/index.ts';
 import { withInstallation } from '../support/installation.ts';
+import { AGENT_MODEL } from '../support/models.ts';
 import { toolCall, withPi } from '../support/pi.ts';
 import { RUNNING, runFileFor, startedSpawn } from '../support/session.ts';
 
@@ -86,3 +89,27 @@ test('an interactive session runs on whatever model the person chose: it needs n
     assert.deepEqual(pi.notices.filter((n) => n.level === 'error'), []);
   });
 }, { running: RUNNING, noDefaultModels: true }));
+
+/** The tokens a two-turn headless run is counted for, with its agent model set to assume a prefix cache or not. */
+async function countedFor(assume: boolean): Promise<number> {
+  let used = 0;
+  await withInstallation(async (t) => {
+    const entry = startedSpawn(t);
+    await withPi(t, { flags: { 'vault-run': runFileFor(t, entry) } }, async (pi) => {
+      pi.respond(toolCall('read', { path: '_contract.md' }), fauxAssistantMessage('Nothing to do.'));
+      await pi.prompt('Run the job.');
+    });
+    used = budgetState(t.context.state, t.context.installation.config.budgets, t.clock, entry.trace)?.used ?? -1;
+  }, {
+    running: RUNNING, noDefaultModels: true,
+    config: `models:\n  agent: { model: ${AGENT_MODEL}, assume-prefix-cache: ${assume} }\npolicy:\n  - { vaults: [home], allow-models: [agent] }`,
+  })();
+  return used;
+}
+
+test('a model set to assume a prefix cache changes nothing when its engine reports its cache reads', async () => {
+  // Pi's faux provider reports a prefix cache per session, as a well-behaved engine does.
+  const plain = await countedFor(false);
+  assert.ok(plain > 0);
+  assert.equal(await countedFor(true), plain, 'what the engine reports wins');
+});

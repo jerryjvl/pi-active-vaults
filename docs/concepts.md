@@ -237,7 +237,8 @@ Sessions start from a trigger and branch as they spawn work. Budgets flow down:
 - `budgets.daily-tokens` caps every allotment and all work on the
   installation per UTC day.
 - Tokens are counted as work: prompt and generated tokens of every request,
-  including compaction, excluding cached-prefix reads.
+  including compaction, excluding cached-prefix reads (reported, or assumed for
+  a model set to `assume-prefix-cache`; see Models).
 - `ttl` is run time; queue time has its own limit.
 - No document fires twice in one tree. `budgets.max-depth` (default 4) backs
   this up.
@@ -430,7 +431,7 @@ models:                        # see Models below
   rerank:    { url: "https://…/v1", token: "${RERANK_TOKEN}", model: qwen3-reranker }
   judgement: { url: "https://…/v1", token: "${JUDGE_TOKEN}", model: d3 }        # strongest: the default
   classify:  { role: judgement, url: "https://…/v1", token: "${JUDGE_TOKEN}", model: d3-flash, parallel: 4 }
-  agent:     { model: homeserver/qwen3.8-27b }                            # a model as Pi names it
+  agent:     { model: homeserver/qwen3.8-27b, assume-prefix-cache: true } # a model as Pi names it
   quick:     { role: agent, model: homeserver/qwen3.8-flash, parallel: 2 }   # fan-out items at once
 forges:
   - { host: git.example.net, type: gitea, token: "${FORGE_TOKEN}" }   # api: optional, when the API is not at the usual place
@@ -506,8 +507,16 @@ HTTP models have `batch` (inputs per request; default 1) and `parallel`
 (concurrent requests; default 1). Work is split into batches of `batch`
 inputs, sent up to `parallel` at a time — so endpoints that batch properly and
 endpoints that only handle one input per request both get full throughput.
-Agent models have only `parallel`: how many fan-out items run at once on the
-model (default 1).
+Agent models have only `parallel`, how many fan-out items run at once on the
+model (default 1), and `assume-prefix-cache` (default false). Pi resends a
+conversation in full each turn, and an engine that caches prefixes reads all
+but the new part from its cache; budgets count only what is not read from a
+cache. Some engines cache but do not report it, so every turn would count the
+whole conversation again. With `assume-prefix-cache`, a request whose engine
+reports no cache reads is counted as having read the conversation's previous
+prompt from the cache — an estimate that errs low, since a real cache also holds
+part of the previous answer. Reported cache reads always win, a shorter prompt
+(after a compaction) starts again, and the trace records how much was assumed.
 
 ## Built from the core
 

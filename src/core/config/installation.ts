@@ -47,6 +47,12 @@ export type ModelEntry =
     readonly role: 'agent'; readonly model: string;
     /** Concurrent item sessions of a fan-out on this model (default 1). */
     readonly parallel?: number;
+    /**
+     * Count a conversation's previous prompt as read from a cache when the
+     * engine reports no cache reads: for engines that cache prefixes but do not
+     * say so (concepts.md "Models"). Default false.
+     */
+    readonly assumePrefixCache?: boolean;
   };
 
 export interface VaultEntry {
@@ -160,6 +166,7 @@ function httpUrl(r: Reader, value: unknown, path: string): string {
 }
 
 const ENDPOINT_KEYS = ['url', 'token', 'model', 'batch', 'parallel'];
+const AGENT_KEYS = ['model', 'parallel', 'assume-prefix-cache'];
 const AGENT_MODEL = /^[^/\s]+\/\S+$/;
 
 function readEndpoint(r: Reader, m: PlainObject, path: string): ModelEndpoint {
@@ -190,7 +197,7 @@ function readRole(r: Reader, name: string, given: unknown, path: string): ModelR
 }
 
 function readModel(r: Reader, name: string, value: unknown, path: string): ModelEntry | undefined {
-  const m = r.record(value, path, ['role', ...ENDPOINT_KEYS]);
+  const m = r.record(value, path, ['role', ...ENDPOINT_KEYS, 'assume-prefix-cache']);
   const role = readRole(r, name, m['role'], path);
   if (role === undefined) return undefined;
   if (role !== 'agent') {
@@ -199,9 +206,9 @@ function readModel(r: Reader, name: string, value: unknown, path: string): Model
   }
   // Pi matches a loose `--model` pattern against whatever it knows, so only the exact provider/id is accepted:
   // the model a document's content reaches is the one the policy was given.
-  for (const key of Object.keys(m)) if (key !== 'role' && key !== 'model' && key !== 'parallel') r.add(join(path, key), 'an agent model carries only its model and parallel: Pi holds its URL and credentials');
+  for (const key of Object.keys(m)) if (key !== 'role' && !AGENT_KEYS.includes(key)) r.add(join(path, key), `an agent model carries only ${AGENT_KEYS.join(', ')}: Pi holds its URL and credentials`);
   const model = r.string(m['model'], join(path, 'model'), AGENT_MODEL);
-  return { role, model, parallel: r.integer(m, 'parallel', path, 1) };
+  return { role, model, parallel: r.integer(m, 'parallel', path, 1), assumePrefixCache: r.boolean(m, 'assume-prefix-cache', path, false) };
 }
 
 function readModels(r: Reader, value: unknown): InstallationConfig['models'] {

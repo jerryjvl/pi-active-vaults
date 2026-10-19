@@ -23,10 +23,12 @@ export interface TurnRecord {
 
 /** Records one turn — every request it made, the model's and its tools' — and says whether the run must stop. */
 export function recordTurn(context: OperationContext, session: VaultSession, usages: readonly RequestUsage[]): TurnRecord {
-  const turn = usages.reduce<RequestUsage>(
-    (sum, u) => ({ prompt: sum.prompt + u.prompt, cachedPrefix: sum.cachedPrefix + u.cachedPrefix, generated: sum.generated + u.generated }),
-    { prompt: 0, cachedPrefix: 0, generated: 0 },
+  const summed = usages.reduce<Required<RequestUsage>>(
+    (sum, u) => ({ prompt: sum.prompt + u.prompt, cachedPrefix: sum.cachedPrefix + u.cachedPrefix, generated: sum.generated + u.generated, assumedPrefix: sum.assumedPrefix + (u.assumedPrefix ?? 0) }),
+    { prompt: 0, cachedPrefix: 0, generated: 0, assumedPrefix: 0 },
   );
+  const { assumedPrefix, ...reported } = summed;
+  const turn: RequestUsage = assumedPrefix === 0 ? reported : summed;
   const recorded = context.state.transaction((tx) => accountUsage(tx, context.installation.config.budgets, context.clock, session.trace, turn));
   if (!recorded.ok) return {};
   const state = recorded.value;

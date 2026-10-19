@@ -75,7 +75,8 @@ async function installationFindings(context: OperationContext): Promise<Finding[
   findings.push(await piVersion(context));
   for (const [name, entry] of Object.entries(installation.config.models)) {
     if (entry.role === 'agent') {
-      findings.push({ level: 'ok', check: 'models', message: `${name}: agent model ${entry.model}, as Pi names it (Pi holds its credentials)` });
+      const assumed = entry.assumePrefixCache === true ? '; prefix cache reads are assumed when its engine reports none' : '';
+      findings.push({ level: 'ok', check: 'models', message: `${name}: agent model ${entry.model}, as Pi names it (Pi holds its credentials)${assumed}` });
       continue;
     }
     const token = await resolveSecret(entry.token, context.secrets);

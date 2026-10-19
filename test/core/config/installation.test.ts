@@ -241,13 +241,13 @@ test('models are named entries: the default names imply their role, other names 
   judgement: { ${URL_ENTRY} }
   classify:  { role: judgement, ${URL_ENTRY}, parallel: 4 }
   agent:     { model: homeserver/qwen3.8-27b }
-  quick:     { role: agent, model: homeserver/qwen3.8-flash, parallel: 2 }
+  quick:     { role: agent, model: homeserver/qwen3.8-flash, parallel: 2, assume-prefix-cache: true }
   embed:     { role: embed, ${URL_ENTRY} }
 `);
   assert.deepEqual(Object.keys(config.models), ['judgement', 'classify', 'agent', 'quick', 'embed']);
   assert.deepEqual(Object.values(config.models).map((m) => m.role), ['judgement', 'judgement', 'agent', 'agent', 'embed']);
-  assert.deepEqual(config.models['agent'], { role: 'agent', model: 'homeserver/qwen3.8-27b', parallel: 1 });
-  assert.deepEqual(config.models['quick'], { role: 'agent', model: 'homeserver/qwen3.8-flash', parallel: 2 }, 'how many fan-out items run at once on it');
+  assert.deepEqual(config.models['agent'], { role: 'agent', model: 'homeserver/qwen3.8-27b', parallel: 1, assumePrefixCache: false });
+  assert.deepEqual(config.models['quick'], { role: 'agent', model: 'homeserver/qwen3.8-flash', parallel: 2, assumePrefixCache: true }, 'how many fan-out items run at once on it; whether its engine caches prefixes it does not report');
   const classify = config.models['classify'];
   assert.ok(classify?.role === 'judgement');
   assert.equal(classify.parallel, 4);
@@ -270,6 +270,8 @@ test('only judgement and agent models may have more than one entry', () => {
 
 test('an agent entry carries only the model, as Pi names it (provider/id), and its parallel', () => {
   assert.ok(issues('models:\n  agent: { model: p/m, parallel: 0 }').some((i) => i.startsWith('models.agent.parallel')));
+  assert.ok(issues('models:\n  agent: { model: p/m, assume-prefix-cache: maybe }').some((i) => i.startsWith('models.agent.assume-prefix-cache')));
+  assert.ok(issues(`models:\n  judgement: { ${URL_ENTRY}, assume-prefix-cache: true }`).some((i) => i.startsWith('models.judgement.assume-prefix-cache')), 'only agent models are Pi\'s to count');
   assert.ok(issues(`models:\n  agent: { model: p/m, url: "https://x/v1" }`).some((i) => i.startsWith('models.agent.url')));
   assert.ok(issues(`models:\n  agent: { model: p/m, token: "x" }`).some((i) => i.startsWith('models.agent.token')));
   assert.ok(issues('models:\n  agent: { model: just-an-id }').some((i) => i.startsWith('models.agent.model')), 'Pi would match a bare ID loosely');

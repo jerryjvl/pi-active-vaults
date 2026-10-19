@@ -20,7 +20,7 @@
 import { readFileSync } from 'node:fs';
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from '@earendil-works/pi-coding-agent';
 import type { Usage } from '@earendil-works/pi-ai';
-import { usageOf } from '../core/budgets/index.ts';
+import { newPrefixTracker, usageOf } from '../core/budgets/index.ts';
 import { packageVersion, type Host } from '../core/config/index.ts';
 import {
   callVaultPaths, createContext, describeError, loadInstallation, locate, operationNamed, type ContextOptions,
@@ -32,7 +32,7 @@ import {
 import type { OperationContext } from '../core/operations/index.ts';
 import { linkDaemon, type Notice } from '../core/automation/index.ts';
 import { BUS_METHODS, subscribeRequests } from './bus.ts';
-import type { Holder, Live } from './live.ts';
+import { agentModelOf, workOf, type Holder, type Live } from './live.ts';
 import { publishSpawns, CHANNEL_PREFIX } from './operate.ts';
 import { readsOf, shellOf, writesOf } from './paths.ts';
 
@@ -93,7 +93,7 @@ async function start(pi: ExtensionAPI, holder: Holder, options: HookOptions, ctx
     return fail(holder, ctx, true, `Vaults: the run does not start (${opened.error.reason}).`);
   }
   const { session, notices } = opened.value;
-  const live: Live = { context, session, cwd: ctx.cwd, catalog: await catalogText(context), pending: [], forResult: new Map(), subscriptions: [] };
+  const live: Live = { context, session, cwd: ctx.cwd, catalog: await catalogText(context), pending: [], forResult: new Map(), subscriptions: [], prefix: newPrefixTracker() };
   holder.live = live;
   holder.problem = undefined;
   for (const notice of notices) ctx.ui.notify(notice, 'warning');
@@ -218,7 +218,9 @@ export function registerHooks(pi: ExtensionAPI, holder: Holder, options: HookOpt
     const live = holder.live;
     if (live === undefined) return undefined;
     const message = event.message as { role: string; usage?: Usage };
-    const turn = usages(message.role === 'assistant' ? message.usage : undefined, ...event.toolResults.map((r) => r.usage));
+    // Tool results' usage (a fan-out's) arrives already counted as work.
+    const own = message.role === 'assistant' && message.usage !== undefined ? [workOf(agentModelOf(live, ctx.model), live.prefix, message.usage)] : [];
+    const turn = [...own, ...usages(...event.toolResults.map((r) => r.usage))];
     stopIfOver(pi, live.session, ctx, recordTurn(live.context, live.session, turn).stop);
     return undefined;
   });
@@ -226,6 +228,7 @@ export function registerHooks(pi: ExtensionAPI, holder: Holder, options: HookOpt
   pi.on('session_compact', async (event, ctx) => {
     const live = holder.live;
     if (live === undefined) return;
+    live.prefix.previous = 0; // the conversation starts again from its summary
     stopIfOver(pi, live.session, ctx, recordTurn(live.context, live.session, usages(event.compactionEntry.usage)).stop);
   });
 

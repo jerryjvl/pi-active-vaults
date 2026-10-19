@@ -20,6 +20,8 @@ export interface RequestUsage {
   /** Prompt tokens read from a cached prefix. */
   readonly cachedPrefix: number;
   readonly generated: number;
+  /** How much of `cachedPrefix` was assumed rather than reported (see `assumePrefixCache`). */
+  readonly assumedPrefix?: number;
 }
 
 /** `budget: { tokens, ttl }`, with `ttl` written as whole seconds, minutes or hours: `90s`, `30m`, `2h`. */
@@ -35,6 +37,34 @@ export function parseBudget(value: unknown, where = 'budget'): Result<Budget, Is
   const ttlMs = parseDuration(b['ttl']);
   if (ttlMs === undefined) r.add(issuePath(where, 'ttl'), 'must be a duration such as 90s, 30m or 2h');
   return r.result({ tokens: tokens ?? 0, ttlMs: ttlMs ?? 0 });
+}
+
+/**
+ * One conversation's last prompt size, for models set to assume a prefix
+ * cache (concepts.md "Models"): Pi resends a conversation in full each turn,
+ * and an engine that caches prefixes reads all but the new part from its
+ * cache — but some report none of it.
+ */
+export interface PrefixTracker {
+  previous: number;
+}
+
+export const newPrefixTracker = (previous = 0): PrefixTracker => ({ previous });
+
+/**
+ * A request's counts with its prefix read assumed when the engine reported no
+ * cache read: as much as the conversation's previous prompt, when that is no
+ * longer than this one. What the engine reports always wins, and a shorter
+ * prompt (after a compaction, say) is a new prefix. The estimate errs low: a
+ * real cache also holds part of the previous answer.
+ */
+export function assumePrefixCache<C extends { readonly input: number; readonly cacheRead: number; readonly cacheWrite: number }>(tracker: PrefixTracker, counts: C): { counts: C; assumed: number } {
+  const prompt = counts.input + counts.cacheRead + counts.cacheWrite;
+  const previous = tracker.previous;
+  tracker.previous = prompt;
+  if (counts.cacheRead > 0 || previous === 0 || previous > prompt) return { counts, assumed: 0 };
+  const assumed = Math.min(previous, counts.input);
+  return { counts: { ...counts, input: counts.input - assumed, cacheRead: assumed }, assumed };
 }
 
 /** Tokens counted as work: prompt and generated tokens, excluding cached-prefix reads. */
