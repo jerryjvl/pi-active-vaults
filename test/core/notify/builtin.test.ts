@@ -1,6 +1,7 @@
 // Documented behaviour: notifications.md "Use" — `builtin:notify --to <alias>
-// --subject <text> [--body-file <file>] [--key <id>]`, with the body from
-// `--body-file` or standard input; raw addresses are rejected. It runs as a
+// --subject <text> [--body-file <file>] [--key <id>] [--markdown | --plain]`,
+// with the body from `--body-file` or standard input, a Markdown body (a `.md`
+// file by default) sent as text with an HTML alternative; raw addresses are rejected. It runs as a
 // built-in script: available to every vault, never shadowed. Its exit
 // statuses follow the CLI's: 2 for a usage error, 3 for a refusal.
 import { test } from 'node:test';
@@ -70,5 +71,38 @@ test('builtin:notify refuses raw addresses, unknown options and missing argument
     const missing = await run(['--to', 'me']);
     assert.ok(missing.ok && missing.value.exitCode === 2);
     assert.deepEqual(stub.messages, []);
+  });
+}));
+
+test('a Markdown body file is sent readable: front matter dropped, as text with an HTML alternative; --plain sends it as it is', withTestVault(async (v) => {
+  v.accept();
+  writeFileSync(join(v.repo.path, 'digest.md'), '---\ntype: digest\n---\n\n# Digest\n\n1. **News** [Source](https://example.org/a)\n');
+  await withNotify(v, async (stub, options) => {
+    const send = (args: string[]) => runScript({ git: v.git, store: v.store, vault: v.vault }, 'builtin:notify', ['--to', 'me', '--subject', 'S', '--body-file', 'digest.md', ...args], options);
+    const rendered = await send([]);
+    assert.ok(rendered.ok && rendered.value.exitCode === 0, rendered.ok ? rendered.value.stderr : '');
+    const data = stub.messages[0]?.data ?? '';
+    assert.match(data, /multipart\/alternative/);
+    assert.match(data, /Content-Type: text\/plain/);
+    assert.match(data, /Content-Type: text\/html/);
+    assert.doesNotMatch(data, /type: digest/, 'no front matter in either part');
+    assert.match(data, /<h1>Digest<\/h1>/);
+    const plain = await send(['--plain']);
+    assert.ok(plain.ok && plain.value.exitCode === 0);
+    const second = stub.messages[1]?.data ?? '';
+    assert.doesNotMatch(second, /text\/html/);
+    assert.match(second, /type: digest/);
+    const both = await send(['--plain', '--markdown']);
+    assert.ok(both.ok);
+    assert.equal(both.value.exitCode, 2);
+  });
+}));
+
+test('--markdown renders any body, standard input included', withTestVault(async (v) => {
+  v.accept();
+  await withNotify(v, async (stub, options) => {
+    const ran = await runScript({ git: v.git, store: v.store, vault: v.vault }, 'builtin:notify', ['--to', 'me', '--subject', 'S', '--markdown'], { ...options, input: '**Bold** news\n' });
+    assert.ok(ran.ok && ran.value.exitCode === 0, ran.ok ? ran.value.stderr : '');
+    assert.match(stub.messages[0]?.data ?? '', /<strong>Bold<\/strong> news/);
   });
 }));

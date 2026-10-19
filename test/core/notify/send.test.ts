@@ -170,7 +170,7 @@ test('a failed send stays in the outbox and is retried with backoff as the same 
   const clock = fakeClock();
   let messageId = '';
   await withSmtp({ mode: 'tls', rejectRecipients: '451 4.3.0 Try again later' }, async (stub) => {
-    const first = await send(deps(store, clock, config(465), stub), { key: 'k' });
+    const first = await send(deps(store, clock, config(465), stub), { key: 'k', html: '<p>Hello.</p>' });
     assert.ok(first.ok && first.value.outcome === 'queued');
     messageId = first.value.messageId;
     const [pending] = undeliveredNotifications(store);
@@ -182,6 +182,7 @@ test('a failed send stays in the outbox and is retried with backoff as the same 
     const retried = await deliverDue(deps(store, clock, config(465), stub));
     assert.deepEqual(retried.map((r) => [r.outcome, r.messageId]), [['sent', messageId]]);
     assert.equal(headerOf(stub.messages[0]?.data ?? '', 'Message-ID'), messageId);
+    assert.match(stub.messages[0]?.data ?? '', /<p>Hello\.<\/p>/, 'with its HTML part');
     assert.deepEqual(undeliveredNotifications(store), []);
   });
   assert.ok(!JSON.stringify(store.all('SELECT * FROM notify_outbox')).includes(PASSWORD));

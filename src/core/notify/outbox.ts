@@ -42,6 +42,8 @@ export const notifySchema: ModuleSchema = {
       CREATE INDEX notify_outbox_due ON notify_outbox (state, next_attempt);
       CREATE INDEX notify_outbox_created ON notify_outbox (created)`,
     },
+    // A message's HTML part, rendered when it was queued, so a retry sends the same message.
+    { version: 2, sql: 'ALTER TABLE notify_outbox ADD COLUMN html TEXT' },
   ],
 };
 
@@ -52,6 +54,8 @@ export interface OutboxEntry {
   readonly alias: string;
   readonly subject: string;
   readonly body: string;
+  /** An HTML part beside the text, when the body was sent as Markdown. */
+  readonly html?: string;
   readonly created: string;
 }
 
@@ -79,16 +83,17 @@ function messageIdFor(trace: string, key: string | undefined, ordinal: number, d
   return `<${trace}.${derived}@${domain}>`;
 }
 
-type Row = { id: number; message_id: string; trace: string; alias: string; subject: string; body: string; created: string };
+type Row = { id: number; message_id: string; trace: string; alias: string; subject: string; body: string; html: string | null; created: string };
 
 const entryOf = (row: Row): OutboxEntry => ({
   id: row.id, messageId: row.message_id, trace: row.trace, alias: row.alias, subject: row.subject, body: row.body, created: row.created,
+  ...(row.html === null ? {} : { html: row.html }),
 });
 
 /** Records a message as pending, unless its key is in cooldown or the hour's limit is reached. */
 export function queueMessage(
   store: Store, clock: Clock,
-  message: { readonly trace: string; readonly alias: string; readonly subject: string; readonly body: string; readonly key?: string; readonly domain: string },
+  message: { readonly trace: string; readonly alias: string; readonly subject: string; readonly body: string; readonly html?: string; readonly key?: string; readonly domain: string },
   limits: { readonly perHour: number; readonly cooldownMs: number },
 ): Result<OutboxEntry, QueueRefusal> {
   const now = clock.now();
@@ -105,18 +110,21 @@ export function queueMessage(
     const messageId = messageIdFor(message.trace, message.key, before + 1, message.domain);
     const created = now.toISOString();
     const { lastInsertRowid } = tx.run(
-      `INSERT INTO notify_outbox (message_id, trace, alias, subject, body, key, state, created, next_attempt)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-      [messageId, message.trace, message.alias, message.subject, message.body, message.key ?? null, created, created],
+      `INSERT INTO notify_outbox (message_id, trace, alias, subject, body, html, key, state, created, next_attempt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      [messageId, message.trace, message.alias, message.subject, message.body, message.html ?? null, message.key ?? null, created, created],
     );
-    return ok({ id: Number(lastInsertRowid), messageId, trace: message.trace, alias: message.alias, subject: message.subject, body: message.body, created });
+    return ok({
+      id: Number(lastInsertRowid), messageId, trace: message.trace, alias: message.alias, subject: message.subject, body: message.body, created,
+      ...(message.html === undefined ? {} : { html: message.html }),
+    });
   });
 }
 
 /** Pending messages whose next attempt is due, oldest first. */
 export function dueMessages(store: Queryable, clock: Clock): OutboxEntry[] {
   return store
-    .all<Row>("SELECT id, message_id, trace, alias, subject, body, created FROM notify_outbox WHERE state = 'pending' AND next_attempt <= ? ORDER BY id", [clock.now().toISOString()])
+    .all<Row>("SELECT id, message_id, trace, alias, subject, body, html, created FROM notify_outbox WHERE state = 'pending' AND next_attempt <= ? ORDER BY id", [clock.now().toISOString()])
     .map(entryOf);
 }
 

@@ -7,7 +7,7 @@ person and device can receive it, and every provider can send it.
 ## Use
 
 ```
-builtin:notify --to <alias> --subject <text> [--body-file <file>] [--key <id>]
+builtin:notify --to <alias> --subject <text> [--body-file <file>] [--key <id>] [--markdown | --plain]
 ```
 
 The body is read from `--body-file` or standard input. Sessions run it through
@@ -18,6 +18,16 @@ the `vault_script` tool; people and scripts use `vault notify`.
 | `--to` | A recipient **alias** from the installation config. Raw addresses are rejected. |
 | `--subject` | Subject line. Line breaks are removed. |
 | `--key` | Deduplication key. A second message with the same key inside its cooldown is dropped. |
+| `--markdown` | Send the body as Markdown (the default for a `.md` or `.markdown` body file). |
+| `--plain` | Send a Markdown body file as it is. |
+
+A **Markdown body** is sent to be read, not decoded: its front matter is
+dropped, and the message carries the Markdown as text with an HTML alternative
+rendered from a small subset — headings, paragraphs, lists, quotes, code,
+rules, bold, italics, inline code and links. Everything in the body is escaped
+first, so HTML in it (perhaps from a web page) is shown, never rendered; only
+`http` and `https` links become links; nothing is fetched or embedded. The
+HTML is kept with the message, so a retry sends the same message.
 
 It prints the outcome — `sent`, `queued` (kept for retry), `duplicate` or
 `undeliverable` — and the `Message-ID`, and exits `0`; a refusal (a raw

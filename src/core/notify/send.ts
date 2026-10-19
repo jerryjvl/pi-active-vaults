@@ -31,6 +31,8 @@ export interface NotificationRequest {
   readonly to: string;
   readonly subject: string;
   readonly body: string;
+  /** An HTML alternative to the text body (`markdownEmail`). */
+  readonly html?: string;
   /** Deduplication: a second message with this key inside the cooldown is dropped. */
   readonly key?: string;
   /** The run sending it. */
@@ -71,6 +73,7 @@ async function attempt(deps: NotifyDeps, entry: OutboxEntry): Promise<Notificati
   }
   const delivered = await deliver(deps.config.transport, deps, {
     from: deps.config.from, to: address.value, subject: entry.subject, body: entry.body, messageId: entry.messageId, date: new Date(entry.created),
+    ...(entry.html === undefined ? {} : { html: entry.html }),
   });
   if (delivered.ok) {
     markSent(deps.store, deps.clock, entry.id);
@@ -97,6 +100,7 @@ export async function sendNotification(deps: NotifyDeps, request: NotificationRe
 
   const queued = queueMessage(deps.store, deps.clock, {
     trace: request.trace, alias: request.to, subject, body: request.body, domain: domainOf(config.from.address),
+    ...(request.html === undefined ? {} : { html: request.html }),
     ...(request.key === undefined ? {} : { key: request.key }),
   }, config.limits);
   if (!queued.ok) {

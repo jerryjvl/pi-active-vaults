@@ -41,6 +41,8 @@ export interface ComposedMessage {
   readonly to: string;
   readonly subject: string;
   readonly body: string;
+  /** An HTML alternative to the text body. */
+  readonly html?: string;
   readonly messageId: string;
   readonly date: Date;
 }
@@ -56,6 +58,7 @@ async function compose(message: ComposedMessage): Promise<Buffer> {
     to: message.to,
     subject: message.subject,
     text: message.body,
+    ...(message.html === undefined ? {} : { html: message.html }),
     messageId: message.messageId,
     date: message.date,
     disableFileAccess: true,
