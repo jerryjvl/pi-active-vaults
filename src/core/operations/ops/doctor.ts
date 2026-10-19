@@ -94,11 +94,22 @@ async function installationFindings(context: OperationContext): Promise<Finding[
   return findings;
 }
 
+/**
+ * Whether a file or directory is private enough for an installation's config or state: the user's
+ * alone, or managed for a service user — root owns it, its group may read but not write it, and
+ * nobody else may touch it (security-setup.md).
+ */
+export function privateEnough(stat: { readonly mode: number; readonly uid: number }): boolean {
+  const mode = stat.mode & 0o777;
+  return (mode & 0o077) === 0 || (stat.uid === 0 && (mode & 0o027) === 0);
+}
+
 /** A file mode check, POSIX only (Windows profile directories are the user's by their ACLs). */
 function privateMode(context: OperationContext, path: string, mode: number, fix: boolean): Finding | undefined {
   if (context.installation.host.os === 'win32' || !existsSync(path)) return undefined;
-  const current = statSync(path).mode & 0o777;
-  if ((current & 0o077) === 0) return undefined;
+  const stat = statSync(path);
+  const current = stat.mode & 0o777;
+  if (privateEnough(stat)) return undefined;
   if (fix) {
     chmodSync(path, mode);
     return { level: 'ok', check: 'permissions', message: `${path} is now private to the user (was ${current.toString(8)}).` };

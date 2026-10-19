@@ -14,6 +14,17 @@ so unaccepted changes reach you when a daemon runs.
 Day to day: when a command reports an unaccepted change, look at it with
 `vault accept --adopt <sha>` and either confirm it or reset `main`.
 
+## A service user on a shared machine
+
+An installation run by a dedicated service account — a machine's always-on
+executor — can keep its config where that account cannot change it: point
+`PI_ACTIVE_VAULTS_CONFIG` at a directory owned by root and readable by the
+service account's group (`750`, files `640`), with no access for anyone
+else. Then a job that is talked into editing files cannot loosen its own model
+policy, MCP profiles or forges. `vault doctor` accepts that ownership as
+private; the daemon's service definition carries the variable (daemon.md
+"Service installation"). Its state stays in the account's own directory.
+
 ## Forge vaults — the recommended setup
 
 Use a forge for any vault where a misbehaving agent or machine must not be able

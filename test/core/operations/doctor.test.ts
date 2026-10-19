@@ -264,3 +264,14 @@ test('doctor lists each configured model; an agent model needs no token', withIn
   assert.ok(listed.some((m) => /^agent: agent model p\/big, as Pi names it/.test(m)), listed.join('\n'));
   assert.ok(listed.some((m) => /^judge: judgement model j at https:\/\/models\.example\.net\/v1; its token resolves/.test(m)), listed.join('\n'));
 }, { ...models(`  agent: { model: p/big }\n  judge: { role: judgement, ${JUDGE} }`, ['agent', 'judge']), env: { T: 'secret' } }));
+
+test('config and state are private enough when they are the user\'s alone, or managed by root for a service user\'s group', async () => {
+  const { privateEnough } = await import('../../../src/core/operations/ops/doctor.ts');
+  assert.equal(privateEnough({ mode: 0o100600, uid: 501 }), true, 'the user\'s alone');
+  assert.equal(privateEnough({ mode: 0o040700, uid: 501 }), true);
+  assert.equal(privateEnough({ mode: 0o100640, uid: 0 }), true, 'root\'s, readable by the service user\'s group');
+  assert.equal(privateEnough({ mode: 0o040750, uid: 0 }), true);
+  assert.equal(privateEnough({ mode: 0o100640, uid: 501 }), false, 'a group may read only what root manages');
+  assert.equal(privateEnough({ mode: 0o100660, uid: 0 }), false, 'never writable by the group');
+  assert.equal(privateEnough({ mode: 0o100644, uid: 0 }), false, 'never readable by everyone');
+});
