@@ -80,6 +80,7 @@ accepting. The daemon adds work that must happen while nobody is using Pi.
 | Full trace logs | `<state>/logs/<date>/<trace-id>/` | No |
 | Daemon socket | Unix domain socket in `<state>`; a named pipe on Windows | No |
 | Run files; the refs hook's signals | `<state>/runs/<trace-id>.json` while a run lasts; `<state>/refs/<vault-id>` | No |
+| Editor workspace (`vault workspace`) | `<state>/vaults.code-workspace`, regenerated each time | No |
 
 `<config>` and `<state>` are the platform's own directories for the
 `pi-active-vaults` application:

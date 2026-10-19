@@ -8,9 +8,11 @@
 // in the way. `init` also makes the person's worktree, so there is somewhere
 // to edit at once.
 
-import { isAbsolute, basename, resolve } from 'node:path';
+import { writeFileSync } from 'node:fs';
+import { isAbsolute, basename, dirname, resolve } from 'node:path';
 import { ensureActorWorktree } from '../../actors/index.ts';
-import { checkPerson, registerVault } from '../../config/index.ts';
+import { checkPerson, ensurePrivateDir, registerVault } from '../../config/index.ts';
+import { runProcess } from '../../process/index.ts';
 import type { AcceptedMain } from '../../integrity/index.ts';
 import { readVaultIdentity, registeredVaults, type RegisteredVault } from '../../registry/index.ts';
 import { err, ok, type Result } from '../../result/index.ts';
@@ -155,6 +157,46 @@ export const initOperation: Operation = {
       ...hooks.map((h) => `Hooks: ${h}`),
       ...(worktree === '' ? [] : [worktree]),
     ].join('\n'), { ...made.value, hooks });
+  },
+};
+
+export const workspaceOperation: Operation = {
+  name: 'workspace',
+  summary: 'Write an editor workspace with your worktree in every vault you own or write as; --open opens it',
+  vault: 'none',
+  surfaces: CLI_ONLY,
+  params: [{ name: 'open', kind: 'boolean', description: 'Open the workspace with `code`' }],
+  async run(context, request) {
+    const person = personOf(request.caller);
+    if (!person.ok) return fromError(person.error);
+    const folders: { name: string; path: string }[] = [];
+    const lines: string[] = [];
+    for (const vault of context.installation.vaults) {
+      const accepted = readingFrom(context, vault);
+      if (!accepted.ok) {
+        lines.push(`${vault.id}: left out (nothing accepted yet)`);
+        continue;
+      }
+      const worktree = await ensureActorWorktree(context.git, vault, accepted.value, person.value, context.reads);
+      if (!worktree.ok) {
+        lines.push(`${vault.id}: left out (${worktree.error.reason === 'unknown-actor' ? `${person.value} is not one of its owners or actors` : worktree.error.reason})`);
+        continue;
+      }
+      folders.push({ name: vault.id, path: worktree.value.path });
+    }
+    const file = context.installation.paths.workspace;
+    ensurePrivateDir(dirname(file));
+    // Regenerated every time, so a new vault appears without editing the file by hand.
+    writeFileSync(file, `${JSON.stringify({ folders }, null, 2)}\n`, { mode: 0o600 });
+    lines.unshift(`Wrote ${file} with ${folders.length} worktree(s): ${folders.map((f) => f.name).join(', ') || 'none'}.`);
+    if (request.params['open'] === true) {
+      // The person's own editor, started for them: it gets their whole environment
+      // (on WSL, `code` needs its variables to reach VS Code on Windows), unlike
+      // scripts, which run with only the variables they need.
+      const opened = await runProcess({ program: { file: 'code', args: [file] }, env: { ...context.installation.host.env }, timeoutMs: 60_000, maxStdoutBytes: 65_536, maxStderrBytes: 65_536 });
+      lines.push(opened.ok && opened.value.exitCode === 0 ? 'Opened it with code.' : 'It could not be opened with code; open the file in your editor.');
+    }
+    return succeeded(lines.join('\n'), { file, folders });
   },
 };
 

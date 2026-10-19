@@ -17,7 +17,7 @@ import type { Installation } from './installation.ts';
 import { acceptOperation, commitOperation, proposeOperation, reviewOperation, statusOperation, syncOperation, writeOperation } from './ops/proposals.ts';
 import { contractOperation, readOperation, reindexOperation, searchOperation } from './ops/knowledge.ts';
 import { doctorOperation } from './ops/doctor.ts';
-import { addOperation, initOperation, listOperation, templateShowOperation, whoamiOperation } from './ops/installation.ts';
+import { addOperation, initOperation, listOperation, templateShowOperation, whoamiOperation, workspaceOperation } from './ops/installation.ts';
 import { jobsOperation, notifyOperation, runOperation as runJobOperation, scriptOperation, traceOperation, triggerOperation } from './ops/work.ts';
 import { DataReader, err, ok, type Issue, type Result } from '../result/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
@@ -31,7 +31,7 @@ export const CATALOGUE: readonly Operation[] = [
   runJobOperation, triggerOperation, scriptOperation, notifyOperation,
   reviewOperation, acceptOperation, reindexOperation,
   syncOperation,
-  listOperation, addOperation, initOperation, whoamiOperation, templateShowOperation, doctorOperation,
+  listOperation, addOperation, initOperation, whoamiOperation, workspaceOperation, templateShowOperation, doctorOperation,
 ];
 
 export function operationNamed(name: string): Operation | undefined {

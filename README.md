@@ -53,7 +53,7 @@ vault's Git hooks and makes your worktree:
 vault init ~/vaults/notes
 ```
 
-**3. Work in your worktree** — `vault list` shows where it is. Commit there,
+**3. Work in your worktree** — `vault list` shows where it is, and `vault workspace --open` opens all of yours in one editor window. Commit there,
 then review and accept your own proposal into `main`:
 
 ```sh

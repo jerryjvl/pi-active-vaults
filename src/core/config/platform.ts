@@ -38,6 +38,8 @@ export interface InstallationPaths {
   readonly runs: string;
   /** Where vaults' Git hooks leave word that refs changed, one file per vault. */
   readonly refs: string;
+  /** The editor workspace `vault workspace` writes: the person's worktree in each vault. */
+  readonly workspace: string;
 }
 
 export type PlatformDirsError = { reason: 'relative-override'; variable: string };
@@ -131,6 +133,7 @@ export function installationPaths(dirs: PlatformDirs, os: PlatformKind): Install
     socket: os === 'win32' ? windowsPipe(dirs.state) : p.join(dirs.state, 'daemon.sock'),
     runs: p.join(dirs.state, 'runs'),
     refs: p.join(dirs.state, 'refs'),
+    workspace: p.join(dirs.state, 'vaults.code-workspace'),
   };
 }
 
