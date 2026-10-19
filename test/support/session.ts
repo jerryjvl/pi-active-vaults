@@ -5,6 +5,7 @@
 // knows about.
 
 import { writeFileSync } from 'node:fs';
+import { queueContext } from '../../src/core/operations/index.ts';
 import { enqueueSpawn, startSpawn, type SpawnEntry } from '../../src/core/queue/index.ts';
 import { openSession, renderRunContext, type RunContext, type SessionStart, type VaultSession } from '../../src/core/sessions/index.ts';
 import type { TestInstallation } from './installation.ts';
@@ -29,7 +30,7 @@ export function startedSpawn(t: TestInstallation, document = 'jobs/daily.md', to
   t.repo.write(document, JOB);
   t.repo.commit(`job ${document}`);
   t.accept();
-  const { entry } = enqueueSpawn(t.context.state, { ids: t.context.ids, clock: t.clock, limits: t.installation.config.budgets }, {
+  const { entry } = enqueueSpawn(t.context.state, queueContext(t.context), {
     vault: t.vault.id, document, event: { kind: 'manual', id: `M-${document}` }, budget: { tokens, ttlMs: 600_000 }, actor: 'gardener',
     ...(parent === undefined ? {} : { parent }),
   });

@@ -54,3 +54,45 @@ test('a job with no actor anywhere cannot spawn, and says so', withTestVault(asy
     ['jobs/none.md', undefined, true, ['actor: is required on a document that can spawn work, in its frontmatter or a contract']],
   ]);
 }));
+
+// concepts.md "Document": `model` names the `agent` model a job runs on — its own, else its nearest contract's.
+test('a job asks for the model it names, else its nearest contract\'s, else none (the default agent); an unconfigured name is no problem here', withTestVault(async (v) => {
+  v.repo.write('jobs/_contract.md', '---\nmodel: quick\n---\n');
+  v.repo.write('jobs/inherits.md', job('actor: gardener\n'));
+  v.repo.write('jobs/own.md', job('actor: gardener\nmodel: big\n'));
+  v.repo.write('top.md', job('actor: gardener\n'));
+  v.repo.commit('jobs');
+  const jobs = await vaultJobs(v.git, v.vault.path, v.accept());
+  assert.ok(jobs.ok);
+  assert.deepEqual(jobs.value.map((j) => [j.path, j.model, j.terms?.model]), [
+    ['jobs/inherits.md', 'quick', 'quick'],
+    ['jobs/own.md', 'big', 'big'],
+    ['top.md', undefined, undefined],
+  ]);
+}));
+
+test('a job whose model is not a name cannot spawn, and says so', withTestVault(async (v) => {
+  v.repo.write('jobs/list.md', job('actor: gardener\nmodel: [big]\n'));
+  v.repo.write('jobs/spaced.md', job('actor: gardener\nmodel: "big model"\n'));
+  v.repo.write('jobs/fine.md', job('actor: gardener\nmodel: big\n'));
+  v.repo.commit('jobs');
+  const jobs = await vaultJobs(v.git, v.vault.path, v.accept());
+  assert.ok(jobs.ok);
+  assert.deepEqual(jobs.value.map((j) => [j.path, j.terms !== undefined, j.issues.map((i) => `${i.path}: ${i.message}`)]), [
+    ['jobs/fine.md', true, []],
+    ['jobs/list.md', false, ['model: must be a non-empty string']],
+    ['jobs/spaced.md', false, ['model: is not in the expected form']],
+  ]);
+}, { actors: ['gardener'] }));
+
+test('a job\'s spawn terms are its budget, actor and model together; a job lacking one has none', withTestVault(async (v) => {
+  v.repo.write('jobs/ok.md', job('actor: gardener\nmodel: big\n'));
+  v.repo.write('jobs/no-actor.md', job());
+  v.repo.commit('jobs');
+  const jobs = await vaultJobs(v.git, v.vault.path, v.accept());
+  assert.ok(jobs.ok);
+  assert.deepEqual(jobs.value.map((j) => [j.path, j.terms]), [
+    ['jobs/no-actor.md', undefined],
+    ['jobs/ok.md', { budget: { tokens: 100, ttlMs: 90_000 }, actor: 'gardener', model: 'big' }],
+  ]);
+}, { actors: ['gardener'] }));

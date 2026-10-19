@@ -34,8 +34,7 @@ export async function tickTimers(
     const accepted = acceptedMain(context.state, vault.id);
     const jobs = accepted === undefined ? undefined : await vaultJobs(context.git, vault.path, accepted, context.reads);
     for (const job of jobs?.ok === true ? jobs.value : []) {
-      const { budget, actor } = job;
-      if (budget === undefined || actor === undefined) continue;
+      if (job.terms === undefined) continue;
       for (const [index, condition] of job.conditions.entries()) {
         if (condition.on !== 'timer' || condition.effect !== 'spawn' || condition.schedule === undefined) continue;
         const schedule = parseSchedule(condition.schedule);
@@ -49,7 +48,7 @@ export async function tickTimers(
           const match = { vault: vault.id, document: job.path, index, condition };
           const narrowed = await narrowByScripts(scriptFilters(matching), matching.scripts, event, [match]);
           if (narrowed.kept.length === 0) continue;
-          enqueueSpawn(context.state, queueContext(context), { vault: vault.id, document: job.path, condition: index, event, budget, actor });
+          enqueueSpawn(context.state, queueContext(context), { vault: vault.id, document: job.path, condition: index, event, ...job.terms });
         }
         if (firing.advanceTo !== cursor) advanceCursor(context.state, context.clock, key, cursor ?? null, firing.advanceTo);
       }

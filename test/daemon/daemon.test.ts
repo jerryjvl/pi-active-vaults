@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { allot } from '../../src/core/budgets/index.ts';
+import { queueContext } from '../../src/core/operations/index.ts';
 import { enqueueSpawn, listSpawns, startSpawn } from '../../src/core/queue/index.ts';
 import { connectSocket, requestOver, requestOverSocket } from '../../src/core/socket/index.ts';
 import { startDaemon, type DaemonOptions } from '../../src/daemon/daemon.ts';
@@ -98,7 +99,7 @@ test('word from a vault\'s hook that its refs changed makes the daemon look at t
 
 test('the daemon recovers before anything else: a spawn left running is stopped as restarted', posixOnly, withInstallation(async (t) => {
   job(t);
-  const { entry } = enqueueSpawn(t.context.state, { ids: t.context.ids, clock: t.clock, limits: t.installation.config.budgets }, {
+  const { entry } = enqueueSpawn(t.context.state, queueContext(t.context), {
     vault: 'home', document: 'jobs/a.md', event: { kind: 'manual', id: 'M' }, budget: { tokens: 10, ttlMs: 60_000 }, actor: 'gardener',
   });
   assert.ok(startSpawn(t.context.state, t.clock, entry.id).ok);

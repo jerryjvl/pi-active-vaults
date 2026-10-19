@@ -61,7 +61,7 @@ export async function claimRequested(context: OperationContext, matching: SpawnM
   if (!accepted.ok) return refuse(accepted.error.reason === 'unaccepted-change' ? 'unaccepted-change' : 'unreadable', { vault: vault.id });
   const jobs = await vaultJobs(context.git, vault.path, accepted.value, context.reads);
   const job = jobs.ok ? jobs.value.find((j) => j.path === document) : undefined;
-  if (job === undefined || job.budget === undefined || job.actor === undefined) return refuse('not-a-job', { vault: vault.id, document });
+  if (job?.terms === undefined) return refuse('not-a-job', { vault: vault.id, document });
   // Timers and manual runs are the daemon's and the CLI's own; a request names a condition the event matches.
   if (event['kind'] === 'timer' || condition === undefined) return refuse('not-matched');
   const asked = event as unknown as VaultEvent;
@@ -71,7 +71,7 @@ export async function claimRequested(context: OperationContext, matching: SpawnM
   const narrowed = await narrowByScripts(scriptFilters(matching), matching.scripts, asked, matched);
   if (narrowed.kept.length === 0) return refuse('not-matched');
   const { entry } = enqueueSpawn(context.state, queueContext(context), {
-    vault: vault.id, document: job.path, condition, event: event as unknown as SpawnEvent, budget: job.budget, actor: job.actor,
+    vault: vault.id, document: job.path, condition, event: event as unknown as SpawnEvent, ...job.terms,
     ...(typeof parent === 'string' ? { parent } : {}), ...(typeof relevance === 'number' ? { relevance } : {}),
   });
   return answer(entry);

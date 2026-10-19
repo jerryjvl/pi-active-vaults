@@ -14,6 +14,7 @@ import { actorHold, ensureActorWorktree, takeActorHold } from '../../../src/core
 import { budgetState } from '../../../src/core/budgets/index.ts';
 import { acceptedMain } from '../../../src/core/integrity/index.ts';
 import { processStartTime, startChild } from '../../../src/core/process/index.ts';
+import { queueContext } from '../../../src/core/operations/index.ts';
 import { enqueueSpawn, listSpawns, recordRunProcess, recoverRuns, runProcesses } from '../../../src/core/queue/index.ts';
 import { readFullLog } from '../../../src/core/traces/index.ts';
 import { withInstallation, type TestInstallation } from '../../support/installation.ts';
@@ -41,7 +42,7 @@ test('recovery ends the recorded session, stops its spawn, releases its actor an
   recordRunProcess(t.context.state, entry.id, { pid: child.value.pid, started: started.value });
   const holder = { process: { pid: child.value.pid, started: started.value }, session: entry.trace };
   assert.ok((await takeActorHold(t.context.state, (pid) => processStartTime(pid), t.clock, { vault: 'home', actor: 'gardener', holder })).ok);
-  const queued = enqueueSpawn(t.context.state, { ids: t.context.ids, clock: t.clock, limits: t.installation.config.budgets }, {
+  const queued = enqueueSpawn(t.context.state, queueContext(t.context), {
     vault: 'home', document: 'jobs/daily.md', event: { kind: 'manual', id: 'later' }, budget: { tokens: 10, ttlMs: 60_000 }, actor: 'gardener',
   }).entry;
 

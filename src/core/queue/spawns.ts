@@ -3,11 +3,13 @@
 //
 // A spawn's identity is its document and the event that triggered it. Claiming
 // composes, in one transaction: the unique insert that is the claim, a new
-// trace ID, and the spawn's allotment from its session tree — so a crash
-// leaves either no claim or a claimed spawn with its budget, never half of
-// one. A spawn the tree refuses (no budget, too deep, already in the tree) is
-// still claimed, as stopped with the reason, so the same event never spawns
-// it again. `matched` is not stored: matching is a pure function of history.
+// trace ID, the `agent` model that answers the job's request, and the spawn's
+// allotment from its session tree — so a crash leaves either no claim or a
+// claimed spawn with its budget, never half of one. A spawn the tree refuses
+// (no budget, too deep, already in the tree), or that no permitted `agent`
+// model can run (`no-model`: none configured, or the policy does not allow it
+// for the vault — never swapped for another), is still claimed, as stopped
+// with the reason, so the same event never spawns it again. `matched` is not stored: matching is a pure function of history.
 //
 // Invariants: every later state change is one transaction that moves the
 // spawn only from the state before it (queued → running → committed or
@@ -20,15 +22,17 @@ import {
   finishSession,
   startSession,
   type AllotRefusal,
-  type Budget,
   type BudgetLimits,
 } from '../budgets/index.ts';
 import type { Clock } from '../clock/index.ts';
 import type { GitEvent, VaultEvent } from '../conditions/index.ts';
+import type { InstallationConfig } from '../config/index.ts';
 import type { IdSource } from '../ids/index.ts';
+import { resolveModel } from '../models/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import type { ModuleSchema, Queryable, Store } from '../store/index.ts';
 import { newTraceId } from '../traces/index.ts';
+import type { SpawnTerms } from './jobs.ts';
 
 export const queueSchema: ModuleSchema = {
   module: 'queue',
@@ -98,6 +102,12 @@ export const queueSchema: ModuleSchema = {
         recorded TEXT NOT NULL
       ) STRICT`,
     },
+    {
+      // The `agent` model each spawn runs on, by its configured name, fixed at
+      // the claim (the job's model on the accepted main then).
+      version: 5,
+      sql: 'ALTER TABLE queue_spawns ADD COLUMN model TEXT',
+    },
   ],
 };
 
@@ -115,13 +125,14 @@ export type SpawnState = 'queued' | 'running' | 'committed' | 'no-change' | 'sto
  * Why a queued or running spawn stopped: over its budget or run time, queued
  * too long, an error, still running when the daemon restarted (start-up
  * recovery), stopped on request (the socket's `stop`), or a job that needs
- * its originating session without one to fork (`context: session-required`).
- * A spawn its session tree refused at the claim carries the tree's reason
- * instead.
+ * its originating session without one to fork (`context: session-required`),
+ * or without an `agent` model it may use (`no-model`). A spawn its session
+ * tree refused at the claim carries the tree's reason instead.
  */
-export type StopReason = 'budget' | 'ttl' | 'queue-time' | 'error' | 'restart' | 'requested' | 'no-session';
+export type StopReason = 'budget' | 'ttl' | 'queue-time' | 'error' | 'restart' | 'requested' | 'no-session' | 'no-model';
 
-export interface SpawnRequest {
+/** A job's terms (its budget, its actor, the model name it asks for) and the event that spawns it. */
+export interface SpawnRequest extends SpawnTerms {
   readonly vault: string;
   readonly document: string;
   /** The matching condition's position in the document; absent for a manual run. */
@@ -129,10 +140,6 @@ export interface SpawnRequest {
   readonly event: SpawnEvent;
   /** The trace of the session whose work triggered this one. */
   readonly parent?: string;
-  /** The document's budget. */
-  readonly budget: Budget;
-  /** The job's actor: whom the run writes as. */
-  readonly actor: string;
   readonly relevance?: number;
 }
 
@@ -145,6 +152,8 @@ export interface SpawnEntry {
   readonly trace: string;
   /** Whom it writes as; absent only for claims made before spawns recorded it. */
   readonly actor?: string;
+  /** The `agent` model it runs on, by configured name; absent when none was usable (stopped `no-model`), and for claims made before spawns recorded it. */
+  readonly model?: string;
   readonly parent?: string;
   /** Its place in the session tree; absent when the tree refused it. */
   readonly root?: string;
@@ -169,6 +178,8 @@ export interface QueueContext {
   readonly ids: IdSource;
   readonly clock: Clock;
   readonly limits: BudgetLimits;
+  /** Which `agent` models exist and which vaults may use them. */
+  readonly models: Pick<InstallationConfig, 'models' | 'policy'>;
 }
 
 interface SpawnRow {
@@ -179,6 +190,7 @@ interface SpawnRow {
   event: string;
   trace: string;
   actor: string | null;
+  model: string | null;
   parent: string | null;
   root: string | null;
   depth: number | null;
@@ -192,7 +204,7 @@ interface SpawnRow {
   ended: string | null;
 }
 
-const SELECT = 'SELECT id, vault, document, condition, event, trace, actor, parent, root, depth, tokens, awaited, state, reason, commit_sha, claimed, started, ended FROM queue_spawns';
+const SELECT = 'SELECT id, vault, document, condition, event, trace, actor, model, parent, root, depth, tokens, awaited, state, reason, commit_sha, claimed, started, ended FROM queue_spawns';
 
 /** The identity of the event within a spawn's identity. */
 export function spawnEventKey(event: SpawnEvent): string {
@@ -221,6 +233,7 @@ function entryOf(row: SpawnRow): SpawnEntry {
     event: JSON.parse(row.event) as SpawnEvent,
     trace: row.trace,
     ...present('actor', row.actor),
+    ...present('model', row.model),
     ...present('parent', row.parent),
     ...present('root', row.root),
     ...present('depth', row.depth),
@@ -242,8 +255,9 @@ function byId(tx: Queryable, id: number): SpawnEntry | undefined {
 
 /**
  * Claims the spawn for `request`, or returns the existing claim for the same
- * document and event. A new claim is queued with its trace and allotment, or
- * stopped when its session tree refuses it.
+ * document and event. A new claim is queued with its trace, its `agent` model
+ * and its allotment, or stopped when no permitted model can run it or its
+ * session tree refuses it.
  */
 export function enqueueSpawn(store: Store, context: QueueContext, request: SpawnRequest): { entry: SpawnEntry; claimed: boolean } {
   const key = spawnEventKey(request.event);
@@ -252,19 +266,22 @@ export function enqueueSpawn(store: Store, context: QueueContext, request: Spawn
     if (existing !== undefined) return { entry: entryOf(existing), claimed: false };
 
     const trace = newTraceId(context.ids);
-    const allotted = allot(tx, context.limits, context.clock, {
+    // Before the allotment: a spawn that cannot run is given no budget to return.
+    const model = resolveModel(context.models, 'agent', [request.vault], request.model);
+    const allotted = model.ok ? allot(tx, context.limits, context.clock, {
       trace,
       vault: request.vault,
       document: request.document,
       budget: request.budget,
       ...(request.parent === undefined ? {} : { parent: request.parent }),
       ...(request.relevance === undefined ? {} : { relevance: request.relevance }),
-    });
+    }) : undefined;
+    const refusal = !model.ok ? 'no-model' : allotted?.ok === false ? (allotted.error satisfies AllotRefusal).reason : undefined;
     const now = context.clock.now().toISOString();
-    const placed = allotted.ok ? allotted.value : undefined;
+    const placed = allotted?.ok === true ? allotted.value : undefined;
     const { lastInsertRowid } = tx.run(
-      `INSERT INTO queue_spawns (vault, document, event_key, condition, event, trace, actor, parent, root, depth, tokens, state, reason, claimed, ended)
-       VALUES ($vault, $document, $key, $condition, $event, $trace, $actor, $parent, $root, $depth, $tokens, $state, $reason, $now, $ended)`,
+      `INSERT INTO queue_spawns (vault, document, event_key, condition, event, trace, actor, model, parent, root, depth, tokens, state, reason, claimed, ended)
+       VALUES ($vault, $document, $key, $condition, $event, $trace, $actor, $model, $parent, $root, $depth, $tokens, $state, $reason, $now, $ended)`,
       {
         vault: request.vault,
         document: request.document,
@@ -273,14 +290,15 @@ export function enqueueSpawn(store: Store, context: QueueContext, request: Spawn
         event: JSON.stringify(request.event),
         trace,
         actor: request.actor,
+        model: model.ok ? model.value.name : null,
         parent: request.parent ?? null,
         root: placed?.root ?? null,
         depth: placed?.depth ?? null,
         tokens: placed?.tokens ?? null,
-        state: allotted.ok ? 'queued' : 'stopped',
-        reason: allotted.ok ? null : (allotted.error satisfies AllotRefusal).reason,
+        state: refusal === undefined ? 'queued' : 'stopped',
+        reason: refusal ?? null,
         now,
-        ended: allotted.ok ? null : now,
+        ended: refusal === undefined ? null : now,
       },
     );
     const entry = byId(tx, Number(lastInsertRowid));

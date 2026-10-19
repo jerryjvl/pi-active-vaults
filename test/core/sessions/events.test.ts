@@ -6,6 +6,7 @@
 // counted the first time. A vault with an unaccepted change is paused.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { queueContext } from '../../../src/core/operations/index.ts';
 import { enqueueSpawn, listSpawns, spawnEventKey, type SpawnSender } from '../../../src/core/queue/index.ts';
 import { sessionEvent } from '../../../src/core/sessions/index.ts';
 import { withInstallation, type TestInstallation } from '../../support/installation.ts';
@@ -48,7 +49,7 @@ test('a request the daemon claimed but whose reply was lost is still one spawn',
   t.accept();
   const s = await openTestSession(t, { actor: 'gardener' });
   const lostReply: SpawnSender = async (request) => {
-    enqueueSpawn(t.context.state, { ids: t.context.ids, clock: t.clock, limits: t.installation.config.budgets }, request);
+    enqueueSpawn(t.context.state, queueContext(t.context), request);
     throw new Error('connection reset');
   };
   const sent = await sessionEvent({ ...t.context, send: lostReply }, s, { kind: 'session.start' });

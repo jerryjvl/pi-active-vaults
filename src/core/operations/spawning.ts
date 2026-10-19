@@ -10,9 +10,10 @@ import { matchSpawns, reachedVaults, submitSpawns, type MatchedSpawns, type Queu
 import type { Result } from '../result/index.ts';
 import type { OperationContext } from './context.ts';
 
-/** What claiming a spawn needs: IDs for its trace, the clock, and the installation's budget limits. */
+/** What claiming a spawn needs: IDs for its trace, the clock, the installation's budget limits, and its models and the policy on them. */
 export function queueContext(context: OperationContext): QueueContext {
-  return { ids: context.ids, clock: context.clock, limits: context.installation.config.budgets };
+  const { budgets, models, policy } = context.installation.config;
+  return { ids: context.ids, clock: context.clock, limits: budgets, models: { models, policy } };
 }
 
 /** How this installation matches events to spawns: its vaults, their accepted mains read once, its subscriptions and label equivalences, and how condition scripts run. */

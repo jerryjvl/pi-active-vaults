@@ -6,18 +6,24 @@
 // effective contract's — which applies to every document in the subtree — so
 // a document's own conditions keep their positions whatever its contracts
 // say. The actor a job writes as is likewise its own `actor`, else its
-// nearest contract's (strategy `nearest`). Everything is read from the
+// nearest contract's (strategy `nearest`), and so is the model it asks for. Everything is read from the
 // accepted `main` — once per accepted main, through the reads cache — never a
 // branch or a working tree. A condition that cannot be read applies nowhere:
 // the document is listed with no conditions and the issues that explain why,
 // never with the conditions that happened to parse.
 
-import { ROOT_CONTRACT } from '../contracts/index.ts';
+import { ROOT_CONTRACT, type EffectiveContract } from '../contracts/index.ts';
 import { describeDocumentError, inPackageDirectory, isDocumentPath, readDocumentAt } from '../documents/index.ts';
 import { listFiles, type Git, type GitError } from '../git/index.ts';
 import { UNCACHED_READS, acceptedContracts, type AcceptedMain, type AcceptedReads } from '../integrity/index.ts';
 import { err, ok, type Issue, type Result } from '../result/index.ts';
 import { parseConditions, type Condition } from './parse.ts';
+
+/** A key as written, with the file it comes from. */
+export interface Inherited {
+  readonly value: unknown;
+  readonly origin: string;
+}
 
 export interface DocumentConditions {
   readonly path: string;
@@ -26,8 +32,17 @@ export interface DocumentConditions {
   /** The document's `budget` as written, for whoever spawns it to read. */
   readonly budget?: unknown;
   /** The `actor` it runs as, as written — its own, else its nearest contract's — and the file that says so. */
-  readonly actor?: { readonly value: unknown; readonly origin: string };
+  readonly actor?: Inherited;
+  /** The `model` it asks for, likewise. */
+  readonly model?: Inherited;
   readonly issues: readonly Issue[];
+}
+
+/** A `nearest` key: the document's own value, else its effective contract's, with where it is written. */
+function ownOrNearest(key: string, path: string, frontmatter: Readonly<Record<string, unknown>>, contract: EffectiveContract): Inherited | undefined {
+  if (frontmatter[key] !== undefined) return { value: frontmatter[key], origin: path };
+  const inherited = contract.values[key];
+  return inherited === undefined ? undefined : { value: inherited, origin: contract.origins[key]?.at(-1) ?? ROOT_CONTRACT };
 }
 
 /** Contract files govern documents; they are not documents with conditions of their own. */
@@ -69,15 +84,13 @@ async function readConditions(git: Git, repo: string, accepted: AcceptedMain, re
     const issues = [...(own.ok ? [] : own.error), ...(governing.ok ? [] : governing.error)];
     const conditions = own.ok && governing.ok ? [...own.value, ...governing.value] : [];
     if (conditions.length === 0 && issues.length === 0) continue;
-    const ownActor = frontmatter['actor'];
-    const contractActor = contract.value.values['actor'];
-    const actor = ownActor !== undefined ? { value: ownActor, origin: path }
-      : contractActor !== undefined ? { value: contractActor, origin: contract.value.origins['actor']?.at(-1) ?? ROOT_CONTRACT }
-      : undefined;
+    const actor = ownOrNearest('actor', path, frontmatter, contract.value);
+    const model = ownOrNearest('model', path, frontmatter, contract.value);
     found.push({
       path, conditions, issues,
       ...(frontmatter['budget'] === undefined ? {} : { budget: frontmatter['budget'] }),
       ...(actor === undefined ? {} : { actor }),
+      ...(model === undefined ? {} : { model }),
     });
   }
   return ok(found);

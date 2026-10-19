@@ -44,7 +44,7 @@ test('doctor warns of keyword-only search, no daily ceiling, notify unconfigured
   assert.match(about(found, 'search')[0]?.message ?? '', /keyword-only: no policy entry allows the embed model for this vault/);
   assert.match(about(found, 'budgets')[0]?.message ?? '', /budgets\.daily-tokens is not set/);
   assert.match(about(found, 'notify')[0]?.message ?? '', /notify is not configured/);
-}, { config: 'models:\n  embed: { url: "https://models.example.net/v1", token: "${EMBED_TOKEN}", model: e }' }));
+}, { noDefaultModels: true, config: 'models:\n  embed: { url: "https://models.example.net/v1", token: "${EMBED_TOKEN}", model: e }' }));
 
 test('doctor lists sessions holding actors, and says which stand only because their process cannot be told apart', withInstallation(async (t) => {
   for (const [actor, pid] of [['gardener', 7], ['alice', 8]] as const) {

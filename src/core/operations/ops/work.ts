@@ -84,9 +84,9 @@ export const runOperation: Operation = {
     if (!jobs.ok) return fromError(jobs.error);
     const job = jobs.value.find((j) => j.path === document);
     if (job === undefined) return refused(`${vault.id}:${document} is not a job on the accepted main: it has no spawn condition.`);
-    if (job.budget === undefined || job.actor === undefined) return refused(`${vault.id}:${document} cannot run:${job.issues.map((i) => `\n  ${i.path}: ${i.message}`).join('')}`);
+    if (job.terms === undefined) return refused(`${vault.id}:${document} cannot run:${job.issues.map((i) => `\n  ${i.path}: ${i.message}`).join('')}`);
     const { entry } = enqueueSpawn(context.state, queueContext(context), {
-      vault: vault.id, document, event: { kind: 'manual', id: newTraceId(context.ids) }, budget: job.budget, actor: job.actor,
+      vault: vault.id, document, event: { kind: 'manual', id: newTraceId(context.ids) }, ...job.terms,
     });
     return queuedOutcome([entry]);
   },

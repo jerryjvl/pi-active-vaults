@@ -12,17 +12,19 @@
 //    the caller before anything is sent — is decided before it is sent or
 //    queued, so a request the daemon claimed and that was also queued after a
 //    lost reply is one spawn: the claim is a unique insert;
-//  - only spawn conditions spawn, only jobs with a budget and an actor, and
-//    a condition's script only narrows; a request writes as the job's actor.
+//  - only spawn conditions spawn, only jobs with a budget, an actor and a
+//    readable model request, and a condition's script only narrows; a request
+//    writes as the job's actor and carries the model name it asks for — which
+//    model answers it is decided at the claim (`enqueueSpawn`).
 
-import { hasSession, type Budget } from '../budgets/index.ts';
+import { hasSession } from '../budgets/index.ts';
 import { isGitEvent, matchConditions, narrowByScripts, type Candidate, type ChangedDocument, type GitEvent, type MatchContext, type ScriptFilterContext, type ScriptFilterOptions, type VaultEvent } from '../conditions/index.ts';
 import type { Git, GitError } from '../git/index.ts';
 import { requireNoUnacceptedChange, type AcceptedReads } from '../integrity/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
 import { ok, type Result } from '../result/index.ts';
 import type { Store } from '../store/index.ts';
-import { vaultJobs } from './jobs.ts';
+import { vaultJobs, type SpawnTerms } from './jobs.ts';
 import { enqueueSpawn, type QueueContext, type SpawnEntry, type SpawnEvent, type SpawnRequest } from './spawns.ts';
 
 export interface SpawnMatching {
@@ -78,7 +80,7 @@ export async function matchSpawns(
   tree: { readonly parent?: string } = {}, only?: (vault: string, document: string) => boolean,
 ): Promise<Result<MatchedSpawns, GitError>> {
   const candidates: Candidate[] = [];
-  const runnable = new Map<string, { budget: Budget; actor: string }>();
+  const runnable = new Map<string, SpawnTerms>();
   const paused: string[] = [];
   for (const vault of targets) {
     const accepted = await requireNoUnacceptedChange(m.git, m.store, vault);
@@ -89,10 +91,10 @@ export async function matchSpawns(
     const jobs = await vaultJobs(m.git, vault.path, accepted.value, m.reads);
     if (!jobs.ok) return jobs;
     for (const job of jobs.value) {
-      if (job.budget === undefined || job.actor === undefined) continue; // cannot spawn; `vault jobs` says why
+      if (job.terms === undefined) continue; // cannot spawn; `vault jobs` says why
       if (only !== undefined && !only(vault.id, job.path)) continue;
       candidates.push({ vault: vault.id, document: job.path, conditions: job.conditions });
-      runnable.set(`${vault.id}:${job.path}`, { budget: job.budget, actor: job.actor });
+      runnable.set(`${vault.id}:${job.path}`, job.terms);
     }
   }
   const requests: SpawnRequest[] = [];
@@ -105,7 +107,7 @@ export async function matchSpawns(
     const event = spawnEvent(part.event, given.id);
     requests.push(...narrowed.kept.map((match) => ({
       vault: match.vault, document: match.document, condition: match.index, event,
-      ...(runnable.get(`${match.vault}:${match.document}`) as { budget: Budget; actor: string }),
+      ...(runnable.get(`${match.vault}:${match.document}`) as SpawnTerms),
       ...(part.parent === undefined ? {} : { parent: part.parent }),
     })));
     dropped.push(...narrowed.dropped.map((d) => ({ vault: d.match.vault, document: d.match.document, reason: d.reason })));

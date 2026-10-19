@@ -16,6 +16,7 @@ import {
 } from '../../../src/core/queue/index.ts';
 import type { Store } from '../../../src/core/store/index.ts';
 import { fakeClock } from '../../support/clock.ts';
+import { AGENT_MODELS } from '../../support/models.ts';
 import { withStore } from '../../support/store.ts';
 
 const LIMITS: BudgetLimits = { depthDecay: 0.5, maxDepth: 4 };
@@ -23,7 +24,7 @@ const running = (processes: Record<number, string>): ProcessLiveness => async (p
 
 function queueOf(store: Store) {
   const clock = fakeClock();
-  const context = { ids: createIdSource({ clock, randomBytes: (n) => new Uint8Array(n) }), clock, limits: LIMITS };
+  const context = { ids: createIdSource({ clock, randomBytes: (n) => new Uint8Array(n) }), clock, limits: LIMITS, models: AGENT_MODELS };
   let n = 0;
   const claim = (document: string, extra: Partial<SpawnRequest> = {}) => enqueueSpawn(store, context, {
     vault: 'home', document, event: { kind: 'manual', id: `M${++n}` }, budget: { tokens: 100, ttlMs: 60_000 }, actor: 'gardener', ...extra,

@@ -25,10 +25,12 @@ import {
   spawnEventKey,
   startSpawn,
   stopSpawn,
+  type QueueContext,
   type SpawnRequest,
 } from '../../../src/core/queue/index.ts';
 import { STATE_FILE, openStore, type Store } from '../../../src/core/store/index.ts';
 import { fakeClock, type FakeClock } from '../../support/clock.ts';
+import { AGENT_MODELS } from '../../support/models.ts';
 import { withStore } from '../../support/store.ts';
 import type { TempDir } from '../../support/temp-dir.ts';
 
@@ -38,14 +40,14 @@ const BUDGET = { tokens: 50_000, ttlMs: 600_000 };
 interface Queue {
   readonly store: Store;
   readonly clock: FakeClock;
-  readonly context: { ids: IdSource; clock: FakeClock; limits: BudgetLimits };
+  readonly context: { ids: IdSource; clock: FakeClock; limits: BudgetLimits; models: QueueContext['models'] };
   readonly dir: TempDir;
 }
 
 function withQueue(run: (q: Queue) => void): () => Promise<void> {
   return withStore([budgetsSchema, queueSchema], (store, dir) => {
     const clock = fakeClock();
-    run({ store, clock, context: { ids: createIdSource({ clock, randomBytes: (n) => new Uint8Array(n) }), clock, limits: LIMITS }, dir });
+    run({ store, clock, context: { ids: createIdSource({ clock, randomBytes: (n) => new Uint8Array(n) }), clock, limits: LIMITS, models: AGENT_MODELS }, dir });
   });
 }
 
@@ -195,4 +197,51 @@ test('a running spawn the daemon finds left over from before a restart stops wit
   const stopped = stopSpawn(store, clock, entry.id, 'restart');
   assert.ok(stopped.ok);
   assert.deepEqual([stopped.value.state, stopped.value.reason], ['stopped', 'restart']);
+}));
+
+// daemon.md "Execution", concepts.md "Models": a spawn's agent model is resolved at the claim.
+const MODELS: QueueContext['models'] = {
+  models: { agent: { role: 'agent', model: 'p/big' }, quick: { role: 'agent', model: 'p/small' }, other: { role: 'judgement', url: 'http://x/v1', token: { kind: 'env', name: 'T', where: 'models.other.token' }, model: 'j', batch: 1, parallel: 1 } },
+  policy: [{ vaults: ['home'], allowModels: ['agent', 'quick', 'other'] }],
+};
+const claim = (store: Store, queue: Omit<Queue, 'store'>, models: QueueContext['models'], extra: Partial<SpawnRequest> = {}) =>
+  enqueueSpawn(store, { ...queue.context, models }, request('jobs/a.md', extra)).entry;
+
+test('a spawn is claimed with the agent model that answers its request: the one named, else the default', withQueue(({ store, ...queue }) => {
+  assert.equal(claim(store, queue, MODELS).model, 'agent');
+  assert.equal(claim(store, queue, MODELS, { event: merged('b'.repeat(40)), model: 'quick' }).model, 'quick');
+  assert.equal(claim(store, queue, MODELS, { event: merged('c'.repeat(40)), model: 'telepathy' }).model, 'agent', 'a name that is not configured is answered by the default');
+  assert.deepEqual(listSpawns(store).map((s) => s.model), ['agent', 'quick', 'agent'], 'and the claim keeps it');
+}));
+
+test('a spawn with no agent model it may use is claimed as stopped with no-model, and spends no budget', withQueue(({ store, ...queue }) => {
+  const none = { models: {}, policy: [] };
+  const missing = claim(store, queue, none);
+  assert.deepEqual([missing.state, missing.reason, missing.model, missing.root], ['stopped', 'no-model', undefined, undefined]);
+  assert.equal(budgetState(store, LIMITS, queue.context.clock, missing.trace), undefined, 'nothing was allotted');
+  const again = enqueueSpawn(store, { ...queue.context, models: MODELS }, request('jobs/a.md'));
+  assert.deepEqual([again.claimed, again.entry.id], [false, missing.id], 'the same event does not spawn it again');
+}));
+
+test('a configured model the policy does not allow is never replaced by the default', withQueue(({ store, ...queue }) => {
+  const onlyDefault: QueueContext['models'] = { models: MODELS.models, policy: [{ vaults: ['home'], allowModels: ['agent'] }] };
+  const refused = claim(store, queue, onlyDefault, { model: 'quick' });
+  assert.deepEqual([refused.state, refused.reason, refused.model], ['stopped', 'no-model', undefined]);
+  // Nor does the policy of another vault help.
+  const otherVault: QueueContext['models'] = { models: MODELS.models, policy: [{ vaults: ['work'], allowModels: ['agent', 'quick'] }] };
+  assert.equal(claim(store, queue, otherVault, { event: merged('b'.repeat(40)) }).reason, 'no-model');
+  // And a default that is not allowed answers nothing, even when a request named an allowed model that is not configured.
+  const nothingAllowed: QueueContext['models'] = { models: MODELS.models, policy: [{ vaults: ['home'], allowModels: ['telepathy'] }] };
+  assert.equal(claim(store, queue, nothingAllowed, { event: merged('c'.repeat(40)), model: 'telepathy' }).reason, 'no-model');
+}));
+
+test('a model of another role is not an agent model: the spawn is stopped, not run on the default', withQueue(({ store, ...queue }) => {
+  const wrong = claim(store, queue, MODELS, { model: 'other' });
+  assert.deepEqual([wrong.state, wrong.reason], ['stopped', 'no-model']);
+}));
+
+test('a spawn the session tree refuses keeps the tree\'s reason', withQueue(({ store, ...queue }) => {
+  const root = claim(store, queue, MODELS);
+  const loop = claim(store, queue, MODELS, { parent: root.trace, event: merged('c'.repeat(40)) });
+  assert.equal(loop.reason, 'already-in-tree');
 }));

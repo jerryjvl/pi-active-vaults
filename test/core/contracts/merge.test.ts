@@ -110,3 +110,9 @@ test('prose of every governing contract is kept, root first, and the chain is li
   ]);
   assert.deepEqual(c.contracts, ['_contract.md', 'topics/_contract.md', 'topics/cars/_contract.md']);
 });
+
+test('nearest: a job\'s model, like its actor, is the deepest contract\'s', () => {
+  const c = merged(root({ actor: 'gardener', model: 'big' }), at('jobs', { model: 'quick' }));
+  assert.deepEqual(c.values, { actor: 'gardener', model: 'quick' });
+  assert.deepEqual(c.origins['model'], ['jobs/_contract.md']);
+});

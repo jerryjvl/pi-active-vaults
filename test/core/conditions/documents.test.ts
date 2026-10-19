@@ -71,3 +71,18 @@ test('a document\'s actor is its own, else its nearest contract\'s, with where i
     ['top.md', undefined],
   ]);
 }));
+
+test('a document\'s model is its own, else its nearest contract\'s, with where it comes from', withTestVault(async (v) => {
+  v.repo.write('jobs/_contract.md', '---\nmodel: quick\n---\n');
+  v.repo.write('jobs/inherits.md', job(timer));
+  v.repo.write('jobs/own.md', job(`${timer}\nmodel: big`));
+  v.repo.write('top.md', job(timer));
+  v.repo.commit('jobs');
+  const listed = await documentConditions(v.git, v.vault.path, v.accept());
+  assert.ok(listed.ok);
+  assert.deepEqual(listed.value.map((d) => [d.path, d.model]), [
+    ['jobs/inherits.md', { value: 'quick', origin: 'jobs/_contract.md' }],
+    ['jobs/own.md', { value: 'big', origin: 'jobs/own.md' }],
+    ['top.md', undefined],
+  ]);
+}));

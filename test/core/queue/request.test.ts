@@ -16,6 +16,7 @@ import {
   type QueueContext, type SpawnMatching, type SpawnSender,
 } from '../../../src/core/queue/index.ts';
 import type { RegisteredVault } from '../../../src/core/registry/index.ts';
+import { AGENT_MODELS } from '../../support/models.ts';
 import { withTestVault, type TestVault } from '../../support/vault.ts';
 
 const LIMITS: BudgetLimits = { depthDecay: 0.5, maxDepth: 4 };
@@ -34,7 +35,7 @@ function matching(v: TestVault, vaults: readonly RegisteredVault[] = [v.vault]):
 
 function queueContext(v: TestVault): QueueContext {
   let n = 0;
-  return { ids: createIdSource({ clock: v.clock, randomBytes: (k) => new Uint8Array(k).fill(++n % 256) }), clock: v.clock, limits: LIMITS };
+  return { ids: createIdSource({ clock: v.clock, randomBytes: (k) => new Uint8Array(k).fill(++n % 256) }), clock: v.clock, limits: LIMITS, models: AGENT_MODELS };
 }
 
 const external: VaultEvent = { kind: 'external', vault: 'home', name: 'refresh' };

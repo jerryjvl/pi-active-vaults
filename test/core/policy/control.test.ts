@@ -1,6 +1,6 @@
 // Documented behaviour: concepts.md "Merge policy" — a change to any
-// `_contract.md`, anything under `.vault/`, or the `applies-when`, `budget` or
-// `actor` of any document is a control change. Detection errs towards flagging: a
+// `_contract.md`, anything under `.vault/`, or the `applies-when`, `budget`,
+// `actor` or `model` or `model` of any document is a control change. Detection errs towards flagging: a
 // spelling a case-insensitive file system treats as the same name counts, and
 // so does frontmatter that cannot be read.
 import { test } from 'node:test';
@@ -81,4 +81,24 @@ test('changing a document\'s actor is a control change: it decides whom a job wr
   repo.write('jobs/b.md', job('labels: [x]\nactor: gardener'));
   const head = repo.commit('actors');
   assert.deepEqual(await flagged(repo, base, head), ['jobs/a.md (control-keys)', 'jobs/b.md (control-keys)']);
+}));
+
+test('changing a document\'s model is a control change: it decides what model a job runs on', withTempRepo(async (repo) => {
+  repo.write('jobs/a.md', job('applies-when: [{ on: merged, effect: spawn }]\nbudget: { tokens: 1, ttl: 1m }\nactor: gardener\nmodel: big'));
+  repo.write('jobs/b.md', job('labels: [x]'));
+  repo.write('jobs/c.md', job('labels: [x]\nmodel: big'));
+  const base = repo.commit('base');
+  repo.write('jobs/a.md', job('applies-when: [{ on: merged, effect: spawn }]\nbudget: { tokens: 1, ttl: 1m }\nactor: gardener\nmodel: quick'));
+  repo.write('jobs/b.md', job('labels: [x]\nmodel: quick'));
+  repo.git('rm', '--quiet', 'jobs/c.md');
+  const head = repo.commit('models');
+  assert.deepEqual(await flagged(repo, base, head), ['jobs/a.md (control-keys)', 'jobs/b.md (control-keys)', 'jobs/c.md (control-keys)']);
+}));
+
+test('a contract\'s model changes only through a contract, which is a control change whatever its keys', withTempRepo(async (repo) => {
+  repo.write('jobs/_contract.md', '---\nmodel: big\n---\n');
+  const base = repo.commit('base');
+  repo.write('jobs/_contract.md', '---\nmodel: quick\n---\n');
+  const head = repo.commit('model');
+  assert.deepEqual(await flagged(repo, base, head), ['jobs/_contract.md (contract)']);
 }));
