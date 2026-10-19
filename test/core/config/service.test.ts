@@ -104,6 +104,17 @@ test('the user\'s pi is found on PATH; a JavaScript entry point runs with node',
   assert.deepEqual(findPi(testHost({ env: { PATH: '/nonexistent' } }), '/usr/bin/node'), { ok: false, error: { reason: 'pi-not-found' } });
 }));
 
+test('a pi shim that links to a dispatcher (mise, asdf) runs by its own name, not the dispatcher\'s', posixOnly, withTempDir((dir) => {
+  const shims = dir.file('shims');
+  const tools = dir.file('tools');
+  mkdirSync(shims, { recursive: true });
+  mkdirSync(tools, { recursive: true });
+  writeFileSync(join(tools, 'mise'), '#!/bin/sh\n');
+  chmodSync(join(tools, 'mise'), 0o755);
+  symlinkSync(join(tools, 'mise'), join(shims, 'pi'));
+  assert.deepEqual(findPi(testHost({ env: { PATH: shims } }), '/usr/bin/node'), { ok: true, value: { file: join(shims, 'pi'), args: [] } });
+}));
+
 test('on Windows, pi is the package npm installed beside pi.cmd, run with node', () => {
   const npm = 'C:\\Users\\alice\\AppData\\Roaming\\npm';
   const cli = `${npm}\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\cli.js`;

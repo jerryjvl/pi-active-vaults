@@ -239,8 +239,11 @@ export function findPi(host: Host, node: string, files: FileView = systemFiles):
     }
     const candidate = path.join(dir, 'pi');
     if (!files.exists(candidate)) continue;
+    // Resolve the link only to spot a JavaScript entry point: a shim such as
+    // mise's or asdf's links to a dispatcher that picks the tool by the name it
+    // was run as, so anything else runs by the name found on PATH.
     const real = files.real(candidate);
-    return ok(/\.[cm]?js$/.test(real) ? { file: node, args: [real] } : { file: real, args: [] });
+    return ok(/\.[cm]?js$/.test(real) ? { file: node, args: [real] } : { file: candidate, args: [] });
   }
   return err({ reason: 'pi-not-found' });
 }
