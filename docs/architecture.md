@@ -219,7 +219,6 @@ model roles have their own `parallel`. The scheduler orders queued spawns:
 |---|---|
 | Search, read, contracts, review, accept | Available |
 | Injection, write guard, scripts | Available in Pi sessions |
-| Fan-out | Runs sequentially in the session |
 | Triggered spawns | Queued in the state database; run when the daemon starts or on `vault run` |
 | Timers and Git-event jobs | Caught up on daemon start |
 | Search without an embedding model | Keyword search only, reported as such |

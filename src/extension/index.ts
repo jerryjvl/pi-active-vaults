@@ -15,6 +15,7 @@ import type { ContextOptions } from '../core/operations/index.ts';
 import { registerCommands } from './commands.ts';
 import { fanOutTool } from './fan-out.ts';
 import { registerHooks } from './hooks.ts';
+import type { ItemSessionOptions } from './item-session.ts';
 import type { Holder } from './live.ts';
 import { registerTools } from './tools.ts';
 
@@ -25,6 +26,8 @@ export interface ExtensionOptions {
   readonly pid?: number;
   /** Services to use instead of the system's (tests). */
   readonly context?: ContextOptions;
+  /** The model runtime and agent directory for fan-out item sessions, instead of Pi's own (tests). */
+  readonly items?: ItemSessionOptions;
 }
 
 export function createExtension(options: ExtensionOptions = {}): (pi: ExtensionAPI) => void {
@@ -34,7 +37,7 @@ export function createExtension(options: ExtensionOptions = {}): (pi: ExtensionA
     pi.registerFlag('vault-run', { type: 'string', description: 'Headless run context written by the vault daemon: actor, budget, trace, triggering event' });
     pi.registerFlag('vault-actor', { type: 'string', description: 'The actor this session writes as (default: from the vault worktree, else the installation\'s person)' });
     registerTools(pi, holder);
-    pi.registerTool(fanOutTool(pi, holder));
+    pi.registerTool(fanOutTool(pi, holder, options.items));
     registerCommands(pi, holder, host);
     registerHooks(pi, holder, { host, pid: options.pid ?? process.pid, ...(options.context === undefined ? {} : { context: options.context }) });
   };

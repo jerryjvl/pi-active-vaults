@@ -43,7 +43,11 @@ export type ModelEntry =
   // One member per role, so a role selects its entry type.
   | { [R in EndpointRole]: { readonly role: R } & ModelEndpoint }[EndpointRole]
   /** `model` is as Pi names it (`provider/id`); Pi holds its URL and credentials. */
-  | { readonly role: 'agent'; readonly model: string };
+  | {
+    readonly role: 'agent'; readonly model: string;
+    /** Concurrent item sessions of a fan-out on this model (default 1). */
+    readonly parallel?: number;
+  };
 
 export interface VaultEntry {
   readonly id: string;
@@ -195,9 +199,9 @@ function readModel(r: Reader, name: string, value: unknown, path: string): Model
   }
   // Pi matches a loose `--model` pattern against whatever it knows, so only the exact provider/id is accepted:
   // the model a document's content reaches is the one the policy was given.
-  for (const key of Object.keys(m)) if (key !== 'role' && key !== 'model') r.add(join(path, key), 'an agent model carries only its model: Pi holds its URL and credentials');
+  for (const key of Object.keys(m)) if (key !== 'role' && key !== 'model' && key !== 'parallel') r.add(join(path, key), 'an agent model carries only its model and parallel: Pi holds its URL and credentials');
   const model = r.string(m['model'], join(path, 'model'), AGENT_MODEL);
-  return { role, model };
+  return { role, model, parallel: r.integer(m, 'parallel', path, 1) };
 }
 
 function readModels(r: Reader, value: unknown): InstallationConfig['models'] {

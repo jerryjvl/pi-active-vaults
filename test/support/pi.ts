@@ -4,7 +4,7 @@
 // the test scripts, and the test installation's host and services. Nothing
 // reaches the network or the developer's Pi configuration.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -55,6 +55,8 @@ export interface PiOptions {
   readonly confirm?: boolean;
   /** Another extension loaded beside it, as another package would be. */
   readonly extra?: (pi: ExtensionAPI) => void;
+  /** MCP servers in Pi's user-level `mcp.json`, as `mcpServers` holds them. */
+  readonly mcpServers?: Readonly<Record<string, unknown>>;
 }
 
 function textOf(content: unknown): string {
@@ -84,6 +86,7 @@ function recordingUi(notices: PiSession['notices'], confirm: boolean | undefined
 
 export async function openPi(t: TestInstallation, options: PiOptions = {}): Promise<PiSession> {
   const agentDir = mkdtempSync(join(tmpdir(), 'pav-pi-'));
+  if (options.mcpServers !== undefined) writeFileSync(join(agentDir, 'mcp.json'), JSON.stringify({ mcpServers: options.mcpServers }));
   const faux = fauxProvider();
   const requests: PiRequest[] = [];
   const events: PiSession['events'] = [];
@@ -95,9 +98,11 @@ export async function openPi(t: TestInstallation, options: PiOptions = {}): Prom
   const modelRuntime = await ModelRuntime.create({ authPath: join(agentDir, 'auth.json'), modelsPath: null, refreshOnCreate: false });
   modelRuntime.registerNativeProvider(faux.provider);
   await modelRuntime.setRuntimeApiKey(faux.provider.id, 'test');
-  const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
+  const settings = { compaction: { enabled: false }, retry: { enabled: false } };
+  const settingsManager = SettingsManager.inMemory(settings);
   const extension = createExtension({
     host: t.host,
+    items: { modelRuntime, agentDir, settings },
     pid: ME,
     context: { git: createGit({ env: t.repo.env }), clock: t.clock, ids: createIdSource({ clock: t.clock, randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)) }), alive: t.context.alive, sandbox: 'none' },
   });

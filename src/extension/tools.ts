@@ -80,6 +80,11 @@ function toolFor(pi: ExtensionAPI, holder: Holder, operation: Operation, exposur
   };
 }
 
+/** The named tools, by operation name, for sessions the extension runs itself (fan-out items); unknown names are left out. */
+export function vaultTools(pi: ExtensionAPI, holder: Holder, names: readonly string[]): ToolDefinition[] {
+  return CATALOGUE.filter((o) => names.includes(o.name) && o.surfaces.tool !== undefined).map((o) => toolFor(pi, holder, o, 'direct'));
+}
+
 /** Registers every tool the catalogue offers in Pi. */
 export function registerTools(pi: ExtensionAPI, holder: Holder): void {
   for (const operation of CATALOGUE) {

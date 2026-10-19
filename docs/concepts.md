@@ -249,9 +249,17 @@ Sessions start from a trigger and branch as they spawn work. Budgets flow down:
   commits that made them, so one merge can continue several trees.
 
 **Fan-out and gather** is the built-in multi-session shape: a list of items, an
-instruction for each, an instruction to combine the results. The list can come
-from anything the session can do. The item sessions return results and do not
-write; the session that fanned out writes what is gathered.
+instruction for each, and optionally an instruction to combine the results. The
+list can come from anything the session can do. Each item is a session of its
+own, on the same model, that can look but not write: Pi's read-only file tools,
+`vault_read`, `vault_search`, and the tools of the MCP servers the fan-out names
+from the person's own Pi configuration (a web search, say). Items run as many
+at a time as the agent model's `parallel` allows. The session that fanned out
+writes what comes back. An item that fails is reported as failed, never handed
+to the gather; without a gather instruction each item's outcome comes back as
+it is. The items' work is the session's: their tool calls are in its trace, a
+tool that taints taints the session, and their tokens count against its
+budget.
 
 Ordering between jobs comes from events, not priorities: a job that should run
 after another reacts to that job's merged work (`on: merged`, `actor: …`).
@@ -423,7 +431,7 @@ models:                        # see Models below
   judgement: { url: "https://…/v1", token: "${JUDGE_TOKEN}", model: d3 }        # strongest: the default
   classify:  { role: judgement, url: "https://…/v1", token: "${JUDGE_TOKEN}", model: d3-flash, parallel: 4 }
   agent:     { model: homeserver/qwen3.8-27b }                            # a model as Pi names it
-  quick:     { role: agent, model: homeserver/qwen3.8-flash }
+  quick:     { role: agent, model: homeserver/qwen3.8-flash, parallel: 2 }   # fan-out items at once
 forges:
   - { host: git.example.net, type: gitea, token: "${FORGE_TOKEN}" }   # api: optional, when the API is not at the usual place
 mcp: { … }                     # see mcp.md
@@ -498,6 +506,8 @@ HTTP models have `batch` (inputs per request; default 1) and `parallel`
 (concurrent requests; default 1). Work is split into batches of `batch`
 inputs, sent up to `parallel` at a time — so endpoints that batch properly and
 endpoints that only handle one input per request both get full throughput.
+Agent models have only `parallel`: how many fan-out items run at once on the
+model (default 1).
 
 ## Built from the core
 

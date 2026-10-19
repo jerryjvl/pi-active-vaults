@@ -241,12 +241,13 @@ test('models are named entries: the default names imply their role, other names 
   judgement: { ${URL_ENTRY} }
   classify:  { role: judgement, ${URL_ENTRY}, parallel: 4 }
   agent:     { model: homeserver/qwen3.8-27b }
-  quick:     { role: agent, model: homeserver/qwen3.8-flash }
+  quick:     { role: agent, model: homeserver/qwen3.8-flash, parallel: 2 }
   embed:     { role: embed, ${URL_ENTRY} }
 `);
   assert.deepEqual(Object.keys(config.models), ['judgement', 'classify', 'agent', 'quick', 'embed']);
   assert.deepEqual(Object.values(config.models).map((m) => m.role), ['judgement', 'judgement', 'agent', 'agent', 'embed']);
-  assert.deepEqual(config.models['agent'], { role: 'agent', model: 'homeserver/qwen3.8-27b' });
+  assert.deepEqual(config.models['agent'], { role: 'agent', model: 'homeserver/qwen3.8-27b', parallel: 1 });
+  assert.deepEqual(config.models['quick'], { role: 'agent', model: 'homeserver/qwen3.8-flash', parallel: 2 }, 'how many fan-out items run at once on it');
   const classify = config.models['classify'];
   assert.ok(classify?.role === 'judgement');
   assert.equal(classify.parallel, 4);
@@ -267,7 +268,8 @@ test('only judgement and agent models may have more than one entry', () => {
   assert.ok(issues(`models:\n  mxbai: { role: embed, ${URL_ENTRY} }`).some((i) => i.startsWith('models.mxbai')));
 });
 
-test('an agent entry carries only the model, as Pi names it (provider/id)', () => {
+test('an agent entry carries only the model, as Pi names it (provider/id), and its parallel', () => {
+  assert.ok(issues('models:\n  agent: { model: p/m, parallel: 0 }').some((i) => i.startsWith('models.agent.parallel')));
   assert.ok(issues(`models:\n  agent: { model: p/m, url: "https://x/v1" }`).some((i) => i.startsWith('models.agent.url')));
   assert.ok(issues(`models:\n  agent: { model: p/m, token: "x" }`).some((i) => i.startsWith('models.agent.token')));
   assert.ok(issues('models:\n  agent: { model: just-an-id }').some((i) => i.startsWith('models.agent.model')), 'Pi would match a bare ID loosely');
