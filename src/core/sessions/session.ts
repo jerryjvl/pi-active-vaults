@@ -15,8 +15,9 @@
 //  - the hold is a record of this process (ID and start time) and session, so
 //    a session whose own start time cannot be told cannot hold, and says so;
 //  - a headless run starts only with everything it needs — its vault, an
-//    allotment, one of the vault's actors to write as, its hold and
-//    worktree — or not at all;
+//    allotment, the `agent` model its run file names (allowed by the policy
+//    for the vault, and the one the session actually runs on), one of the
+//    vault's actors to write as, its hold and worktree — or not at all;
 //  - closing releases the hold and ends an interactive session's budget, and
 //    may happen any number of times.
 
@@ -25,6 +26,7 @@ import { allot, budgetState, finishSession, type Budget } from '../budgets/index
 import { eventJson } from '../conditions/index.ts';
 import { acceptedDocument, acceptedIdentity, acceptedMain } from '../integrity/index.ts';
 import { locate, unacceptedNotices, type Caller, type OperationContext } from '../operations/index.ts';
+import { resolveModel } from '../models/index.ts';
 import { isActor, isVaultActor, type RegisteredVault } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import { newTraceId } from '../traces/index.ts';
@@ -41,6 +43,8 @@ export interface SessionStart {
   readonly actor?: string;
   /** `--vault-run`: present for a headless run. */
   readonly run?: RunContext;
+  /** The Pi model it runs on (`provider/id`), when Pi says. */
+  readonly model?: string;
 }
 
 export interface VaultSession {
@@ -75,6 +79,7 @@ export type SessionRefusal =
   | { readonly reason: 'unknown-vault'; readonly vault: string }
   | { readonly reason: 'unknown-job'; readonly vault: string; readonly document: string }
   | { readonly reason: 'no-allotment'; readonly trace: string }
+  | { readonly reason: 'no-model'; readonly vault: string; readonly model: string }
   | { readonly reason: 'no-accepted-main'; readonly vault: string }
   | { readonly reason: 'not-a-writer'; readonly vault: string; readonly actor: string }
   | { readonly reason: 'not-a-vault-actor'; readonly vault: string; readonly actor: string }
@@ -146,9 +151,22 @@ async function briefOf(context: OperationContext, vault: RegisteredVault, run: R
   ].join('\n');
 }
 
+/**
+ * Whether the session runs on the `agent` model its run file names — one that
+ * is configured, and that the policy allows for the vault. The daemon chose it
+ * and passed it to Pi, which matches `--model` loosely; this is the check that
+ * the job's content reaches only that model (fail closed: a session that
+ * cannot say what it runs on does not run the job).
+ */
+function runsOnItsModel(context: OperationContext, vault: RegisteredVault, run: RunContext, piModel: string | undefined): boolean {
+  const model = resolveModel(context.installation.config, 'agent', [vault.id], run.model);
+  return model.ok && model.value.name === run.model && piModel === model.value.entry.model;
+}
+
 async function openHeadless(context: OperationContext, start: SessionStart, run: RunContext): Promise<Result<VaultSession, SessionRefusal>> {
   const vault = context.installation.vaults.find((v) => v.id === run.vault);
   if (vault === undefined) return err({ reason: 'unknown-vault', vault: run.vault });
+  if (!runsOnItsModel(context, vault, run, start.model)) return err({ reason: 'no-model', vault: vault.id, model: run.model });
   if (budgetState(context.state, context.installation.config.budgets, context.clock, run.trace) === undefined) return err({ reason: 'no-allotment', trace: run.trace });
   const brief = await briefOf(context, vault, run);
   if (brief === undefined) return err({ reason: 'unknown-job', vault: vault.id, document: run.document });

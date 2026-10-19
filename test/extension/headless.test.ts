@@ -58,3 +58,31 @@ test('a run writes only in its worktree', withInstallation(async (t) => {
     assert.deepEqual(writes.map((m) => (m as { isError: boolean }).isError), [true, false], 'a blocked call is an error result');
   });
 }, { running: RUNNING }));
+
+// extension.md "Headless sessions": the run file's `model` is the `agent` model the daemon started the run with.
+test('a run that finds itself on another model than its run file names, or on a model not configured, does not run: its job reaches no model the policy has not allowed', withInstallation(async (t) => {
+  // The daemon chose `agent`, configured as other/model; Pi's session runs on the faux model instead.
+  const entry = startedSpawn(t);
+  await withPi(t, { flags: { 'vault-run': runFileFor(t, entry) } }, async (pi) => {
+    assert.equal(pi.shutdowns, 1);
+    assert.ok(pi.notices.some((n) => n.level === 'error' && /no-model/.test(n.text)), JSON.stringify(pi.notices));
+    assert.equal(await actorHold(t.context.state, t.context.alive, 'home', 'gardener'), undefined, 'and it holds nothing');
+  });
+}, { running: RUNNING, noDefaultModels: true, config: 'models:\n  agent: { model: other/model }\npolicy:\n  - { vaults: [home], allow-models: [agent] }' }));
+
+test('a run file naming a model that is not configured does not run, whatever model Pi is on', withInstallation(async (t) => {
+  const entry = startedSpawn(t);
+  await withPi(t, { flags: { 'vault-run': runFileFor(t, entry, { model: 'quick' }) } }, async (pi) => {
+    assert.equal(pi.shutdowns, 1);
+    assert.ok(pi.notices.some((n) => n.level === 'error' && /no-model/.test(n.text)), JSON.stringify(pi.notices));
+  });
+}, { running: RUNNING }));
+
+test('an interactive session runs on whatever model the person chose: it needs no agent model', withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    assert.equal(pi.shutdowns, 0);
+    pi.respond(fauxAssistantMessage('Hello.'));
+    await pi.prompt('Hi.');
+    assert.deepEqual(pi.notices.filter((n) => n.level === 'error'), []);
+  });
+}, { running: RUNNING, noDefaultModels: true }));

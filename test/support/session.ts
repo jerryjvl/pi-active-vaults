@@ -9,6 +9,7 @@ import { queueContext } from '../../src/core/operations/index.ts';
 import { enqueueSpawn, startSpawn, type SpawnEntry } from '../../src/core/queue/index.ts';
 import { openSession, renderRunContext, type RunContext, type SessionStart, type VaultSession } from '../../src/core/sessions/index.ts';
 import type { TestInstallation } from './installation.ts';
+import { AGENT_MODEL } from './models.ts';
 
 /** This test's own process, and another session's, as the installation's liveness sees them. */
 export const ME = 4242;
@@ -41,7 +42,7 @@ export function startedSpawn(t: TestInstallation, document = 'jobs/daily.md', to
 
 /** The run file the daemon would write for a started spawn. */
 export function runOf(entry: SpawnEntry, actor = 'gardener'): RunContext {
-  return { vault: entry.vault, document: entry.document, trace: entry.trace, actor, event: entry.event };
+  return { vault: entry.vault, document: entry.document, trace: entry.trace, actor, model: entry.model ?? 'agent', event: entry.event };
 }
 
 /** Writes the run file for `entry` (with `overrides`, or as `raw` text) and returns its path. */
@@ -53,7 +54,7 @@ export function runFileFor(t: TestInstallation, entry: SpawnEntry, overrides: Re
 
 /** Opens a session in the vault's checkout, as `actor`, interactive unless a run is given. */
 export async function openTestSession(t: TestInstallation, extra: Partial<SessionStart> = {}): Promise<VaultSession> {
-  const opened = await openSession(t.context, { session: 'pi-session-1', pid: ME, cwd: t.repo.path, ...extra });
+  const opened = await openSession(t.context, { session: 'pi-session-1', pid: ME, cwd: t.repo.path, model: AGENT_MODEL, ...extra });
   if (!opened.ok) throw new Error(JSON.stringify(opened.error));
   return opened.value.session;
 }

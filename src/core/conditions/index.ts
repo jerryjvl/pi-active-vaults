@@ -15,6 +15,7 @@ export {
   eventJson,
   isGitEvent,
   matchConditions,
+  matchContextOf,
   type Candidate,
   type ChangedDocument,
   type GitEvent,

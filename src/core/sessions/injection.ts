@@ -15,7 +15,7 @@
 //  - a document or contract that cannot be read is left out — injecting less
 //    never makes a session do more.
 
-import { documentConditions, matchConditions, type Candidate, type DocumentConditions, type VaultEvent } from '../conditions/index.ts';
+import { documentConditions, matchConditions, matchContextOf, type Candidate, type DocumentConditions, type VaultEvent } from '../conditions/index.ts';
 import { acceptedContract, acceptedDocument, acceptedMain, type AcceptedMain } from '../integrity/index.ts';
 import type { OperationContext } from '../operations/index.ts';
 import { reachedVaults } from '../queue/index.ts';
@@ -55,7 +55,7 @@ async function injectDocuments(context: OperationContext, event: SessionEvent): 
       if (document.conditions.some((c) => c.effect === 'inject')) candidates.push({ vault: vault.id, document: document.path, conditions: document.conditions });
     }
   }
-  const matched = matchConditions(event, candidates, { subscriptions: config.subscriptions, equivalentLabels: config.labels.equivalent })
+  const matched = matchConditions(event, candidates, matchContextOf(config))
     .filter((m) => m.condition.effect === 'inject');
   const injections: Injection[] = [];
   for (const match of matched) {

@@ -47,9 +47,10 @@ export function automationFor(t: TestInstallation, pi: FakePi, options: Partial<
   return createAutomation(t.context, { ...pi.options, timeZone: 'UTC', version: '0.0.0-test', graceMs: 2000, ...options });
 }
 
-/** A job document: its conditions (YAML flow list), budget and actor. */
-export function jobDocument(conditions: string, options: { ttl?: string; tokens?: number; actor?: string; body?: string } = {}): string {
-  return `---\napplies-when: ${conditions}\nbudget: { tokens: ${options.tokens ?? 100000}, ttl: ${options.ttl ?? '10m'} }\nactor: ${options.actor ?? 'gardener'}\n---\n${options.body ?? 'Do the job.'}\n`;
+/** A job document: its conditions (YAML flow list), budget, actor and, when given, the agent model it asks for. */
+export function jobDocument(conditions: string, options: { ttl?: string; tokens?: number; actor?: string; body?: string; model?: string } = {}): string {
+  const model = options.model === undefined ? '' : `model: ${options.model}\n`;
+  return `---\napplies-when: ${conditions}\nbudget: { tokens: ${options.tokens ?? 100000}, ttl: ${options.ttl ?? '10m'} }\nactor: ${options.actor ?? 'gardener'}\n${model}---\n${options.body ?? 'Do the job.'}\n`;
 }
 
 /** What the daemon adapter starts with in tests: the installation's machine and services, the fake Pi, no timers or watching unless asked. */

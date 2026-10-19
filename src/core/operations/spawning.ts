@@ -4,7 +4,7 @@
 // way `vault trigger`, commits and Pi sessions request work — and how what
 // became of the requests is told.
 
-import type { VaultEvent } from '../conditions/index.ts';
+import { matchContextOf, type VaultEvent } from '../conditions/index.ts';
 import type { GitError } from '../git/index.ts';
 import { matchSpawns, reachedVaults, submitSpawns, type MatchedSpawns, type QueueContext, type SpawnEntry, type SpawnMatching } from '../queue/index.ts';
 import type { Result } from '../result/index.ts';
@@ -21,7 +21,7 @@ export async function spawnMatching(context: OperationContext): Promise<SpawnMat
   const { config, vaults } = context.installation;
   return {
     git: context.git, store: context.state, vaults, reads: context.reads,
-    match: { subscriptions: config.subscriptions, equivalentLabels: config.labels.equivalent },
+    match: matchContextOf(config),
     scripts: { ...(await context.scriptOptions()), builtins: [] },
   };
 }

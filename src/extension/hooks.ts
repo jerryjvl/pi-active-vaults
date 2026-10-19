@@ -85,7 +85,7 @@ async function start(pi: ExtensionAPI, holder: Holder, options: HookOptions, ctx
     run = parsed.value;
   }
   const opened = await openSession(context, {
-    session: ctx.sessionManager.getSessionId(), pid: options.pid, cwd: ctx.cwd,
+    session: ctx.sessionManager.getSessionId(), pid: options.pid, cwd: ctx.cwd, ...modelOf(ctx),
     ...(typeof actor === 'string' && actor !== '' ? { actor } : {}), ...(run === undefined ? {} : { run }),
   });
   if (!opened.ok) {
@@ -120,7 +120,8 @@ function tellSpawn(pi: ExtensionAPI, ctx: ExtensionContext, notice: Notice): voi
   ctx.ui.notify(`Vaults: spawned work ${notice.vault}:${notice.document} ${notice.state}${how}.`, 'info');
 }
 
-const modelOf = (ctx: ExtensionContext): { model?: string } => (ctx.model === undefined ? {} : { model: ctx.model.id });
+/** The Pi model the session runs on, as Pi names it (`provider/id`) — what `agent` models are configured by. */
+const modelOf = (ctx: ExtensionContext): { model?: string } => (ctx.model === undefined ? {} : { model: `${ctx.model.provider}/${ctx.model.id}` });
 
 /** Handles a session event: published, and what it injects and spawns, as text for the model. */
 async function handle(pi: ExtensionAPI, live: Live, event: SessionEvent): Promise<string[]> {

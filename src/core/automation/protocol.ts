@@ -17,7 +17,7 @@
 // condition the event matches — its script narrowing it, as anywhere — in a
 // vault whose `main` has no unaccepted change.
 
-import { EVENT_KINDS, matchConditions, narrowByScripts, type VaultEvent } from '../conditions/index.ts';
+import { EVENT_KINDS, matchConditions, matchContextOf, narrowByScripts, type VaultEvent } from '../conditions/index.ts';
 import { isTraceId } from '../ids/index.ts';
 import { requireNoUnacceptedChange } from '../integrity/index.ts';
 import { queueContext, type OperationContext } from '../operations/index.ts';
@@ -66,7 +66,7 @@ export async function claimRequested(context: OperationContext, matching: SpawnM
   if (event['kind'] === 'timer' || condition === undefined) return refuse('not-matched');
   const asked = event as unknown as VaultEvent;
   const { config } = context.installation;
-  const matched = matchConditions(asked, [{ vault: vault.id, document: job.path, conditions: job.conditions }], { subscriptions: config.subscriptions, equivalentLabels: config.labels.equivalent })
+  const matched = matchConditions(asked, [{ vault: vault.id, document: job.path, conditions: job.conditions }], matchContextOf(config))
     .filter((m) => m.index === condition && m.condition.effect === 'spawn');
   const narrowed = await narrowByScripts(scriptFilters(matching), matching.scripts, asked, matched);
   if (narrowed.kept.length === 0) return refuse('not-matched');

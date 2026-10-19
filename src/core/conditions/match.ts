@@ -6,9 +6,12 @@
 // it, because a condition's paths are paths in its own vault, and a label
 // matches only where the installation declares the two vaults' labels
 // equivalent. Actors, like paths, are names in the condition's own vault, so
-// an actor filter never matches another vault's event. Session-wide events (start, tool) carry no vault: the caller
-// offers the documents of the vaults the session uses.
+// an actor filter never matches another vault's event. Session-wide events
+// (start, tool) carry no vault: the caller offers the documents of the vaults
+// the session uses. A `model` filter names one of the installation's models
+// and is matched against the model the session actually runs on.
 
+import type { InstallationConfig } from '../config/index.ts';
 import type { Sha } from '../git/index.ts';
 import { canonicalJson } from '../result/index.ts';
 import { matchesGlob } from './globs.ts';
@@ -47,6 +50,7 @@ export interface GitEvent {
 
 export type VaultEvent =
   | GitEvent
+  /** Session events carry the Pi model (`provider/id`) the session runs on, when Pi says. */
   | { readonly kind: 'session.start'; readonly model?: string }
   | { readonly kind: 'session.tool'; readonly tool: string; readonly model?: string }
   | { readonly kind: 'session.path'; readonly vault: string; readonly path: string; readonly model?: string }
@@ -64,11 +68,34 @@ export interface Candidate {
   readonly conditions: readonly Condition[];
 }
 
-/** What the installation declares about how vaults relate (concepts.md "Installation"). */
+/** What the installation declares about how vaults relate and which models it has (concepts.md "Installation", "Models"). */
 export interface MatchContext {
   readonly subscriptions: readonly { readonly from: string; readonly to: string }[];
   /** Groups of `<vault>:<label>` names that mean the same. */
   readonly equivalentLabels: readonly (readonly string[])[];
+  /** The `agent` models by configured name, each as Pi names it (`provider/id`): what a `model` filter's name stands for. */
+  readonly agentModels: Readonly<Record<string, string>>;
+}
+
+/** The matching context an installation's config declares. */
+export function matchContextOf(config: Pick<InstallationConfig, 'subscriptions' | 'labels' | 'models'>): MatchContext {
+  return {
+    subscriptions: config.subscriptions,
+    equivalentLabels: config.labels.equivalent,
+    agentModels: Object.fromEntries(Object.entries(config.models).flatMap(([name, entry]) => (entry.role === 'agent' ? [[name, entry.model]] : []))),
+  };
+}
+
+/**
+ * Whether a session event's model satisfies a condition's `model` filter: the
+ * filter names a configured agent model, and matches when that name stands for
+ * the Pi model the session actually uses (the reverse lookup of that model's
+ * names). A name that is not configured, or a session that does not say what
+ * it runs on, matches nothing.
+ */
+function modelMatches(wanted: string | undefined, used: string | undefined, context: MatchContext): boolean {
+  if (wanted === undefined) return true;
+  return used !== undefined && Object.hasOwn(context.agentModels, wanted) && context.agentModels[wanted] === used;
 }
 
 export interface Match {
@@ -114,12 +141,12 @@ function matches(condition: Condition, event: VaultEvent, vault: string, reached
     case 'merged':
       return gitEventMatches(condition, event, vault, reached, context);
     case 'session.start':
-      return condition.model === undefined || condition.model === event.model;
+      return modelMatches(condition.model, event.model, context);
     case 'session.tool':
-      return (condition.model === undefined || condition.model === event.model) &&
+      return modelMatches(condition.model, event.model, context) &&
         (condition.tools === undefined || condition.tools.includes(event.tool));
     case 'session.path':
-      return (condition.model === undefined || condition.model === event.model) &&
+      return modelMatches(condition.model, event.model, context) &&
         (condition.paths === undefined || (reached === 'own' && condition.paths.some((p) => matchesGlob(event.path, p))));
     case 'external':
       return condition.name === event.name;

@@ -6,7 +6,9 @@
 // one whose worktree it runs in, else the one given (`--vault-actor`), else
 // the installation's person; a headless session takes actor, trace and the
 // spawn's budget from the daemon's run file (api.md "Flags") and runs only
-// with all of them (gates fail closed).
+// with all of them (gates fail closed) — including the `agent` model it was
+// started on, which must be one the policy allows for its vault and the model
+// the session actually runs on.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
@@ -16,11 +18,12 @@ import { budgetState } from '../../../src/core/budgets/index.ts';
 import { eventJson } from '../../../src/core/conditions/index.ts';
 import { closeSession, holdActor, openSession, type SessionStart } from '../../../src/core/sessions/index.ts';
 import { withInstallation, type TestInstallation } from '../../support/installation.ts';
+import { AGENT_MODEL } from '../../support/models.ts';
 import { ME, OTHER, OTHER_HOLDER, RUNNING, runOf, startedSpawn } from '../../support/session.ts';
 
 
 function start(t: TestInstallation, extra: Partial<SessionStart> = {}): SessionStart {
-  return { session: 'pi-session-1', pid: ME, cwd: t.repo.path, ...extra };
+  return { session: 'pi-session-1', pid: ME, cwd: t.repo.path, model: AGENT_MODEL, ...extra };
 }
 
 test('an interactive session in a vault writes as the installation\'s person, holds that actor, and has a budget in a tree of its own', withInstallation(async (t) => {
@@ -116,7 +119,7 @@ test('a headless session runs as the run file says: its vault, actor, trace and 
 }, { running: RUNNING }));
 
 test('a headless session without its spawn\'s budget, or whose actor is held, does not run', withInstallation(async (t) => {
-  const run = { vault: 'home', document: 'jobs/daily.md', trace: '01JNOSUCHRUN00000000000000', actor: 'gardener', event: { kind: 'manual' as const, id: 'M1' } };
+  const run = { vault: 'home', document: 'jobs/daily.md', trace: '01JNOSUCHRUN00000000000000', actor: 'gardener', model: 'agent', event: { kind: 'manual' as const, id: 'M1' } };
   const unbudgeted = await openSession(t.context, start(t, { run }));
   assert.deepEqual(!unbudgeted.ok && unbudgeted.error.reason, 'no-allotment');
   const entry = startedSpawn(t);
@@ -149,4 +152,30 @@ test('a headless run writes only as one of the vault\'s actors, never as an owne
   const entry = startedSpawn(t);
   const opened = await openSession(t.context, start(t, { run: runOf(entry, 'alice') }));
   assert.deepEqual(!opened.ok && opened.error, { reason: 'not-a-vault-actor', vault: 'home', actor: 'alice' });
+}, { running: RUNNING }));
+
+// concepts.md "Models": policy applies to the model actually used — for a headless run, the one Pi is running it on.
+test('a headless run starts only when its session runs on the agent model the daemon chose', withInstallation(async (t) => {
+  const entry = startedSpawn(t);
+  const wrong = await openSession(t.context, start(t, { run: runOf(entry), model: 'fake/other' }));
+  assert.deepEqual(!wrong.ok && wrong.error, { reason: 'no-model', vault: 'home', model: 'agent' });
+  const { model: _, ...unspoken } = start(t, { run: runOf(entry) });
+  const unknown = await openSession(t.context, unspoken);
+  assert.deepEqual(!unknown.ok && unknown.error.reason, 'no-model', 'a session that cannot say what model it runs on does not run a job');
+  const right = await openSession(t.context, start(t, { run: runOf(entry) }));
+  assert.ok(right.ok, JSON.stringify(!right.ok && right.error));
+}, { running: RUNNING }));
+
+test('a headless run on a model that is no longer configured, or no longer allowed for its vault, does not start; the default does not stand in', withInstallation(async (t) => {
+  const entry = startedSpawn(t);
+  const gone = await openSession(t.context, start(t, { run: { ...runOf(entry), model: 'quick' } }));
+  assert.deepEqual(!gone.ok && gone.error, { reason: 'no-model', vault: 'home', model: 'quick' });
+}, { running: RUNNING }));
+
+test('a headless run whose model the policy does not allow for its vault does not start', withInstallation(async (t) => {
+  const entry = startedSpawn(t);
+  const { installation } = t.context;
+  const stricter = { ...t.context, installation: { ...installation, config: { ...installation.config, policy: [] } } };
+  const refused = await openSession(stricter, start(t, { run: runOf(entry) }));
+  assert.deepEqual(!refused.ok && refused.error, { reason: 'no-model', vault: 'home', model: 'agent' });
 }, { running: RUNNING }));

@@ -3,7 +3,8 @@
 
 import type { InstallationConfig } from '../../src/core/config/index.ts';
 
-export const AGENT_MODEL = 'fake/agent';
+/** The model Pi's faux provider (test/support/pi.ts) runs on, so extension tests and the daemon's fake Pi agree on it. */
+export const AGENT_MODEL = 'faux/faux-1';
 
 export const AGENT_MODELS: Pick<InstallationConfig, 'models' | 'policy'> = {
   models: { agent: { role: 'agent', model: AGENT_MODEL } },

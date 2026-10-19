@@ -28,7 +28,7 @@ function job(on: string, extra = ''): string {
 function matching(v: TestVault, vaults: readonly RegisteredVault[] = [v.vault]): SpawnMatching {
   return {
     git: v.git, store: v.store, vaults,
-    match: { subscriptions: [], equivalentLabels: [] },
+    match: { subscriptions: [], equivalentLabels: [], agentModels: {} },
     scripts: { env: { PATH: process.env['PATH'] ?? '' }, timeoutMs: 10_000, os: process.platform === 'win32' ? 'win32' : 'linux', sandbox: 'none', builtins: [] },
   };
 }

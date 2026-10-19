@@ -9,12 +9,13 @@ import assert from 'node:assert/strict';
 import { closeSession, logToolResult, openSession, traceRecord } from '../../../src/core/sessions/index.ts';
 import { opaqueReference, readFullLog } from '../../../src/core/traces/index.ts';
 import { withInstallation } from '../../support/installation.ts';
+import { AGENT_MODEL } from '../../support/models.ts';
 import { ME, RUNNING, openTestSession, runOf, startedSpawn } from '../../support/session.ts';
 
 test('a headless run\'s record names its trigger, the runs that led to it, its session and its scripts', withInstallation(async (t) => {
   const parent = await openTestSession(t);
   const entry = startedSpawn(t, 'jobs/daily.md', 5000, parent.trace);
-  const opened = await openSession(t.context, { session: 'run-session', pid: ME, cwd: t.repo.path, run: runOf(entry) });
+  const opened = await openSession(t.context, { session: 'run-session', pid: ME, cwd: t.repo.path, model: AGENT_MODEL, run: runOf(entry) });
   assert.ok(opened.ok, JSON.stringify(!opened.ok && opened.error));
   const { session } = opened.value;
   logToolResult(t.context, session, { tool: 'vault_script', input: { name: 'due-topics' }, isError: false, text: 'a\nb', data: { status: 'ok', data: { exitCode: 0 } } });

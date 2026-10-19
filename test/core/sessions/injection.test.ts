@@ -7,6 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { injectionsFor, renderInjections, type VaultSession } from '../../../src/core/sessions/index.ts';
+import { AGENT_MODEL } from '../../support/models.ts';
 import { withInstallation, type TestInstallation } from '../../support/installation.ts';
 import { RUNNING, openTestSession } from '../../support/session.ts';
 import { rootContract } from '../../support/vault.ts';
@@ -49,13 +50,14 @@ test('documents whose inject conditions match a session event are injected once:
   assert.deepEqual(await injectionsFor(t.context, s, { kind: 'session.path', vault: 'home', path: 'projects/other.md' }), []);
 }, { running: RUNNING }));
 
-test('a model filter injects only for that model', withInstallation(async (t) => {
-  t.repo.write('memory/big.md', `${inject('session.start', ', model: big-model')}Think hard.\n`);
+test('a model filter names a configured model and injects only for a session running on it', withInstallation(async (t) => {
+  t.repo.write('memory/big.md', `${inject('session.start', ', model: agent')}Think hard.\n`);
+  t.repo.write('memory/ghost.md', `${inject('session.start', ', model: telepathy')}Never.\n`);
   t.repo.commit('memory');
   t.accept();
   const s = await opened(t);
-  assert.deepEqual(await injectionsFor(t.context, s, { kind: 'session.start', model: 'small-model' }), []);
-  assert.deepEqual(keys(await injectionsFor(t.context, s, { kind: 'session.start', model: 'big-model' })), ['home:memory/big.md']);
+  assert.deepEqual(await injectionsFor(t.context, s, { kind: 'session.start', model: 'other/small-model' }), []);
+  assert.deepEqual(keys(await injectionsFor(t.context, s, { kind: 'session.start', model: AGENT_MODEL })), ['home:memory/big.md']);
 }, { running: RUNNING }));
 
 test('only the accepted main\'s contracts and documents are injected', withInstallation(async (t) => {

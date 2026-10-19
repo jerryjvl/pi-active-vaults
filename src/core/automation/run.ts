@@ -1,12 +1,18 @@
 // Running a spawn (daemon.md "Execution", "Spawn lifecycle"; extension.md
 // "Headless sessions"): as `pi --mode rpc` in its actor's worktree, with the
-// run file the extension reads (`--vault-run`: vault, document, actor, trace,
-// event), its Pi session named by its trace (`--session-id`), forked from the
-// session that triggered it when that session is known and the job allows.
+// run file the extension reads (`--vault-run`: vault, document, actor, model,
+// trace, event), on the `agent` model the job asks for (`--model`), its Pi
+// session named by its trace (`--session-id`), forked from the session that
+// triggered it when that session is known and the job allows.
 // The headless session is briefed by the extension; the daemon only asks it
 // to begin, waits for Pi to settle, and closes its input.
 //
 // Invariants:
+//  - a run starts only on an `agent` model the installation's policy allows
+//    for its vault, checked again now rather than trusted from the claim, and
+//    only on the model the claim fixed: one that has since gone is not
+//    replaced by the default. A spawn with none is stopped `no-model`, before
+//    anything of the job is written anywhere;
 //  - nothing runs for a vault whose `main` has an unaccepted change: its work
 //    stays queued; a job that requires its originating session (`context:
 //    session-required`) and has none to fork is stopped, never run fresh;
@@ -32,6 +38,7 @@ import { budgetState } from '../budgets/index.ts';
 import { ensurePrivateDir } from '../config/index.ts';
 import { commitsBetween, resolveRevision } from '../git/index.ts';
 import { requireNoUnacceptedChange } from '../integrity/index.ts';
+import { resolveModel } from '../models/index.ts';
 import type { OperationContext } from '../operations/index.ts';
 import { processStartTime, startChild } from '../process/index.ts';
 import {
@@ -111,6 +118,10 @@ export async function startRun(
   const session = mode === 'bare' ? undefined : originSession(spawn);
   const fork = session === undefined ? undefined : options.sessionFile(session);
   const end = (reason: StopReason, detail: string): RunHandle => never(context, spawn, reason, detail, hooks.finished);
+  const model = resolveModel(context.installation.config, 'agent', [vault.id], spawn.model);
+  if (!model.ok || (spawn.model !== undefined && model.value.name !== spawn.model)) {
+    return end('no-model', model.ok ? `its model "${spawn.model ?? ''}" is no longer configured` : `no agent model it may use (${model.error.reason})`);
+  }
   if (mode === 'session-required' && fork === undefined) return end('no-session', 'the job requires its originating session, which is not known here');
   const worktree = await ensureActorWorktree(context.git, vault, accepted.value, spawn.actor, context.reads);
   if (!worktree.ok) return end('error', `its actor's worktree cannot be made (${worktree.error.reason})`);
@@ -122,8 +133,8 @@ export async function startRun(
   const { runs } = context.installation.paths;
   ensurePrivateDir(runs);
   const runFile = join(runs, `${spawn.trace}.json`);
-  writeFileSync(runFile, renderRunContext({ vault: vault.id, document: spawn.document, actor: spawn.actor, trace: spawn.trace, event: spawn.event }), { mode: 0o600 });
-  const args = [...options.pi.args, '--mode', 'rpc', '--vault-run', runFile, '--session-id', spawn.trace, ...(fork === undefined ? [] : ['--fork', fork])];
+  writeFileSync(runFile, renderRunContext({ vault: vault.id, document: spawn.document, actor: spawn.actor, model: model.value.name, trace: spawn.trace, event: spawn.event }), { mode: 0o600 });
+  const args = [...options.pi.args, '--mode', 'rpc', '--model', model.value.entry.model, '--vault-run', runFile, '--session-id', spawn.trace, ...(fork === undefined ? [] : ['--fork', fork])];
   const started = await startChild({ program: { file: options.pi.file, args }, cwd: worktree.value.path, env: options.env });
   if (!started.ok) {
     rmSync(runFile, { force: true });
@@ -133,7 +144,7 @@ export async function startRun(
   const identity = await processStartTime(child.pid);
   // A process whose start cannot be told is recorded so; recovery then never touches it by ID alone.
   recordRunProcess(context.state, spawn.id, { pid: child.pid, started: identity.ok && identity.value !== undefined ? identity.value : 'unknown' });
-  log(context, spawn.trace, 'daemon', { event: 'started', pid: child.pid, cwd: worktree.value.path, fork: fork ?? null });
+  log(context, spawn.trace, 'daemon', { event: 'started', pid: child.pid, cwd: worktree.value.path, model: model.value.name, fork: fork ?? null });
   hooks.started(running.value);
 
   let stoppedFor: StopReason | undefined;
