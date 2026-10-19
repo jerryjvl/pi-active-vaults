@@ -10,6 +10,7 @@ import type { Candidate, VaultEvent } from '../../conditions/index.ts';
 import { listRefs } from '../../git/index.ts';
 import { isTraceId } from '../../ids/index.ts';
 import { requireNoUnacceptedChange } from '../../integrity/index.ts';
+import { judgeBuiltin } from '../../judgements/index.ts';
 import { notifyBuiltin, sendNotification, testTransport } from '../../notify/index.ts';
 import { enqueueSpawn, listSpawns, vaultJobs, type MatchedSpawns, type SpawnEntry } from '../../queue/index.ts';
 import type { RegisteredVault } from '../../registry/index.ts';
@@ -150,7 +151,7 @@ export const scriptOperation: Operation = {
   params: [
     { name: 'name', kind: 'string', required: true, positional: true, description: 'The script, or builtin:<name>' },
     { name: 'args', kind: 'strings', positional: true, passthrough: true, description: 'Its arguments' },
-    { name: 'input', kind: 'string', stdin: true, surfaces: ['cli'], description: 'Its standard input' },
+    { name: 'input', kind: 'string', stdin: true, description: 'Its standard input (for builtin:judge, the request as JSON)' },
   ],
   async run(context, request) {
     const vault = theVault(request);
@@ -160,7 +161,11 @@ export const scriptOperation: Operation = {
     const deps = notifyDeps(context, options.env);
     const input = text(request.params, 'input');
     const ran = await runScript({ git: context.git, store: context.state, vault }, text(request.params, 'name') ?? '', texts(request.params, 'args'), {
-      ...options, kind: 'script', builtins: deps === undefined ? [] : [notifyBuiltin(deps, { trace })],
+      ...options, kind: 'script',
+      builtins: [
+        ...(deps === undefined ? [] : [notifyBuiltin(deps, { trace })]),
+        judgeBuiltin({ config: context.installation.config, client: { ...context.http, secrets: context.secrets } }, { vault: vault.id }),
+      ],
       cwd: scriptDirectory(request, vault), ...(input === undefined ? {} : { input }),
     });
     if (!ran.ok) return fromError(ran.error);

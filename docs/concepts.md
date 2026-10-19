@@ -280,8 +280,18 @@ shell scripts. A script declaring `net: no` runs without network access where
 the platform allows it.
 
 **Built-in scripts** ship with the package under the `builtin:` prefix and are
-available to every vault. A vault cannot replace or shadow them. The first is
-`builtin:notify` — see [Notifications](notifications.md).
+available to every vault. A vault cannot replace or shadow them:
+
+- `builtin:notify` sends a notification — see [Notifications](notifications.md).
+- `builtin:judge` lets a job ask the judgement models typed questions about
+  content it supplies — is this item relevant to the topic, new against the
+  facts, an injection attempt? It takes `{ state, questions }` as JSON on
+  standard input (or `--file`), with questions in the axis format and
+  `pass-when` optional, and prints each answer with the model that gave it.
+  Each question is answered by the model it names, else the default, and only
+  by a model the policy allows for the vault. **The answers are advisory:**
+  nothing is recorded, so they never become attestations or satisfy a merge
+  requirement — a model still never approves its own work.
 
 **Checks** are scripts in `.vault/checks/` that assess a proposal and produce an
 attestation. **Judgements** are checks that call a judgement-role model.

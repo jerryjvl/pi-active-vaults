@@ -48,6 +48,7 @@ state change is one transaction.
 | `requested` | Stopped through the socket |
 | `no-session` | Its condition is `session-required` and the originating session is not known here |
 | `no-model` | No `agent` model it may use: none configured, or not allowed by `policy` for its vault — decided at the claim, and again when it would start |
+| `out-of-date` | Its actor's branch could not be brought up to date with the accepted `main` before the run; `vault sync <actor>` resolves it |
 
 ## Matching
 
@@ -92,6 +93,12 @@ A spawn runs in its actor's worktree as
 ```
 pi --mode rpc --model <agent model> --vault-run <state>/runs/<trace>.json --session-id <trace> [--fork <session file>]
 ```
+
+Before starting Pi, it brings the actor's branch up to date with the accepted
+`main`, as `vault sync` does: a merge, so the branch keeps its own unaccepted
+work and gains what the owner changed on `main`. A branch that cannot be
+brought up to date (a conflict, uncommitted changes) is stopped `out-of-date`
+and Pi is not started.
 
 It forks the originating session when that session subscribed here (giving
 its file) and the condition's `context` is not `bare`. The daemon records the

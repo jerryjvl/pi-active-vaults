@@ -147,3 +147,18 @@ test('propose judges what the proposal needs before publishing, so vault/policy 
     '  - { vaults: [home], allow-models: [agent, judgement] }',
   ].join('\n'),
 })()));
+
+test('a session can screen content with builtin:judge through vault_script; the answer is advisory and nothing is recorded', withJudgedInstallation(async (t, requests) => {
+  judge.up = true; judge.primary = 0.9;
+  const asked = await t.run('script', {
+    name: 'builtin:judge',
+    input: JSON.stringify({ state: 'A new firmware was released', questions: { evidence: { type: 'choice', instructions: 'What backs it?', options: { primary: 'Data', opinion: 'None' }, 'pass-when': { choices: ['primary'], probability: 0.7 } } } }),
+  }, { surface: 'tool' });
+  assert.equal(asked.status, 'ok', asked.text);
+  const out = JSON.parse(asked.text) as { answers: { evidence: { choice: string; passed: boolean; model: string } } };
+  assert.equal(out.answers.evidence.choice, 'primary');
+  assert.equal(out.answers.evidence.passed, true);
+  assert.equal(out.answers.evidence.model, 'judgement');
+  assert.equal(judgementRequests(requests), 1);
+  assert.equal(t.repo.git('notes', '--ref', 'refs/notes/vault/attestations', 'list').trim(), '', 'no attestation is written');
+}));

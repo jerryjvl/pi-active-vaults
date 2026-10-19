@@ -199,3 +199,44 @@ test('a model that was removed from the config after the claim is not replaced b
   assert.deepEqual(pi.starts(), []);
   assert.equal(listSpawns(later.context.state)[0]?.reason, 'no-model');
 }, { noDefaultModels: true, config: `${AGENTS}${allowing('agent', 'quick')}` }));
+
+test('a job\'s actor branch is brought up to date with the accepted main before Pi starts, so it never works on stale content', withInstallation(async (t) => {
+  jobs(t, { 'jobs/a.md': jobDocument(MANUAL) });
+  await t.run('trigger', { name: 'go' });
+  const first = automationFor(t, fakePi(t, { 'jobs/a.md': 'commit' }));
+  await first.schedule();
+  await first.idle();
+  // The owner changes main meanwhile; the branch's own work is not yet accepted.
+  t.repo.write('notes/owner.md', 'Corrected by hand.');
+  const corrected = t.repo.commit('owner correction');
+  t.accept(corrected);
+  await t.run('trigger', { name: 'go' });
+  const second = automationFor(t, fakePi(t, { 'jobs/a.md': 'commit' }));
+  await second.schedule();
+  await second.idle();
+  assert.equal(t.repo.git('merge-base', '--is-ancestor', corrected, 'actor/gardener'), '', 'the branch includes the accepted main');
+  const last = listSpawns(t.context.state).at(-1);
+  assert.equal(last?.state, 'recorded');
+  assert.equal(last?.reason ?? '', '');
+}));
+
+test('a branch that conflicts with the accepted main stops the run out-of-date, and Pi is not started', withInstallation(async (t) => {
+  jobs(t, { 'jobs/a.md': jobDocument(MANUAL) });
+  await t.run('trigger', { name: 'go' });
+  const first = automationFor(t, fakePi(t, { 'jobs/a.md': 'commit' }));
+  await first.schedule();
+  await first.idle();
+  const [made] = listSpawns(t.context.state);
+  // The same path, written differently on main: the merge cannot be made.
+  t.repo.write(`notes/${made?.trace ?? 'x'}.md`, 'A different version.');
+  t.accept(t.repo.commit('conflicting edit'));
+  await t.run('trigger', { name: 'go' });
+  const pi = fakePi(t, { 'jobs/a.md': 'commit' });
+  const before = pi.starts().length; // the log is the installation's, so it holds the first run too
+  const second = automationFor(t, pi);
+  await second.schedule();
+  await second.idle();
+  assert.equal(pi.starts().length, before, 'Pi was not started again');
+  const last = listSpawns(t.context.state).at(-1);
+  assert.equal(last?.reason, 'out-of-date');
+}));

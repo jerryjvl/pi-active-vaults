@@ -33,13 +33,13 @@
 
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { TRAILER, ensureActorWorktree, trailerValue } from '../actors/index.ts';
+import { TRAILER, ensureActorWorktree, syncActorBranch, trailerValue } from '../actors/index.ts';
 import { budgetState } from '../budgets/index.ts';
 import { ensurePrivateDir } from '../config/index.ts';
 import { commitsBetween, resolveRevision } from '../git/index.ts';
 import { requireNoUnacceptedChange } from '../integrity/index.ts';
 import { resolveModel } from '../models/index.ts';
-import type { OperationContext } from '../operations/index.ts';
+import { packageIdentity, type OperationContext } from '../operations/index.ts';
 import { processStartTime, startChild } from '../process/index.ts';
 import {
   commitSpawn, forgetRunProcess, noChangeSpawn, recordRunProcess, recordSpawn, startSpawn, stopSpawn, vaultJobs, type SpawnEntry, type StopReason,
@@ -125,6 +125,18 @@ export async function startRun(
   if (mode === 'session-required' && fork === undefined) return end('no-session', 'the job requires its originating session, which is not known here');
   const worktree = await ensureActorWorktree(context.git, vault, accepted.value, spawn.actor, context.reads);
   if (!worktree.ok) return end('error', `its actor's worktree cannot be made (${worktree.error.reason})`);
+  // A run starts from the accepted main: what the owner changed there since the branch's last
+  // accept (a fact corrected by hand) is merged in first, so the run never works on — and then
+  // overwrites — a stale copy. A branch that cannot be brought up to date does not run.
+  const writer = packageIdentity(context.installation, spawn.actor);
+  const synced = await syncActorBranch(
+    { git: context.git, store: context.state, alive: context.alive, clock: context.clock, checks: await context.scriptOptions(), attribution: { identity: writer } },
+    vault, accepted.value, spawn.actor, { origin: { trace: spawn.trace, actor: spawn.actor }, date: context.clock.now(), identity: writer },
+  );
+  if (!synced.ok || synced.value.outcome === 'uncommitted-changes') {
+    const why = !synced.ok ? synced.error.reason : 'uncommitted changes in its worktree';
+    return end('out-of-date', `its actor's branch could not be brought up to date with the accepted main (${why}); "vault sync ${spawn.actor}" resolves it`);
+  }
   const before = await resolveRevision(context.git, worktree.value.path, 'HEAD');
   if (!before.ok) return end('error', 'its actor\'s branch cannot be read');
 

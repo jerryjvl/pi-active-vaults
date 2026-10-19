@@ -130,7 +130,7 @@ export type SpawnState = 'queued' | 'running' | 'committed' | 'no-change' | 'sto
  * or without an `agent` model it may use (`no-model`). A spawn its session
  * tree refused at the claim carries the tree's reason instead.
  */
-export type StopReason = 'budget' | 'ttl' | 'queue-time' | 'error' | 'restart' | 'requested' | 'no-session' | 'no-model';
+export type StopReason = 'budget' | 'ttl' | 'queue-time' | 'error' | 'restart' | 'requested' | 'no-session' | 'no-model' | 'out-of-date';
 
 /** A job's terms (its budget, its actor, the model name it asks for) and the event that spawns it. */
 export interface SpawnRequest extends SpawnTerms {
