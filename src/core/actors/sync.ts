@@ -22,7 +22,7 @@
 // conflicts and how to resolve it, for every surface that reports it.
 
 import {
-  addTrailers, fastForward, hasTrackedChanges, isAncestor, listWorktrees, mergeConflicts, mergeSha, resolveRevision, updateRef,
+  addTrailers, fastForward, hasTrackedChanges, isAncestor, listWorktrees, mergeConflicts, mergeSha, resolveRevision, shellWord, stepsIn, updateRef,
   type Git, type GitError, type Identity, type Sha,
 } from '../git/index.ts';
 import type { AcceptedMain } from '../integrity/index.ts';
@@ -142,10 +142,28 @@ export async function syncConflict(
 export function conflictNotice(vault: RegisteredVault, conflict: SyncConflict, review: VaultIdentity['review']): string {
   const { actor } = conflict;
   const forge = review === 'forge';
+  const worktree = actorWorktreePath(vault, actor);
   return [
     `${actorBranch(actor)} (at ${conflict.head}) conflicts with the accepted main (${conflict.accepted}) in: ${conflict.paths.join(', ')}.`,
     `Until it is resolved, its branch cannot be brought up to date, so its jobs stop out-of-date${forge ? ' and its pull request cannot merge' : ''}.`,
-    `To resolve it, while no session holds ${actor}: in ${actorWorktreePath(vault, actor)}, run "git merge ${conflict.accepted}",`
-      + ` resolve and stage those files, then run "vault commit ${vault.id} --actor ${actor}"${forge ? ` and "vault propose ${vault.id} ${actor}"` : ''}.`,
+    `To resolve it, while no session holds ${actor} ("vault status ${vault.id}" shows holds), in its worktree:`,
+    stepsIn(worktree, [`git merge ${conflict.accepted}`]),
+    'then edit those files to the wanted text (no conflict markers left), and finish:',
+    stepsIn(worktree, [
+      `git add ${conflict.paths.map(shellWord).join(' ')}`,
+      `vault commit ${vault.id} --actor ${actor} -m "Sync ${actorBranch(actor)} with main"`,
+      ...(forge ? [`vault propose ${vault.id} ${actor}`] : []),
+    ]),
+    'To back out before committing instead:',
+    stepsIn(worktree, ['git merge --abort']),
+  ].join('\n');
+}
+
+/** An actor's branch left as it was because its worktree has uncommitted changes: where they are, and how to commit them (or set them aside) and sync again. */
+export function uncommittedNotice(vault: RegisteredVault, actor: string): string {
+  return [
+    `${actorBranch(actor)} was left as it is: its worktree has uncommitted changes. See them, commit them, and sync again:`,
+    stepsIn(actorWorktreePath(vault, actor), ['git status', `vault commit ${vault.id} --actor ${actor} -m "<what they are>"`, `vault sync ${vault.id} ${actor}`]),
+    'To set them aside instead, run "git stash push -u" there ("git stash pop" brings them back).',
   ].join('\n');
 }

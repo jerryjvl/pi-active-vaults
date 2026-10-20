@@ -32,7 +32,7 @@ test('main at the accepted main is accepted', withTestVault(async ({ git, store,
 }));
 
 test('a new commit on main is an unaccepted change listing its commits, and the notice names the vault and commit', withTestVault(async ({ repo, git, store, vault, accept }) => {
-  accept();
+  const accepted = accept();
   repo.write('stray.md', 'x');
   const stray = repo.commit('stray commit');
   const status = await integrityStatus(git, store, vault);
@@ -42,7 +42,16 @@ test('a new commit on main is an unaccepted change listing its commits, and the 
   const notice = unacceptedNotice(status.value, 'local');
   assert.match(notice, /home/);
   assert.match(notice, new RegExp(stray));
-  assert.match(notice, /vault accept --adopt/);
+  assert.ok(notice.includes(`vault accept home --adopt ${stray}`), notice);
+  // The way back is given as commands to run, in the vault's own directory.
+  assert.ok(notice.includes(`cd ${vault.path}`), notice);
+  assert.ok(notice.includes(`git log --oneline ${accepted.sha}..${stray}`), notice);
+  assert.ok(notice.includes(`git branch unaccepted-${stray.slice(0, 7)} ${stray}`), notice);
+  assert.ok(notice.includes(`git reset --keep ${accepted.sha}`), notice);
+  const forge = unacceptedNotice(status.value, 'forge');
+  assert.ok(forge.includes('vault sync home'), forge);
+  assert.ok(forge.includes(`git reset --keep ${accepted.sha}`), 'commits only this clone has are put aside the same way');
+  assert.ok(!forge.includes('vault accept'), 'a forge-mode vault is not accepted from a clone');
 }));
 
 test('a reset and a rewrite are unaccepted changes too; a rewrite is flagged', withTestVault(async ({ repo, git, store, vault, accept }) => {
@@ -60,14 +69,16 @@ test('a reset and a rewrite are unaccepted changes too; a rewrite is flagged', w
 }));
 
 test('a missing main is an unaccepted change', withTestVault(async ({ repo, git, store, vault, accept }) => {
-  accept();
+  const acceptedSha = accept().sha;
   repo.git('checkout', '--quiet', '-b', 'elsewhere');
   repo.git('branch', '--quiet', '-D', 'main');
   const status = await integrityStatus(git, store, vault);
   assert.ok(status.ok && status.value.state === 'unaccepted');
   assert.equal(status.value.change, 'main-missing');
   assert.equal(status.value.tip, null);
-  assert.match(unacceptedNotice(status.value, 'local'), /main is missing/);
+  const missing = unacceptedNotice(status.value, 'local');
+  assert.match(missing, /main is missing/);
+  assert.ok(missing.includes(`git branch main ${acceptedSha}`), missing);
 }));
 
 test('propagating actions are refused while there is an unaccepted change, and allowed once resolved by resetting main', withTestVault(async ({ repo, git, store, vault, accept }) => {

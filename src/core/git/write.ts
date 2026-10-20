@@ -153,10 +153,10 @@ export async function prepareCommit(git: Git, repo: string, options: CommitOptio
   const merging = await mergingHeads(git, repo);
   if (!merging.ok) return merging;
   if (merging.value.length > 0) {
-    if (stage !== 'all') return err({ reason: 'merge-in-progress' });
+    if (stage !== 'all') return err({ reason: 'merge-in-progress', repo });
     // Staging everything would take a conflicted file, markers and all, as resolved.
     const unresolved = await unmergedPaths(git, repo);
-    if (unresolved.length > 0) return err({ reason: 'unresolved-conflicts', paths: unresolved });
+    if (unresolved.length > 0) return err({ reason: 'unresolved-conflicts', paths: unresolved, repo });
   }
 
   const tree = await withScratchIndex(async (index) => {
@@ -276,7 +276,7 @@ export async function mergeSha(
 
   const dirty = await hasTrackedChanges(git, repo);
   if (!dirty.ok) return dirty;
-  if (dirty.value) return err({ reason: 'dirty-worktree' });
+  if (dirty.value) return err({ reason: 'dirty-worktree', repo });
 
   const already = await isAncestor(git, repo, sha, 'HEAD');
   if (!already.ok) return already;
@@ -318,7 +318,7 @@ export async function fastForward(git: Git, worktree: string, sha: Sha): Promise
   if (!checked.ok) return checked;
   const dirty = await hasTrackedChanges(git, worktree);
   if (!dirty.ok) return dirty;
-  if (dirty.value) return err({ reason: 'dirty-worktree' });
+  if (dirty.value) return err({ reason: 'dirty-worktree', repo: worktree });
   return runForSuccess(git, ['merge', '--ff-only', '--quiet', '--no-verify', '--no-verify-signatures', sha], { cwd: worktree });
 }
 

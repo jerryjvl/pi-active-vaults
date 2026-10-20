@@ -32,7 +32,7 @@ export async function unacceptedNotices(context: NoticeContext, vaults: readonly
   for (const vault of vaults) {
     const status = await integrityStatus(context.git, context.state, vault);
     if (!status.ok) {
-      const change: UnacceptedChange = { state: 'unaccepted', vault: vault.id, change: 'main-missing', tip: null, commits: [] };
+      const change: UnacceptedChange = { state: 'unaccepted', vault: vault.id, path: vault.path, change: 'main-missing', tip: null, commits: [] };
       notices.push({ vault: vault.id, change, notice: `Vault "${vault.id}": its repository at ${vault.path} cannot be read (${status.error.reason}). Automation is paused for this vault.` });
       continue;
     }

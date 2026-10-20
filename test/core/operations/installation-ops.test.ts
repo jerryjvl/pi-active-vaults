@@ -41,7 +41,7 @@ test('add registers an existing vault by the id its root contract declares, unac
     assert.deepEqual(next.installation.vaults.map((v) => v.id), ['home', 'garden']);
     const notices = await unacceptedNotices(next.context, next.installation.vaults);
     assert.deepEqual(notices.map((n) => [n.vault, n.change.change]), [['garden', 'none-accepted']]);
-    assert.match(notices[0]?.notice ?? '', /vault accept --adopt [0-9a-f]{40}/);
+    assert.match(notices[0]?.notice ?? '', /vault accept garden --adopt [0-9a-f]{40}/);
     const listed = await next.run('list');
     assert.match(listed.text, /^home {2}.*\n {2}Home things\. — for household; local review; owners alice\n {2}your worktree: .*\ngarden/);
     const home = (listed.data as { vaults: { id: string; worktree?: string }[] }).vaults[0];

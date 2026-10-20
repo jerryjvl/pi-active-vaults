@@ -22,6 +22,7 @@
 //    nothing.
 
 import { timingSafeEqual } from 'node:crypto';
+import { withoutSteps } from '../git/index.ts';
 import { isRecord } from '../result/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
 import { CATALOGUE, chooseVaults, isRequired, paramsOn, placeVaultPaths, runOperation } from './catalogue.ts';
@@ -125,8 +126,9 @@ export async function callMcpTool(context: OperationContext, profile: McpProfile
   const chosen = vaultsOf(context, profile, tool.operation, input ?? {});
   if ('status' in chosen) return modelResult(chosen, []);
   const outcome = await runOperation(context, tool.operation, 'mcp', { vaults: chosen.vaults, params: chosen.params, caller: callerOf(profile) });
-  const notices = (await unacceptedNotices(context, chosen.vaults)).map((n) => n.notice);
-  return modelResult(outcome, notices);
+  // A client on another machine gets no paths of this one: steps that name them are left out.
+  const notices = (await unacceptedNotices(context, chosen.vaults)).map((n) => withoutSteps(n.notice));
+  return modelResult({ ...outcome, text: withoutSteps(outcome.text) }, notices);
 }
 
 /** Whether an `Authorization` header carries exactly `token` as a bearer token (the scheme's name in any case). */

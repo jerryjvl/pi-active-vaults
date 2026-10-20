@@ -83,6 +83,7 @@ test('commits as an actor carry its trailers and are refused off its branch', wi
   writeIn(worktree, 'notes/b.md');
   const wrongActor = await commitAsActor(holds(v), v.vault, worktree, { origin: { trace: 'T', actor: 'librarian' }, message: 'x', date: v.clock.now() });
   assert.equal(!wrongActor.ok && wrongActor.error.reason, 'wrong-branch');
+  assert.equal(!wrongActor.ok && wrongActor.error.reason === 'wrong-branch' && wrongActor.error.worktree, worktree, 'it names the worktree');
   v.repo.write('c.md', 'c');
   const onMain = await commitAsActor(holds(v), v.vault, v.repo.path, { origin: { trace: 'T', actor: 'gardener' }, message: 'x', date: v.clock.now() });
   assert.equal(!onMain.ok && onMain.error.reason, 'wrong-branch');

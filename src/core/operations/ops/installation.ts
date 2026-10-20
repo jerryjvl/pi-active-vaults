@@ -10,7 +10,7 @@
 
 import { writeFileSync } from 'node:fs';
 import { isAbsolute, basename, dirname, resolve } from 'node:path';
-import { ensureActorWorktree, syncActorBranch, type ActorCommitContext } from '../../actors/index.ts';
+import { ensureActorWorktree, syncActorBranch, uncommittedNotice, type ActorCommitContext } from '../../actors/index.ts';
 import { checkPerson, ensurePrivateDir, registerVault } from '../../config/index.ts';
 import { runProcess } from '../../process/index.ts';
 import type { AcceptedMain } from '../../integrity/index.ts';
@@ -217,7 +217,7 @@ async function syncLine(context: OperationContext, committing: ActorCommitContex
   if (!synced.ok) return [`${vault.id}: not brought up to date (${synced.error.reason})`];
   switch (synced.value.outcome) {
     case 'fast-forwarded': case 'merged': return [`${vault.id}: brought up to date with the accepted main (${synced.value.outcome})`];
-    case 'uncommitted-changes': return [`${vault.id}: left as it is (uncommitted changes)`];
+    case 'uncommitted-changes': return [`${vault.id}: ${uncommittedNotice(vault, person)}`];
     case 'left-ahead': return [`${vault.id}: left as it is (your proposal is not in main yet; the forge merges it as it stands)`];
     default: return [];
   }

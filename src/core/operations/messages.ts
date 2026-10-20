@@ -7,6 +7,7 @@
 // Messages say what to do next and name no secret: error values never carry
 // one, and nothing here adds a value an error did not give.
 
+import { shellWord, stepsIn } from '../git/index.ts';
 import type { Issue } from '../result/index.ts';
 import type { OperationOutcome } from './types.ts';
 
@@ -94,7 +95,7 @@ export function describeError(error: ErrorValue): string {
     case 'main-not-checked-out':
       return 'No worktree has main checked out, so nothing can be merged into it.';
     case 'wrong-branch':
-      return `This worktree is not on ${str(e['expected'])}.`;
+      return `The worktree ${str(e['worktree'])} is ${e['actual'] === undefined ? 'on no branch' : `on ${str(e['actual'])}`}, not ${str(e['expected'])}. Once "git status" there shows nothing uncommitted, switch it back:\n${stepsIn(str(e['worktree']), ['git status', `git switch ${str(e['expected'])}`])}`;
     case 'worktree-mismatch':
       return `The actor's worktree directory ${str(e['path'])} holds another branch.`;
     case 'outside-worktree':
@@ -102,17 +103,20 @@ export function describeError(error: ErrorValue): string {
     case 'nothing-to-commit':
       return 'There is nothing to commit.';
     case 'dirty-worktree':
-      return 'The worktree has uncommitted changes.';
+      return `The worktree ${str(e['repo'])} has uncommitted changes, so nothing was changed. See them, then commit them or set them aside ("git stash push -u" there; "git stash pop" brings them back) and try again:\n${stepsIn(str(e['repo']), ['git status'])}`;
     case 'conflict':
       return `The merge conflicts in: ${(e['paths'] as string[] | undefined)?.join(', ') ?? ''}; nothing was changed.`;
     case 'sync-conflict': {
       const conflict = (e['conflict'] ?? {}) as { actor?: string; paths?: string[] };
       return `actor/${conflict.actor ?? ''} conflicts with the accepted main in: ${conflict.paths?.join(', ') ?? ''}; nothing was changed. An owner merges the accepted main into it by hand, then commits with "vault commit".`;
     }
-    case 'unresolved-conflicts':
-      return `The merge in progress still has conflicts in: ${(e['paths'] as string[] | undefined)?.join(', ') ?? ''}; resolve and stage them (git add), then commit again.`;
+    case 'unresolved-conflicts': {
+      const paths = (e['paths'] as string[] | undefined) ?? [];
+      return `The merge in progress in ${str(e['repo'])} still has conflicts in: ${paths.join(', ')}; nothing was committed. Edit those files to the wanted text (no conflict markers left), stage them, and commit again:\n`
+        + `${stepsIn(str(e['repo']), ['git status', `git add ${paths.map(shellWord).join(' ')}`])}\nTo back out of the merge instead:\n${stepsIn(str(e['repo']), ['git merge --abort'])}`;
+    }
     case 'merge-in-progress':
-      return 'A merge is in progress: it is committed whole, so name no paths.';
+      return `A merge is in progress in ${str(e['repo'])}: it is committed whole, so commit again naming no paths ("git status" there shows what it holds):\n${stepsIn(str(e['repo']), ['git status'])}`;
     case 'no-such-script':
       return `There is no script "${str(e['name'])}" on the accepted main.`;
     case 'invalid-script':

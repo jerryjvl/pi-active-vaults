@@ -18,6 +18,11 @@ its operation's parameters (`vault <command> --help`).
 - Works without the daemon. Commands that need it say so and exit `1`.
 - Every command first reports any vault with an unaccepted change to `main`, on
   standard error, until it is adopted or discarded.
+- Whatever must be resolved by hand — an unaccepted change, a conflict,
+  uncommitted changes, a merge in progress, a worktree on the wrong branch —
+  is reported with the commands that resolve it, each set starting with the
+  `cd` to the directory it is for: the vault's clone or an actor's worktree,
+  as they are on this machine.
 
 ## Commands
 

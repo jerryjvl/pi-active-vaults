@@ -33,7 +33,7 @@
 
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { TRAILER, conflictNotice, ensureActorWorktree, syncActorBranch, trailerValue } from '../actors/index.ts';
+import { TRAILER, conflictNotice, ensureActorWorktree, syncActorBranch, trailerValue, uncommittedNotice } from '../actors/index.ts';
 import { budgetState } from '../budgets/index.ts';
 import { ensurePrivateDir } from '../config/index.ts';
 import { commitsBetween, resolveRevision } from '../git/index.ts';
@@ -138,9 +138,9 @@ export async function startRun(
     const identity = await acceptedIdentity(context.reads, context.git, vault.path, accepted.value);
     if (identity.ok) return end('out-of-date', conflictNotice(vault, synced.error.conflict, identity.value.review));
   }
-  if (!synced.ok || synced.value.outcome === 'uncommitted-changes') {
-    const why = !synced.ok ? synced.error.reason : 'uncommitted changes in its worktree';
-    return end('out-of-date', `its actor's branch could not be brought up to date with the accepted main (${why}); "vault sync ${spawn.actor}" resolves it`);
+  if (synced.ok && synced.value.outcome === 'uncommitted-changes') return end('out-of-date', uncommittedNotice(vault, spawn.actor));
+  if (!synced.ok) {
+    return end('out-of-date', `its actor's branch could not be brought up to date with the accepted main (${synced.error.reason}); "vault sync ${vault.id} ${spawn.actor}" tries again`);
   }
   const before = await resolveRevision(context.git, worktree.value.path, 'HEAD');
   if (!before.ok) return end('error', 'its actor\'s branch cannot be read');

@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { conflictNotice, ensureActorWorktree, isTaintedCommit, syncActorBranch, syncConflict, takeActorHold } from '../../../src/core/actors/index.ts';
+import { conflictNotice, ensureActorWorktree, isTaintedCommit, syncActorBranch, syncConflict, takeActorHold, uncommittedNotice } from '../../../src/core/actors/index.ts';
 import { readAttestations } from '../../../src/core/attestations/index.ts';
 import { commitsBetween } from '../../../src/core/git/index.ts';
 import type { ProcessLiveness } from '../../../src/core/process/index.ts';
@@ -104,7 +104,16 @@ test('the conflict notice names the paths and how an owner resolves it; the pull
   const local = conflictNotice(v.vault, conflict, 'local');
   assert.match(local, /actor\/gardener .*conflicts with the accepted main .* in: notes\/a\.md, notes\/b\.md/);
   assert.ok(local.includes('git merge ' + 'b'.repeat(40)));
+  assert.ok(local.includes(`cd ${join(v.vault.worktrees, 'gardener')}`), 'the steps start in the actor worktree');
+  assert.ok(local.includes('git add notes/a.md notes/b.md'), local);
+  assert.ok(local.includes('git merge --abort'), 'and say how to back out');
   assert.ok(local.includes(`vault commit ${v.vault.id} --actor gardener`));
   assert.ok(!local.includes('vault propose'));
   assert.ok(conflictNotice(v.vault, conflict, 'forge').includes(`vault propose ${v.vault.id} gardener`));
+}));
+
+test('the uncommitted-changes notice names the worktree and how to see and commit them', withTestVault(async (v) => {
+  const text = uncommittedNotice(v.vault, 'gardener');
+  assert.ok(text.includes(`  cd ${join(v.vault.worktrees, 'gardener')}\n  git status`), text);
+  assert.ok(text.includes(`vault commit ${v.vault.id} --actor gardener`), text);
 }));

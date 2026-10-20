@@ -66,7 +66,8 @@ test('--open first brings the person\'s worktrees up to date with the accepted m
       writeFileSync(join(mine, 'notes', 'new.md'), 'My edit, not committed.');
       const left = await t.run('workspace', { open: true });
       assert.equal(left.status, 'ok', left.text);
-      assert.match(left.text, /home: left as it is \(uncommitted changes\)/);
+      assert.match(left.text, /home: actor\/alice was left as it is: its worktree has uncommitted changes/);
+      assert.ok(left.text.includes(`  cd ${join(t.vault.worktrees, 'alice')}\n  git status`), 'and where they are');
       assert.equal(readFileSync(join(mine, 'notes', 'new.md'), 'utf8'), 'My edit, not committed.');
       assert.equal(existsSync(join(mine, 'notes', 'later.md')), false);
       assert.doesNotMatch((await t.run('workspace')).text, /brought up to date|left as it is/, 'writing the workspace alone syncs nothing');

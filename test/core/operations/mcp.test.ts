@@ -181,6 +181,7 @@ test('every response for a vault with an unaccepted change carries its notice', 
   const result = await call(t, 'reader', 'vault_status', { vaults: ['home'] });
   assert.equal(result.structured.notices.length, 1);
   assert.match(result.text, /Vault "home": main has 1 unaccepted commit/);
+  assert.ok(!result.text.includes(t.repo.path) && !JSON.stringify(result.structured).includes(t.repo.path), 'no machine path for a remote client');
 }));
 
 test('a bearer token matches only exactly; the scheme\'s name in any case, as HTTP has it', () => {

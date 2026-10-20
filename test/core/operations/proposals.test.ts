@@ -160,6 +160,16 @@ test('sync of a branch that conflicts with the accepted main says what conflicts
   assert.equal(t.repo.git('rev-parse', 'refs/heads/actor/gardener'), head, 'nothing changed');
 }));
 
+test('sync of a branch with uncommitted changes leaves it and says where they are', withInstallation(async (t) => {
+  await t.run('write', { path: 'a.md', content: 'committed', actor: 'gardener' }, { surface: 'mcp' });
+  assert.equal((await t.run('commit', { message: 'work', actor: 'gardener' })).status, 'ok');
+  writeFiles(worktree(t), { 'a.md': 'not committed' });
+  t.repo.write('news.md', 'news');
+  t.accept(t.repo.commit('news'));
+  const synced = await t.run('sync', { actor: 'gardener' });
+  assert.ok(synced.text.includes(`  cd ${worktree(t)}\n  git status`), synced.text);
+}));
+
 test('undelivered notifications, being the whole installation\'s, are shown by status only on local surfaces', withInstallation(async (t) => {
   const { sendNotification } = await import('../../../src/core/notify/index.ts');
   const config = t.installation.notify;

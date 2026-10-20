@@ -8,7 +8,7 @@
 // `main`. Reading, review and interactive work continue meanwhile, against the
 // accepted `main`.
 
-import { commitsBetween, isAncestor, resolveRevision, type CommitInfo, type Git, type GitError, type Sha } from '../git/index.ts';
+import { commitsBetween, isAncestor, resolveRevision, stepsIn, type CommitInfo, type Git, type GitError, type Sha } from '../git/index.ts';
 import type { ReviewMode } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import type { Queryable } from '../store/index.ts';
@@ -30,6 +30,8 @@ export type UnacceptedKind = 'none-accepted' | 'ahead' | 'behind' | 'diverged' |
 export interface UnacceptedChange {
   readonly state: 'unaccepted';
   readonly vault: string;
+  /** The vault's clone, where `main` is mended by hand. */
+  readonly path: string;
   readonly change: UnacceptedKind;
   /** `main`'s tip, or null when `main` is missing. */
   readonly tip: Sha | null;
@@ -62,7 +64,7 @@ export async function integrityStatus(git: Git, store: Queryable, vault: VaultLo
   const tip = await mainTip(git, vault.path);
   if (!tip.ok) return tip;
   const unaccepted = (change: UnacceptedKind, commits: readonly CommitInfo[] = []): Result<IntegrityStatus, GitError> =>
-    ok({ state: 'unaccepted', vault: vault.id, change, tip: tip.value, ...(accepted === undefined ? {} : { accepted }), commits });
+    ok({ state: 'unaccepted', vault: vault.id, path: vault.path, change, tip: tip.value, ...(accepted === undefined ? {} : { accepted }), commits });
 
   if (tip.value === null) return unaccepted('main-missing');
   if (accepted === undefined) return unaccepted('none-accepted');
@@ -87,7 +89,7 @@ export async function requireNoUnacceptedChange(
   return status.value.state === 'accepted' ? ok(status.value.accepted) : err({ reason: 'unaccepted-change', status: status.value });
 }
 
-/** The notice every surface shows for an unaccepted change, naming the vault and the commit. */
+/** The notice every surface shows for an unaccepted change: the vault, the commit, and the commands that resolve it, in the vault's clone. */
 export function unacceptedNotice(status: UnacceptedChange, mode: ReviewMode): string {
   const accepted = status.accepted?.sha;
   const what =
@@ -96,11 +98,21 @@ export function unacceptedNotice(status: UnacceptedChange, mode: ReviewMode): st
     : status.change === 'behind' ? `main was reset to ${status.tip}, behind the accepted main`
     : status.change === 'diverged' ? `main's history was rewritten; it is now at ${status.tip}`
     : `main has ${status.commits.length} unaccepted commit(s), up to ${status.tip}`;
-  const resolve =
-    mode === 'forge' ? 'Sync with the forge to resolve it.'
-    : [
-        status.tip === null ? undefined : `An owner can review and accept it with "vault accept --adopt ${status.tip}"`,
-        accepted === undefined ? undefined : `${status.tip === null ? 'Recreate' : 'or reset'} main at the accepted main ${accepted}`,
-      ].filter((part) => part !== undefined).join(', ') + '.';
-  return `Vault "${status.vault}": ${what}. Automation is paused for this vault. ${resolve}`;
+  const { tip, path } = status;
+  const lines = [`Vault "${status.vault}": ${what}. Automation is paused for this vault.`];
+  if (tip !== null && accepted !== undefined && (status.change === 'ahead' || status.change === 'diverged')) {
+    lines.push(`What it is, in the vault's clone:\n${stepsIn(path, [`git log --oneline ${accepted}..${tip}`])}`);
+  }
+  // A forge-mode vault is accepted on the forge, never from a clone: syncing takes the forge's main as accepted.
+  if (mode === 'forge') lines.push(`If the forge's main has it (merged there), "vault sync ${status.vault}" makes it the accepted main; the daemon does so each minute.`);
+  else if (tip !== null) lines.push(`To accept it, an owner runs "vault accept ${status.vault} --adopt ${tip}".`);
+  if (accepted !== undefined && tip === null) {
+    lines.push(`To recreate main at the accepted main:\n${stepsIn(path, [`git branch main ${accepted}`])}`);
+  } else if (accepted !== undefined && tip !== null) {
+    // `--keep` moves main without losing uncommitted work, refusing if it would; the copy keeps commits main loses.
+    const keep = status.change === 'behind' ? [] : [`git branch unaccepted-${tip.slice(0, 7)} ${tip}`];
+    lines.push(`${mode === 'forge' ? 'If it is only in this clone' : 'Otherwise'}, put main back at the accepted main${keep.length > 0 ? ', keeping a copy of what it drops' : ''}:\n`
+      + stepsIn(path, ['git switch main', ...keep, `git reset --keep ${accepted}`]));
+  }
+  return lines.join('\n');
 }

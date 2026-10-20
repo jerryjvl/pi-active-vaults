@@ -146,7 +146,11 @@ const SESSION = { vault: 'home', actor: 'gardener', holder: { process: { pid: 7,
 async function lostIn(t: TestInstallation, operation: 'status' | 'doctor'): Promise<string[]> {
   const outcome = await t.run(operation, {});
   return operation === 'status'
-    ? outcome.text.split('\n').filter((l) => /no longer attach/.test(l))
+    ? outcome.text.split('\n').flatMap((l, i, all) => {
+        if (!/no longer attach/.test(l)) return [];
+        const steps = all.slice(i + 1).filter((_, j, rest) => rest.slice(0, j + 1).every((s) => s.startsWith('    ')));
+        return [[l, ...steps].join('\n')]; // the report with its indented steps
+      })
     : (outcome.data as { findings: { check: string; level: string; message: string }[] }).findings.filter((f) => f.check === 'merges').map((f) => `${f.level}: ${f.message}`);
 }
 
@@ -253,15 +257,17 @@ for (const { name, before, why, after } of OBSTACLES) {
     assert.equal(status.length, 1);
     assert.match(status[0] ?? '', new RegExp(`#2 from gardener .*head ${head} is not in main`));
     assert.match(status[0] ?? '', /reset actor\/gardener to main/, 'what to do');
-    const command = /`(git [^`]+)`/.exec(status[0] ?? '')?.[1];
-    assert.ok(command !== undefined, 'the exact command');
+    // The steps: indented lines, the cd to where they run first.
+    const steps = (status[0] ?? '').split('\n').filter((l) => /^\s+(cd|git) /.test(l)).map((l) => l.trim());
+    assert.ok(steps[0]?.startsWith('cd ') && steps.some((s) => s.startsWith('git ')), 'the exact commands, with their directory');
+    const command = steps.join(' && ');
     assert.match(status[0] ?? '', /discards/, 'and what it costs');
     assert.equal(command.includes(join(t.vault.worktrees, 'gardener')), t.repo.git('worktree', 'list').includes(join(t.vault.worktrees, 'gardener')), 'it names the worktree where the branch has one, the vault where not');
     assert.equal((await lostIn(t, 'doctor')).length, 1);
     const told = outboxOf(t);
     assert.equal(told.length, 1);
     assert.match(told[0]?.body ?? '', why);
-    assert.ok((told[0]?.body ?? '').includes(command), 'the notice gives the same command');
+    assert.ok(steps.every((s) => (told[0]?.body ?? '').includes(`  ${s}`)), 'the notice gives the same commands');
 
     t.clock.advance(10 * MINUTE);
     await automation.tick();

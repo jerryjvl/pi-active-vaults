@@ -83,7 +83,9 @@ With no `mcp` section, or a profile with no permissions, MCP can touch nothing.
 - **Same behaviour everywhere.** An operation over MCP enforces exactly what it
   enforces in Pi or the CLI — merge policy, write guards, scripts from the
   accepted `main` — and every response for a vault with an unaccepted change
-  carries the same notice.
+  carries the same notice. One difference: where a notice or an error gives
+  commands to run by hand, a client on another machine is told they are for
+  the vault's own machine instead of getting its directories.
 - **One daemon per installation.** Different permission sets are separate
   profiles, not separate daemons: the daemon also owns scheduling, which must
   not run twice. `vault mcp` processes only run operations, so any number can

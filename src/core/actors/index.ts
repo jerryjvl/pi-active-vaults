@@ -16,7 +16,7 @@ export {
   type WorktreeError,
 } from './worktrees.ts';
 export { readProposal, type Proposal, type ProposalError } from './proposal.ts';
-export { conflictNotice, syncActorBranch, syncConflict, type SyncConflict, type SyncError, type SyncOutcome, type SyncRequest } from './sync.ts';
+export { conflictNotice, syncActorBranch, syncConflict, uncommittedNotice, type SyncConflict, type SyncError, type SyncOutcome, type SyncRequest } from './sync.ts';
 export { resetActorBranch, type ResetContext, type ResetOutcome } from './reset.ts';
 export { actorsSchema } from './schema.ts';
 export { actorHold, heldByAnother, listActorHolds, releaseActorHold, takeActorHold, type ActorHold, type HoldError, type Holder, type StandingHold } from './holds.ts';

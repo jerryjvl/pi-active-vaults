@@ -177,7 +177,7 @@ test('merging into a tree with tracked changes is refused and leaves them alone'
   const { reviewed } = proposal(repo);
   repo.write('a.md', 'local edit\n');
   const result = await mergeSha(git, repo.path, reviewed, { message: 'x' });
-  assert.deepEqual(result, { ok: false, error: { reason: 'dirty-worktree' } });
+  assert.deepEqual(result, { ok: false, error: { reason: 'dirty-worktree', repo: repo.path } });
   assert.equal(repo.git('status', '--porcelain'), 'M a.md');
 }));
 
@@ -359,7 +359,7 @@ test('a commit is refused while a merge still has unresolved conflicts, and the 
   const git = gitFor(repo);
   const { ours } = conflictedMerge(repo);
   const made = await createCommit(git, repo.path, { message: 'Too early' });
-  assert.deepEqual(made, { ok: false, error: { reason: 'unresolved-conflicts', paths: ['a.md'] } });
+  assert.deepEqual(made, { ok: false, error: { reason: 'unresolved-conflicts', paths: ['a.md'], repo: repo.path } });
   assert.equal(repo.git('rev-parse', 'HEAD'), ours);
   assert.equal(existsSync(join(repo.path, '.git', 'MERGE_HEAD')), true);
 }));
@@ -370,7 +370,7 @@ test('a commit of some paths is refused while a merge is in progress: a merge is
   repo.write('a.md', 'resolved\n');
   repo.git('add', 'a.md');
   const made = await createCommit(git, repo.path, { message: 'Part', stage: ['a.md'] });
-  assert.equal(made.ok === false && made.error.reason, 'merge-in-progress');
+  assert.deepEqual(made, { ok: false, error: { reason: 'merge-in-progress', repo: repo.path } });
   assert.equal(repo.git('rev-parse', 'HEAD'), ours);
 }));
 

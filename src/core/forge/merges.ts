@@ -19,7 +19,7 @@
 //    every commit it contains.
 
 import { actorBranch, type ResetOutcome } from '../actors/index.ts';
-import { isAncestor, listWorktrees, type Git } from '../git/index.ts';
+import { isAncestor, listWorktrees, stepsIn, type Git } from '../git/index.ts';
 import { MAIN_BRANCH, type AcceptedMain, type VaultLocation } from '../integrity/index.ts';
 import { ok, type Result } from '../result/index.ts';
 import type { Queryable } from '../store/index.ts';
@@ -93,21 +93,19 @@ export function lostMergeText(r: MergeResult): string {
   return `Pull request #${r.pull} from ${r.actor} (${actorBranch(r.actor)}${r.url === '' ? '' : `, ${r.url}`}) was merged without its commits: its head ${r.head} is not in main (${r.main}), so its attestations and trace notes no longer attach.`;
 }
 
-/** A path as one shell word: bare when it is plain, else quoted (double quotes where it has a backslash, as on Windows). */
-function shellWord(path: string): string {
-  if (/^[\w@%+=:,./\\-]+$/.test(path)) return path;
-  return path.includes('\\') ? `"${path.replaceAll('"', '\\"')}"` : `'${path.replaceAll("'", "'\\''")}'`;
-}
-
 /**
  * What ends it, for the owner to do when the package did not reset the branch:
- * the one command — in the worktree where the branch is checked out, else on
- * the vault — and when it may be run (the conditions of `resetActorBranch`).
+ * the commands — in the worktree where the branch is checked out (seeing
+ * first that nothing there is uncommitted), else in the vault's clone — and
+ * when they may be run (the conditions of `resetActorBranch`).
  */
 function lostMergeAdvice(r: MergeResult, vault: VaultLocation, checkout: string | undefined): string {
   const branch = actorBranch(r.actor);
-  const command = checkout === undefined ? `git -C ${shellWord(vault.path)} branch -f ${branch} main` : `git -C ${shellWord(checkout)} reset --hard main`;
-  return `While the branch holds the head it is not proposed again. To end this, reset ${branch} to main once no session holds ${r.actor} and nothing in its worktree is uncommitted: \`${command}\` — it discards everything the branch holds beyond main.`;
+  const steps = checkout === undefined
+    ? stepsIn(vault.path, [`git branch -f ${branch} main`])
+    : stepsIn(checkout, ['git status', 'git reset --hard main']);
+  return `While the branch holds the head it is not proposed again. To end this, reset ${branch} to main once no session holds ${r.actor}`
+    + `${checkout === undefined ? '' : ' and "git status" shows nothing uncommitted in its worktree'} — it discards everything the branch holds beyond main:\n${steps}`;
 }
 
 /** A lost merge as status and doctor show it: what happened, and what to do. */

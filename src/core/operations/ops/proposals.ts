@@ -6,7 +6,7 @@
 
 import { writeFileSync } from 'node:fs';
 import {
-  accept, adopt, adoptionDelta, commitAsActor, conflictNotice, ensureActorWorktree, heldByAnother, worktreeFile, listActorHolds, readProposal, review, syncActorBranch,
+  accept, adopt, adoptionDelta, commitAsActor, conflictNotice, uncommittedNotice, ensureActorWorktree, heldByAnother, worktreeFile, listActorHolds, readProposal, review, syncActorBranch,
   type AdoptionDelta, type Review,
 } from '../../actors/index.ts';
 import { backupVault } from '../../backup/index.ts';
@@ -80,7 +80,7 @@ export const statusOperation: Operation = {
       const held = holds.filter((h) => h.vault === vault.id);
       for (const hold of held) lines.push(`  ${hold.actor} held by session ${hold.holder.session} (process ${hold.holder.process.pid}${hold.standing === 'cannot-tell' ? ', cannot tell whether it still runs' : ''})`);
       const lost = await lostMerges(context.git, context.state, vault);
-      for (const merge of lost) lines.push(`  ${lostMergeReport(merge, vault)}`);
+      for (const merge of lost) lines.push(lostMergeReport(merge, vault).split('\n').map((line) => `  ${line}`).join('\n'));
       vaults.push({ vault: vault.id, accepted: accepted.ok ? accepted.value.sha : null, ...(worktree === undefined ? {} : { worktree }), proposals, work, unrunnable, holds: held, lostMerges: lost });
     }
     // The outbox is the whole installation's, so a remote client — permitted for some vaults — does not see it.
@@ -223,6 +223,7 @@ export const syncOperation: Operation = {
       if (!synced.ok) return fromError(synced.error, { outcomes });
       outcomes.push({ actor, ...synced.value });
       if (synced.value.outcome === 'left-ahead') lines.push(`${actor}: left as it is at ${synced.value.head ?? ''}: its work is not in main yet, and the forge merges it as it stands (an owner's branch is never merged with main here, so the pull request keeps the commit you approve)`);
+      else if (synced.value.outcome === 'uncommitted-changes') lines.push(`${actor}: ${uncommittedNotice(vault, actor)}`);
       else if (synced.value.outcome !== 'no-branch') lines.push(`${actor}: ${synced.value.outcome}${synced.value.head === undefined ? '' : ` at ${synced.value.head}`}`);
     }
     if (identity.value.review === 'local' && vault.remote !== undefined) lines.push(await backupLine(context, { ...vault, remote: vault.remote }));

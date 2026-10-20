@@ -57,6 +57,7 @@ export {
   type PreparedCommit,
 } from './write.ts';
 export { isSha } from './validate.ts';
+export { shellWord, stepsIn, withoutSteps } from './steps.ts';
 export { addWorktree, exportTree, listWorktrees, removeWorktree, type AddWorktreeOptions, type Worktree } from './worktrees.ts';
 export { appendNoteLine, notesAdd, notesAppend, notesList, notesMergeLines, notesRemove, notesShow, type NoteWriteOptions } from './notes.ts';
 export { checkRemote, fetchCommit, fetchRefs, pushRefs, remoteRef, remoteUrl, type Lease } from './remote.ts';

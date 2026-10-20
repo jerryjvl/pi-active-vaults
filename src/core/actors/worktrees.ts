@@ -126,7 +126,7 @@ export type ActorCommitError =
   | GitError
   | HoldError
   | ScriptRunError
-  | { readonly reason: 'wrong-branch'; readonly expected: string; readonly actual?: string }
+  | { readonly reason: 'wrong-branch'; readonly expected: string; readonly actual?: string; readonly worktree: string }
   /** Not made: these are every check's verdicts, not all of them passing. */
   | { readonly reason: 'checks-failed'; readonly results: readonly CheckResult[] }
   /** Made, but its passing verdicts could not be recorded; it needs its checks again. */
@@ -143,7 +143,7 @@ export async function commitAsActor(context: ActorCommitContext, vault: VaultLoc
   const expected = actorBranch(actor);
   const branch = await currentBranch(git, worktree);
   if (!branch.ok) return branch;
-  if (branch.value !== expected) return err({ reason: 'wrong-branch', expected, ...(branch.value === undefined ? {} : { actual: branch.value }) });
+  if (branch.value !== expected) return err({ reason: 'wrong-branch', expected, ...(branch.value === undefined ? {} : { actual: branch.value }), worktree });
   const hold = await heldByAnother(context.store, context.alive, vault.id, actor, commit.holder);
   if (hold !== undefined) return err({ reason: 'actor-busy', hold });
 

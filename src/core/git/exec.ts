@@ -25,13 +25,14 @@ export type GitError =
   | { readonly reason: 'unknown-revision'; readonly revision: string }
   | { readonly reason: 'not-found'; readonly path: string }
   | { readonly reason: 'ref-moved'; readonly ref: string }
-  | { readonly reason: 'dirty-worktree' }
+  /** `repo` is the worktree with the uncommitted changes. */
+  | { readonly reason: 'dirty-worktree'; readonly repo: string }
   | { readonly reason: 'nothing-to-commit' }
   | { readonly reason: 'conflict'; readonly paths: readonly string[] }
   /** A merge in progress still has these paths unresolved: nothing is committed until they are. */
-  | { readonly reason: 'unresolved-conflicts'; readonly paths: readonly string[] }
+  | { readonly reason: 'unresolved-conflicts'; readonly paths: readonly string[]; readonly repo: string }
   /** A merge in progress is committed whole, never some of its paths. */
-  | { readonly reason: 'merge-in-progress' }
+  | { readonly reason: 'merge-in-progress'; readonly repo: string }
   | { readonly reason: 'timed-out'; readonly command: string }
   | { readonly reason: 'output-too-large'; readonly command: string }
   | { readonly reason: 'git-failed'; readonly command: string; readonly exitCode: number | null; readonly stderr: string };
