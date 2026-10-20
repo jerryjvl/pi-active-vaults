@@ -48,6 +48,8 @@ export interface OperationContext {
   scriptOptions(): Promise<CheckRunOptions>;
   /** Where SMTP connects and what it trusts besides the system — a test seam only. */
   readonly smtp?: { readonly port?: number; readonly ca?: string; readonly timeoutMs?: number };
+  /** Where a long operation tells a person how far it has got (the CLI's standard error); absent elsewhere. */
+  readonly progress?: (line: string) => void;
   close(): void;
 }
 
@@ -62,6 +64,7 @@ export interface ContextOptions {
   readonly smtp?: OperationContext['smtp'];
   /** The daemon link's sender, when a daemon runs. */
   readonly send?: SpawnSender;
+  readonly progress?: OperationContext['progress'];
 }
 
 /** A script's time limit: scripts are exact, bounded work, not sessions. */
@@ -119,6 +122,7 @@ export function createContext(installation: Installation, options: ContextOption
       })()),
       ...(options.smtp === undefined ? {} : { smtp: options.smtp }),
       ...(options.send === undefined ? {} : { send: options.send }),
+      ...(options.progress === undefined ? {} : { progress: options.progress }),
       close: () => {
         state.value.close();
         if (index?.ok) index.value.close();

@@ -57,6 +57,16 @@ export interface IndexReport {
 
 export type IndexError = UnacceptedChangeError | GitError;
 
+/** How far an update has got: documents read and chunked, then chunks given vectors. */
+export interface IndexProgress {
+  readonly vault: string;
+  readonly phase: 'reading' | 'embedding';
+  readonly done: number;
+  readonly total: number;
+}
+
+export type ProgressListener = (progress: IndexProgress) => void;
+
 interface Wanted {
   readonly path: string;
   readonly blob: string;
@@ -118,7 +128,7 @@ function groupsOf(documents: readonly MissingDocument[], batch: number): Missing
   return groups;
 }
 
-async function addVectors(context: SearchContext, vault: VaultLocation, sha: Sha): Promise<VectorState> {
+async function addVectors(context: SearchContext, vault: VaultLocation, sha: Sha, onProgress?: ProgressListener): Promise<VectorState> {
   const model = searchModel(context, 'embed', [vault.id]);
   if (!model.ok) return { state: 'none', reason: model.error.reason === 'no-default' ? 'no-embed-model' : 'not-allowed' };
   if (!context.index.vectors) return { state: 'none', reason: 'no-vector-extension' };
@@ -138,6 +148,11 @@ async function addVectors(context: SearchContext, vault: VaultLocation, sha: Sha
     [vault.id],
   );
   if (rows.length === 0 || context.models === undefined) return { state: 'complete' };
+  let embedded = 0;
+  const advance = (count: number): void => {
+    embedded += count;
+    onProgress?.({ vault: vault.id, phase: 'embedding', done: Math.min(embedded, rows.length), total: rows.length });
+  };
   const { client } = context.models;
   const byPath = new Map<string, MissingDocument>();
   for (const row of rows) {
@@ -199,6 +214,7 @@ async function addVectors(context: SearchContext, vault: VaultLocation, sha: Sha
       const vectors = await embed(client, model.value, chunks.map(embeddingText));
       if (vectors.ok) {
         store(chunks, vectors.value);
+        advance(chunks.length);
         continue;
       }
       if (!refusedContent(vectors.error)) {
@@ -212,6 +228,7 @@ async function addVectors(context: SearchContext, vault: VaultLocation, sha: Sha
           return;
         }
         if (alone.value === 'refused') unembedded.push(document.path);
+        advance(document.chunks.length);
       }
     }
   };
@@ -221,7 +238,7 @@ async function addVectors(context: SearchContext, vault: VaultLocation, sha: Sha
 }
 
 /** Brings the vault's part of the index up to its accepted `main`. */
-export async function updateIndex(context: SearchContext, vault: VaultLocation): Promise<Result<IndexReport, IndexError>> {
+export async function updateIndex(context: SearchContext, vault: VaultLocation, onProgress?: ProgressListener): Promise<Result<IndexReport, IndexError>> {
   const { git, index } = context;
   const accepted = await requireNoUnacceptedChange(git, context.state, vault);
   if (!accepted.ok) return accepted;
@@ -249,6 +266,7 @@ export async function updateIndex(context: SearchContext, vault: VaultLocation):
   ).map((row) => [row.path, row]));
   const prepared: Prepared[] = [];
   const rescoped: Wanted[] = [];
+  const toRead = wanted.filter((document) => indexed.get(document.path)?.blob !== document.blob).length;
   for (const document of wanted) {
     const before = indexed.get(document.path);
     if (before?.blob === document.blob) {
@@ -258,6 +276,7 @@ export async function updateIndex(context: SearchContext, vault: VaultLocation):
     const text = await readTextAt(git, vault.path, sha, document.path);
     if (!text.ok) return text;
     prepared.push({ ...document, ...chunkDocument(vault.id, document.path, text.value ?? '') });
+    onProgress?.({ vault: vault.id, phase: 'reading', done: prepared.length, total: toRead });
   }
   const keep = new Set(wanted.map((w) => w.path));
   const removed = [...indexed.keys()].filter((path) => !keep.has(path)).sort();
@@ -277,7 +296,7 @@ export async function updateIndex(context: SearchContext, vault: VaultLocation):
     changed: prepared.filter((d) => indexed.has(d.path)).map((d) => d.path).sort(),
     removed,
     skipped,
-    vectors: await addVectors(context, vault, sha),
+    vectors: await addVectors(context, vault, sha, onProgress),
   });
 }
 

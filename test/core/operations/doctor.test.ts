@@ -100,9 +100,36 @@ test('doctor reports a job that cannot run, with why', withInstallation(async (t
   t.repo.write('jobs/actorless.md', '---\napplies-when:\n  - { on: external, name: bell, effect: spawn }\nbudget: { tokens: 500, ttl: 2m }\n---\n');
   t.repo.commit('job');
   t.accept();
-  const jobs = about((await findings(t)).found, 'jobs');
+  const jobs = about((await findings(t)).found, 'jobs').filter((f) => f.message.includes('cannot run'));
   assert.deepEqual(jobs.map((f) => f.level), ['warning']);
   assert.match(jobs[0]?.message ?? '', /jobs\/actorless\.md cannot run: actor: is required/);
+}));
+
+const BELL = '---\napplies-when:\n  - { on: external, name: bell, effect: spawn }\nactor: gardener\nbudget: { tokens: 500, ttl: 2m }\n---\n';
+const whereJobsRun = async (t: TestInstallation) => {
+  t.repo.write('jobs/bell.md', BELL);
+  t.repo.commit('job');
+  t.accept();
+  return about((await findings(t)).found, 'jobs').map((f) => [f.level, f.message]);
+};
+
+test('doctor says where a vault\'s jobs run: here when hosted here', withInstallation(async (t) => {
+  assert.deepEqual(await whereJobsRun(t), [['ok', '1 job runs here (host: true).']]);
+}, { host: true }));
+
+test('doctor says where a vault\'s jobs run: on the executor the contract names, which is no warning', withInstallation(async (t) => {
+  assert.deepEqual(await whereJobsRun(t), [['ok', '1 job runs on vaults@studio, the vault\'s executor, not here.']]);
+}, { contract: { executor: 'vaults@studio' } }));
+
+test('doctor warns when a vault has jobs but names no executor and is not hosted here: they may run nowhere', withInstallation(async (t) => {
+  const found = await whereJobsRun(t);
+  assert.equal(found.length, 1);
+  assert.equal(found[0]?.[0], 'warning');
+  assert.match(found[0]?.[1] ?? '', /^1 job, but it does not run here: the vault names no executor and host is not true/);
+}));
+
+test('doctor says nothing of where jobs run when a vault has none', withInstallation(async (t) => {
+  assert.deepEqual(about((await findings(t)).found, 'jobs'), []);
 }));
 
 // daemon.md "Responsibilities": a reference-transaction hook in each vault
@@ -225,7 +252,7 @@ test('doctor reports a default that documents need but is missing, once per role
   assert.equal(missing.length, 2);
   assert.match(missing[0]?.message ?? '', /the default agent model is not configured, which jobs\/a\.md needs; it cannot run/);
   assert.match(missing[1]?.message ?? '', /the default judgement model is not configured, which axis evidence \(topics\/_contract\.md\) needs; it stays unjudged/);
-  const cannot = about(found, 'jobs').map((f) => f.message);
+  const cannot = about(found, 'jobs').map((f) => f.message).filter((m) => m.includes('cannot run'));
   assert.equal(cannot.length, 1, 'jobs/b.md asks for a model that is configured and allowed, so it can run');
   assert.match(cannot[0] ?? '', /jobs\/a\.md cannot run: no agent model it may use/);
 }, models(`  quick: { role: agent, model: p/small }`, ['quick'])));
@@ -248,7 +275,7 @@ test('doctor says nothing of models when documents ask for nothing unusual', wit
   t.accept();
   const { found } = await findings(t);
   assert.deepEqual(about(found, 'models').filter((f) => f.vault === 'home'), []);
-  assert.deepEqual(about(found, 'jobs'), []);
+  assert.deepEqual(about(found, 'jobs').filter((f) => f.message.includes('cannot run')), []);
 }, models(`  agent: { model: p/big }\n  quick: { role: agent, model: p/small }`, ['agent', 'quick'])));
 
 test('doctor warns of a policy that names a model that is not configured, as a typo would', withInstallation(async (t) => {

@@ -4,7 +4,8 @@
 
 import { acceptedContract, mainTip } from '../../integrity/index.ts';
 import { readTextAt } from '../../git/index.ts';
-import { search, updateIndex, type IndexReport, type SearchNote } from '../../search/index.ts';
+import type { Clock } from '../../clock/index.ts';
+import { search, updateIndex, type IndexProgress, type IndexReport, type SearchNote } from '../../search/index.ts';
 import { fromError, invalid, succeeded } from '../messages.ts';
 import type { Operation, OperationStatus } from '../types.ts';
 import { integer, lineRange, readingFrom, searchContext, text, theVault } from './common.ts';
@@ -111,6 +112,27 @@ function reportText(report: IndexReport): string {
   return `${report.vault}: indexed at ${report.sha}: ${report.added.length} added, ${report.changed.length} changed, ${report.removed.length} removed, ${report.skipped.length} skipped; ${vectors}.`;
 }
 
+/** How long an update runs before it says how far it has got, and how often after that. */
+export const PROGRESS_EVERY_MS = 5_000;
+
+export function progressText({ vault, phase, done, total }: IndexProgress): string {
+  const share = total === 0 ? 100 : Math.floor((done / total) * 100);
+  return `${vault}: ${phase === 'reading' ? 'reading documents' : 'embedding chunks'} ${done.toLocaleString('en-US')} / ${total.toLocaleString('en-US')} (${share}%)`;
+}
+
+/** A listener that writes a line once an update has run a while, then every few seconds and at each phase's end. */
+export function progressReporter(clock: Clock, write: (line: string) => void): (progress: IndexProgress) => void {
+  const started = clock.now().getTime();
+  let last = started;
+  return (progress) => {
+    const now = clock.now().getTime();
+    const finished = progress.done === progress.total;
+    if (now - started < PROGRESS_EVERY_MS || (now - last < PROGRESS_EVERY_MS && !finished)) return;
+    last = now;
+    write(progressText(progress));
+  };
+}
+
 export const reindexOperation: Operation = {
   name: 'reindex',
   summary: 'Bring the search index up to the accepted main',
@@ -124,7 +146,9 @@ export const reindexOperation: Operation = {
     const lines: string[] = [];
     let worst: OperationStatus = 'ok';
     for (const vault of request.vaults) {
-      const updated = await updateIndex(searchContext(context, index.value), vault);
+      // Quiet for a quick update; for a long one, a line every few seconds and at each phase's end.
+      const onProgress = context.progress === undefined ? undefined : progressReporter(context.clock, context.progress);
+      const updated = await updateIndex(searchContext(context, index.value), vault, onProgress);
       if (updated.ok) {
         reports.push(updated.value);
         lines.push(reportText(updated.value));

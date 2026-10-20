@@ -16,6 +16,8 @@ export interface RootContractOptions {
   readonly owners?: readonly string[];
   readonly actors?: readonly string[];
   readonly review?: 'local' | 'forge';
+  /** The installation that runs its jobs (`vault.executor`). */
+  readonly executor?: string;
   /** Extra top-level YAML, such as `merge:` rules. */
   readonly extra?: string;
 }
@@ -31,6 +33,7 @@ export function rootContract(options: RootContractOptions = {}): string {
     `  owners: [${(options.owners ?? ['alice']).join(', ')}]`,
     `  actors: [${(options.actors ?? ['gardener']).join(', ')}]`,
     ...(options.review === undefined ? [] : [`  review: ${options.review}`]),
+    ...(options.executor === undefined ? [] : [`  executor: ${options.executor}`]),
     ...(options.extra === undefined ? [] : [options.extra.trimEnd()]),
     '---',
     'Root prose.',

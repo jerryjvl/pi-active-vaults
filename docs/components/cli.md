@@ -43,6 +43,7 @@ its operation's parameters (`vault <command> --help`).
 - actor holds, including any whose holder cannot be told;
 - a leftover Git lock in `main`'s worktree, and undelivered notifications;
 - search that is keyword-only because no `policy` entry names the vault;
+- where each vault's jobs run, as far as this installation can tell: here, or on the executor its contract names; a warning when it has jobs but names no executor and `host` is not true here, since they then run only where some other installation hosts it, if any;
 - jobs that cannot run (no budget, no permitted actor, or no `agent` model it may use), and an unset `budgets.daily-tokens`;
 - models: requested names that are not configured (and the default that answers instead), names with the wrong role, defaults that documents need but are missing, models `policy` does not allow where they are asked for, and `policy` names that match no configured model.
 
@@ -53,7 +54,7 @@ its operation's parameters (`vault <command> --help`).
 | `vault search <query>` | Search registered vaults (`--vault`, `--scope <glob>`) |
 | `vault read <path>` | Print a document, with freshness against the accepted `main` |
 | `vault contract <path>` | Effective contract for a path, with the origin of each key |
-| `vault reindex [vault]` | Rebuild the search index |
+| `vault reindex [vault]` | Rebuild the search index. An update that runs longer than a few seconds says how far it has got on standard error — documents read, then chunks embedded — every few seconds and at the end of each phase |
 
 ### Proposals
 

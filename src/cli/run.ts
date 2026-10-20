@@ -110,7 +110,11 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
   }
   // A daemon that runs takes the spawns a command requests at once; without one they are queued for it.
   const link = await linkDaemon(installation.value.paths.socket);
-  const made = createContext(installation.value, { ...io.context, ...(link === undefined ? {} : { send: link.send }) });
+  const made = createContext(installation.value, {
+    progress: (line) => io.write('stderr', `${line}\n`),
+    ...io.context,
+    ...(link === undefined ? {} : { send: link.send }),
+  });
   if (!made.ok) {
     link?.close();
     io.write('stderr', `vault: the state database cannot be opened (${made.error.reason}).\n`);

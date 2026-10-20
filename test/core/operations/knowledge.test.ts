@@ -6,6 +6,8 @@
 // model is keyword-only and says so.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { PROGRESS_EVERY_MS, progressReporter } from '../../../src/core/operations/ops/knowledge.ts';
+import { fakeClock } from '../../support/clock.ts';
 import { withInstallation } from '../../support/installation.ts';
 
 test('read shows the accepted main\'s version and whether main has since changed or removed it', withInstallation(async (t) => {
@@ -69,3 +71,23 @@ test('a request that does not fit the operation is invalid, not refused: paramet
   assert.match(missing.text, /path: is required/);
   assert.equal((await t.run('search', { query: '"" *' })).status, 'invalid');
 }));
+
+test('reindex progress: nothing for a quick update; for a long one, a line every few seconds and at the end of each phase', () => {
+  const clock = fakeClock();
+  const lines: string[] = [];
+  const report = progressReporter(clock, (line) => lines.push(line));
+  const at = (done: number, total = 10, phase: 'reading' | 'embedding' = 'embedding') => report({ vault: 'library', phase, done, total });
+  at(1); at(2, 10, 'reading');
+  clock.advance(PROGRESS_EVERY_MS - 1);
+  at(10, 10, 'reading');
+  assert.deepEqual(lines, [], 'quiet before the first few seconds, even at a phase end');
+  clock.advance(1);
+  at(3);
+  clock.advance(1000);
+  at(4);
+  assert.deepEqual(lines, ['library: embedding chunks 3 / 10 (30%)'], 'then one line, and none sooner than the next interval');
+  at(10);
+  clock.advance(PROGRESS_EVERY_MS);
+  at(4_743, 4_743, 'reading');
+  assert.deepEqual(lines.slice(1), ['library: embedding chunks 10 / 10 (100%)', 'library: reading documents 4,743 / 4,743 (100%)'], 'a phase end is always told');
+});

@@ -11,7 +11,7 @@
 // identity, a `core.hooksPath` that bypasses the package's hooks, the
 // pre-push guard, a remote on a `local` vault, locks left in main's worktree,
 // forge protection and merge methods in `forge` mode, merged proposals whose
-// commits did not reach main, hosting conflicts, search falling back to
+// commits did not reach main, hosting conflicts, where its jobs run, search falling back to
 // keywords because no policy entry names the vault, jobs that cannot run
 // (for lack of an `agent` model too), and the models its jobs and axes ask for;
 // then sessions holding
@@ -36,7 +36,7 @@ import { jobsWithoutModel, modelMessages, unavailableText } from '../models.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
 import { daemonRecord, recordedServiceTools, recoverRuns, vaultJobs } from '../../queue/index.ts';
 import { runProcess } from '../../process/index.ts';
-import { checkRegisteredIdentity, hosting, type RegisteredVault } from '../../registry/index.ts';
+import { checkRegisteredIdentity, hosting, type RegisteredVault, type VaultIdentity } from '../../registry/index.ts';
 import { scriptEnvironment, type OperationContext } from '../context.ts';
 import { failed, succeeded } from '../messages.ts';
 import type { Operation } from '../types.ts';
@@ -170,22 +170,42 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
     }
   }
   if (accepted.ok) {
-    findings.push(...(await jobFindings(context, vault, accepted.value)));
+    findings.push(...(await jobFindings(context, vault, accepted.value, identity.value)));
     for (const message of await modelMessages(installation.config, git, vault.path, vault.id, accepted.value, context.reads)) findings.push(at('warning', 'models', message));
   }
   return findings;
 }
 
-/** Each job on the accepted main that cannot run — no readable budget, no actor that may write, no `agent` model it may use — with why. */
-async function jobFindings(context: OperationContext, vault: RegisteredVault, accepted: AcceptedMain): Promise<Finding[]> {
+/**
+ * Where the vault's jobs run, as far as this installation can tell — here, on the executor its contract names, or,
+ * with neither, nowhere from here — then each job on the accepted main that cannot run (no readable budget, no actor
+ * that may write, no `agent` model it may use), with why.
+ */
+async function jobFindings(context: OperationContext, vault: RegisteredVault, accepted: AcceptedMain, identity: VaultIdentity): Promise<Finding[]> {
   const jobs = await vaultJobs(context.git, vault.path, accepted, context.reads);
   if (!jobs.ok) return [{ level: 'problem', check: 'jobs', vault: vault.id, message: `Its jobs cannot be read (${jobs.error.reason}).` }];
   const unmodelled = new Map(jobsWithoutModel(context.installation.config, vault.id, jobs.value).map(({ job, why }) => [job.path, why]));
-  return jobs.value.flatMap((job) => {
+  const where: Finding[] = [];
+  const count = jobs.value.length;
+  if (count > 0) {
+    const one = count === 1;
+    const these = `${count} job${one ? '' : 's'}`;
+    const run = one ? 'runs' : 'run';
+    const name = context.installation.config.name;
+    const place = hosting(vault, identity, name);
+    if (place.runsHere) where.push({ level: 'ok', check: 'jobs', vault: vault.id, message: `${these} ${run} here (${identity.executor === undefined ? 'host: true' : `the executor is ${name}`}).` });
+    else if (identity.executor !== undefined) {
+      // A conflict (host: true here too) is the hosting check's warning; otherwise running elsewhere is the intent.
+      if (!place.conflict) where.push({ level: 'ok', check: 'jobs', vault: vault.id, message: `${these} ${run} on ${identity.executor}, the vault's executor, not here.` });
+    } else {
+      where.push({ level: 'warning', check: 'jobs', vault: vault.id, message: `${these}, but ${one ? 'it does' : 'they do'} not run here: the vault names no executor and host is not true in this installation. ${one ? 'It runs' : 'They run'} only where an installation hosts the vault; name one with executor: in the contract, or set host: true where they should run.` });
+    }
+  }
+  return [...where, ...jobs.value.flatMap((job) => {
     const why = unmodelled.get(job.path);
     const reasons = [...job.issues.map((i) => `${i.path}: ${i.message}`), ...(why === undefined ? [] : [`no agent model it may use (${unavailableText(why)})`])];
     return reasons.length === 0 ? [] : [{ level: 'warning' as const, check: 'jobs', vault: vault.id, message: `${job.path} cannot run: ${reasons.join('; ')}` }];
-  });
+  })];
 }
 
 async function forgeFindings(context: OperationContext, vault: RegisteredVault, owners: readonly string[]): Promise<Finding[]> {

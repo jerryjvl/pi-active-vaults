@@ -15,7 +15,7 @@ import type { EndpointRole, InstallationConfig, ModelEntry } from '../../../src/
 import { recordAccepted, type VaultLocation } from '../../../src/core/integrity/index.ts';
 import type { ModelClient } from '../../../src/core/models/index.ts';
 import { INDEX_MODULES, openIndexStore } from '../../../src/core/operations/index.ts';
-import { documentsWithoutVectors, search, updateIndex, type SearchContext, type SearchRequest } from '../../../src/core/search/index.ts';
+import { documentsWithoutVectors, search, updateIndex, type IndexProgress, type SearchContext, type SearchRequest } from '../../../src/core/search/index.ts';
 import { INDEX_FILE, openStore, type Store } from '../../../src/core/store/index.ts';
 import { createTempRepo, gitFor } from '../../support/git-repo.ts';
 import { startStubServer, type StubHandler, type StubServer } from '../../support/stub-server.ts';
@@ -218,6 +218,33 @@ test('with an embedding model, vectors find what keywords miss, and keyword and 
     assert.equal(vectorOnly.hits[0]?.path, 'cars.md');
     const both = await found(context(roles), { query: 'brakes', vaults: [v.vault] });
     assert.equal(both.hits[0]?.path, 'cars.md');
+  });
+}));
+
+test('an update reports its progress: documents read, then chunks embedded, each ending at its total; unchanged documents are not counted', withSearch(async ({ v, context }) => {
+  for (let i = 0; i < 6; i++) v.repo.write(`notes/${i}.md`, `# Note ${i}\nMy car needs new brakes, note ${i}.`);
+  v.repo.commit('notes');
+  v.accept();
+  await withStubs({ embed: embeddings }, async ({ embed }) => {
+    const roles = { embed: { url: embed!.url } };
+    const seen: IndexProgress[] = [];
+    const first = await updateIndex(context(roles), v.vault, (p) => seen.push(p));
+    assert.ok(first.ok);
+    const reading = seen.filter((p) => p.phase === 'reading');
+    const embedding = seen.filter((p) => p.phase === 'embedding');
+    const total = first.value.added.length; // the six notes and the vault's own contract
+    assert.equal(total, 7);
+    assert.deepEqual(reading.map((p) => [p.done, p.total]), Array.from({ length: total }, (_, i) => [i + 1, total]));
+    assert.ok(embedding.length > 0 && seen.indexOf(embedding[0]!) > seen.indexOf(reading.at(-1)!), 'embedding follows reading');
+    assert.equal(embedding.at(-1)!.done, embedding.at(-1)!.total);
+    assert.ok(embedding.every((p, i) => i === 0 || p.done >= embedding[i - 1]!.done), 'never goes backwards');
+
+    v.repo.write('notes/0.md', '# Note 0\nChanged.');
+    v.repo.commit('one change');
+    v.accept();
+    const again: IndexProgress[] = [];
+    assert.ok((await updateIndex(context(roles), v.vault, (p) => again.push(p))).ok);
+    assert.deepEqual(again.filter((p) => p.phase === 'reading').map((p) => [p.done, p.total]), [[1, 1]], 'only what changed is read');
   });
 }));
 
