@@ -42,6 +42,7 @@ its operation's parameters (`vault <command> --help`).
 - a `local` vault with a remote, and merged proposals whose commits did not reach `main`;
 - actor holds, including any whose holder cannot be told;
 - a leftover Git lock in `main`'s worktree, and undelivered notifications;
+- each notification spool: missing, not owned by this user, open to others, not writable or listable by its group, a group this user is not in; and messages it rejected or that have waited more than an hour;
 - search that is keyword-only because no `policy` entry names the vault;
 - where each vault's jobs run, as far as this installation can tell: here, or on the executor its contract names; a warning when it has jobs but names no executor and `host` is not true here, since they then run only where some other installation hosts it, if any;
 - jobs that cannot run (no budget, no permitted actor, or no `agent` model it may use), and an unset `budgets.daily-tokens`;

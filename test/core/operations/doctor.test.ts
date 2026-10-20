@@ -10,7 +10,8 @@
 // methods to the executor, that it cannot verify them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
@@ -301,4 +302,38 @@ test('config and state are private enough when they are the user\'s alone, or ma
   assert.equal(privateEnough({ mode: 0o100640, uid: 501 }), false, 'a group may read only what root manages');
   assert.equal(privateEnough({ mode: 0o100660, uid: 0 }), false, 'never writable by the group');
   assert.equal(privateEnough({ mode: 0o100644, uid: 0 }), false, 'never readable by everyone');
+});
+
+// notifications.md "Spools": doctor checks each spool's ownership and mode, and reports rejected and long-waiting messages.
+const spoolConfig = (dir: string) => `notify:\n  from: "Vault <vault@example.net>"\n  recipients: { me: me@example.net }\n  transport: { type: sendmail, command: /usr/sbin/sendmail }\n  spools: { me: ${JSON.stringify(dir)} }`;
+const posixModes = { skip: process.platform === 'win32' ? 'POSIX modes' : false };
+
+test('doctor: a spool that is missing is a problem; 2730 is right; others\' access is a problem, group listing a warning', posixModes, async () => {
+  const box = mkdtempSync(join(tmpdir(), 'pav-spool-'));
+  const spool = join(box, 'me');
+  try {
+    await withInstallation(async (t) => {
+      const spoolFound = async () => about((await findings(t)).found, 'spool').map((f) => [f.level, f.message]);
+      assert.match(String((await spoolFound())[0]), /problem,me .*does not exist/);
+      mkdirSync(spool);
+      chmodSync(spool, 0o2730);
+      assert.deepEqual(await spoolFound(), []);
+      chmodSync(spool, 0o2777);
+      assert.ok((await spoolFound()).some(([level, m]) => level === 'problem' && /gives others access \(mode 2777\)/.test(m ?? '')));
+      chmodSync(spool, 0o2770);
+      assert.deepEqual((await spoolFound()).map(([level]) => level), ['warning']);
+      assert.match(String((await spoolFound())[0]?.[1]), /can list it .*2730 lets them write only/);
+      chmodSync(spool, 0o2730);
+      writeFileSync(join(spool, '.rejected-x'), 'bad');
+      writeFileSync(join(spool, 'old'), 'Subject: x\n\nbody\n');
+      const longAgo = new Date(Date.now() - 2 * 3_600_000);
+      utimesSync(join(spool, 'old'), longAgo, longAgo);
+      t.clock.advance(Date.now() - t.clock.now().getTime());
+      const found = (await spoolFound()).map(([, m]) => m).join('\n');
+      assert.match(found, /1 message\(s\) were rejected/);
+      assert.match(found, /1 message\(s\) have waited more than an hour/);
+    }, { config: spoolConfig(spool) })();
+  } finally {
+    rmSync(box, { recursive: true, force: true });
+  }
 });

@@ -56,6 +56,7 @@ function statusText(status: unknown): string {
   const paused = Array.isArray(status['paused']) ? status['paused'] : [];
   const forge = Array.isArray(status['forge']) ? status['forge'].filter(isRecord) : [];
   const backups = Array.isArray(status['backups']) ? status['backups'].filter(isRecord) : [];
+  const spools = Array.isArray(status['spools']) ? status['spools'].filter(isRecord) : [];
   const line = (s: unknown): string => (isRecord(s) ? `  ${String(s['vault'])}:${String(s['document'])} (trace ${String(s['trace'])})` : '');
   return [
     `The daemon runs: ${queued.length} queued, ${running.length} running.`,
@@ -64,6 +65,9 @@ function statusText(status: unknown): string {
     ...(paused.length === 0 ? [] : [`Paused (unaccepted change): ${paused.join(', ')}`]),
     ...forge.map((f) => `Forge ${String(f['vault'])}: ${f['error'] === undefined ? 'synced' : `failed (${String(f['error'])})`} at ${String(f['at'])}${Array.isArray(f['proposed']) && f['proposed'].length > 0 ? `; proposing ${f['proposed'].join(', ')}` : ''}`),
     ...backups.map((b) => `Backup ${String(b['vault'])} to ${String(b['remote'])}: ${b['error'] === undefined ? (b['pushed'] === undefined ? 'up to date' : `last pushed ${String(b['pushed'])}`) : String(b['error'])}`),
+    ...spools.map((s) => `Spool ${String(s['alias'])} (${String(s['directory'])}): ${s['error'] === undefined
+      ? `${String(s['sentLastHour'])} sent in the last hour${Number(s['waiting']) > 0 ? `, ${String(s['waiting'])} waiting` : ''}${Number(s['rejected']) > 0 ? `, ${String(s['rejected'])} rejected (see vault doctor)` : ''}`
+      : `cannot be read (${String(s['error'])})`}`),
   ].join('\n');
 }
 

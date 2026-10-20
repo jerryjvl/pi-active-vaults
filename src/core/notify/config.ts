@@ -12,6 +12,7 @@
 //  - volume is always bounded: limits not given take the documented values.
 // Problems name the field, never the value.
 
+import { isAbsolute } from 'node:path';
 import { parseDuration } from '../clock/index.ts';
 import { parseSecretRef, type SecretRef } from '../config/index.ts';
 import { DataReader, issuePath, type Issue, type Result } from '../result/index.ts';
@@ -39,6 +40,8 @@ export interface NotifyConfig {
   readonly recipients: Readonly<Record<string, string>>;
   readonly transport: NotifyTransport;
   readonly limits: { readonly perHour: number; readonly maxBytes: number; readonly cooldownMs: number };
+  /** Alias → a drop directory whose messages go to that alias only (notifications.md "Spools"). */
+  readonly spools: Readonly<Record<string, string>>;
 }
 
 const WHERE = 'notify';
@@ -84,6 +87,24 @@ function readRecipients(r: DataReader, value: unknown, path: string): Record<str
   return recipients;
 }
 
+function readSpools(r: DataReader, value: unknown, path: string, aliases: ReadonlySet<string>): Record<string, string> {
+  const spools: Record<string, string> = {};
+  if (value === undefined) return spools;
+  const section = r.record(value, path);
+  const seen = new Set<string>();
+  for (const [alias, directory] of Object.entries(section)) {
+    const where = issuePath(path, alias);
+    if (!aliases.has(alias)) r.add(where, 'must be an alias from notify.recipients');
+    if (typeof directory !== 'string' || !isAbsolute(directory)) r.add(where, 'must be an absolute directory path');
+    else if (seen.has(directory)) r.add(where, 'is already the spool of another alias: one directory, one recipient');
+    else {
+      seen.add(directory);
+      spools[alias] = directory;
+    }
+  }
+  return spools;
+}
+
 function readTransport(r: DataReader, value: unknown, path: string): NotifyTransport {
   const type = r.oneOf(r.record(value, path)['type'], issuePath(path, 'type'), ['smtp', 'sendmail'] as const);
   // Nothing else can be checked for a transport of no known type; it is already an issue.
@@ -121,12 +142,15 @@ function readLimits(r: DataReader, value: unknown, path: string): NotifyConfig['
 export function parseNotifyConfig(value: unknown): Result<NotifyConfig | undefined, Issue[]> {
   const r = new DataReader();
   if (value === undefined) return r.result(undefined);
-  const n = r.record(value, WHERE, ['from', 'recipients', 'transport', 'limits']);
+  const n = r.record(value, WHERE, ['from', 'recipients', 'transport', 'limits', 'spools']);
+  const recipients = readRecipients(r, n['recipients'], issuePath(WHERE, 'recipients'));
   const config: NotifyConfig = {
     from: readFrom(r, n['from'], issuePath(WHERE, 'from')),
-    recipients: readRecipients(r, n['recipients'], issuePath(WHERE, 'recipients')),
+    recipients,
     transport: readTransport(r, n['transport'], issuePath(WHERE, 'transport')),
     limits: readLimits(r, n['limits'], issuePath(WHERE, 'limits')),
+    // Checked against the aliases named, valid or not: a bad address is one problem, not two.
+    spools: readSpools(r, n['spools'], issuePath(WHERE, 'spools'), new Set(typeof n['recipients'] === 'object' && n['recipients'] !== null ? Object.keys(n['recipients']) : [])),
   };
   return r.result(config);
 }

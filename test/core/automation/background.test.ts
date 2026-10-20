@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { releaseActorHold, takeActorHold } from '../../../src/core/actors/index.ts';
@@ -321,6 +321,32 @@ test('each tick retries the outbox\'s messages that are due, with backoff, until
       assert.equal(readFileSync(sent, 'utf8'), 'sent\n', 'delivered once');
     }, {
       config: `notify:\n  from: "Vault <vault@example.net>"\n  recipients: { me: me@example.net }\n  transport: { type: sendmail, command: /bin/sh, args: ["-c", ${JSON.stringify(script)}] }`,
+    })();
+  } finally {
+    rmSync(box, { recursive: true, force: true });
+  }
+});
+
+test('each tick reads the notification spools: a message left there is mailed to the spool\'s alias and removed', posixOnly, async () => {
+  const box = mkdtempSync(join(tmpdir(), 'pav-spool-'));
+  const spool = join(box, 'spool');
+  const sent = join(box, 'sent');
+  const script = `cat >> '${sent}'`;
+  try {
+    mkdirSync(spool, { mode: 0o2730 });
+    await withInstallation(async (t) => {
+      const automation = automationFor(t, fakePi(t));
+      await automation.start();
+      writeFileSync(join(spool, '.tmp-1'), 'Subject: Blocked fetch\n\nA card number was refused.\n');
+      renameSync(join(spool, '.tmp-1'), join(spool, 'alert-1'));
+      await automation.tick();
+      assert.match(readFileSync(sent, 'utf8'), /To: me@example\.net[\s\S]*A card number was refused\./);
+      assert.deepEqual(readdirSync(spool), []);
+      const reply = await automation.handle({ id: 's', method: 'status', params: {} }, () => {});
+      const spools = (reply as { result: { spools: { alias: string; sentLastHour: number }[] } }).result.spools;
+      assert.deepEqual(spools.map((s) => [s.alias, s.sentLastHour]), [['me', 1]]);
+    }, {
+      config: `notify:\n  from: "Vault <vault@example.net>"\n  recipients: { me: me@example.net }\n  transport: { type: sendmail, command: /bin/sh, args: ["-c", ${JSON.stringify(script)}] }\n  spools: { me: ${JSON.stringify(spool)} }`,
     })();
   } finally {
     rmSync(box, { recursive: true, force: true });

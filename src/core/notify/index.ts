@@ -5,3 +5,4 @@ export { parseNotifyConfig, type MailAddress, type NotifyConfig, type NotifyTran
 export { notifySchema, undeliveredNotifications, type UndeliveredNotification } from './outbox.ts';
 export { deliverDue, sendNotification, testTransport, type NotificationRecord, type NotificationRequest, type NotifyDeps, type NotifyError } from './send.ts';
 export { notifyBuiltin } from './builtin.ts';
+export { REJECTED_PREFIX, drainSpool, parseSpoolMessage, spoolAllowance, type SpoolMessage, type SpoolPass } from './spool.ts';

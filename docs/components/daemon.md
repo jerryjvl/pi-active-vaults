@@ -184,6 +184,15 @@ person's own proposals:
 
 Attestation and trace notes are fetched, merged line by line and pushed.
 
+## Notification spools
+
+Each tick, before the outbox's retries, every directory `notify.spools` names
+is read and its messages are sent to that spool's alias (notifications.md
+"Spools"): valid ones through the outbox and removed, invalid ones renamed
+`.rejected-<name>`, ones over the spool's hourly share left for a later tick.
+What each spool sent is remembered only while the daemon runs. `vault daemon
+status` shows each spool's last pass.
+
 ## Backups
 
 Each tick, every local-mode vault whose registration names a remote is pushed

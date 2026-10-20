@@ -14,6 +14,7 @@ const EXAMPLE = {
   recipients: { me: 'me@example.net' },
   transport: { type: 'smtp', host: 'smtp.example.net', port: 465, user: 'vault@example.net', password: '!secret-tool lookup vault smtp' },
   limits: { 'per-hour': 10, 'max-bytes': 200000, cooldown: '12h' },
+  spools: { me: '/var/spool/pi-active-vaults/me' },
 };
 
 /** The parsed section, which these tests always give. */
@@ -39,6 +40,7 @@ test('the documented example parses', () => {
         password: { kind: 'command', command: 'secret-tool lookup vault smtp', where: 'notify.transport.password' },
       },
       limits: { perHour: 10, maxBytes: 200000, cooldownMs: 12 * 3_600_000 },
+      spools: { me: '/var/spool/pi-active-vaults/me' },
     },
   });
 });
@@ -55,8 +57,10 @@ test('a recipient address must be exactly one @, ASCII, without separators — a
     assert.deepEqual(found, ['notify.recipients.me: must be a plain address: one @, ASCII, no spaces or separators'], address);
     assert.ok(!found.join().includes(address));
   }
-  assert.deepEqual(issues({ ...EXAMPLE, recipients: { 'not an alias': 'me@example.net' } }), ['notify.recipients.not an alias: must be an alias of letters, digits, ".", "_" or "-"']);
-  assert.deepEqual(issues({ ...EXAMPLE, recipients: {} }), ['notify.recipients: must name at least one recipient']);
+  // Without the example's spool, which names the alias `me` these replace.
+  const { spools: _, ...noSpool } = EXAMPLE;
+  assert.deepEqual(issues({ ...noSpool, recipients: { 'not an alias': 'me@example.net' } }), ['notify.recipients.not an alias: must be an alias of letters, digits, ".", "_" or "-"']);
+  assert.deepEqual(issues({ ...noSpool, recipients: {} }), ['notify.recipients: must name at least one recipient']);
 });
 
 test('the sender is an address, optionally with a display name', () => {

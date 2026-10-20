@@ -10,7 +10,8 @@
 //    and each merged proposal is checked for its commits reaching it), then
 //    backups of local-mode vaults that name a remote (backups.ts), then
 //    which vaults it runs and which are paused (their owners told once), the Git events since each job's cursor, the timers that came due,
-//    queued work past its queue time, the outbox's retries, and log rotation;
+//    queued work past its queue time, the notification spools (spools.ts),
+//    the outbox's retries, and log rotation;
 //  - schedule: starts what may start — in priority order, within capacity,
 //    one job per actor, nothing for a paused vault — and tells subscribers
 //    as runs start and finish;
@@ -25,6 +26,7 @@ import { notifyDeps, scriptEnvironment, spawnMatching, type OperationContext } f
 import { expireQueued, listSpawns, recoverRuns, runProcesses, schedulable, type RecoveryReport, type SpawnEntry, type SpawnMatching } from '../queue/index.ts';
 import { scanGitEvents } from './events.ts';
 import { createBackups } from './backups.ts';
+import { createSpools } from './spools.ts';
 import { createForgeSync } from './forge.ts';
 import { METHODS, answer, claimRequested, inTree, noticeOf, readRequest, refuse, type Notice, type Reply } from './protocol.ts';
 import { startRun, type PiCommand, type RunHandle } from './run.ts';
@@ -77,6 +79,7 @@ export function createAutomation(context: OperationContext, options: AutomationO
   const matchingOf = (): Promise<SpawnMatching> => (matching ??= spawnMatching(context));
   const forge = createForgeSync(context);
   const backups = createBackups(context);
+  const spools = createSpools(context);
 
   const tell = (notice: Notice): void => {
     for (const listener of listeners) listener(notice);
@@ -107,6 +110,7 @@ export function createAutomation(context: OperationContext, options: AutomationO
       });
       lastTick = { at: now.getTime(), slot: localSlot(now, options.timeZone) };
       expireQueued(context.state, context.clock, context.installation.config.daemon.queueTimeMs);
+      await spools.tick();
       const outbox = notifyDeps(context, scriptEnvironment(context.installation));
       if (outbox !== undefined) await deliverDue(outbox);
       if (now.getTime() - lastRotation >= HOUR_MS) {
@@ -151,6 +155,7 @@ export function createAutomation(context: OperationContext, options: AutomationO
       paused: [...paused].sort(),
       forge: forge.outcomes(),
       backups: backups.outcomes(),
+      spools: spools.outcomes(),
       budgets: { dailyUsed: usedToday(context.state, context.clock), ...(dailyTokens === undefined ? {} : { dailyTokens }) },
     };
   };

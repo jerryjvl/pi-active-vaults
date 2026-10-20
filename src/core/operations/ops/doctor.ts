@@ -20,7 +20,7 @@
 // ceiling, and a directory the installed daemon service was given for its PATH
 // that no longer holds its tool.
 
-import { chmodSync, existsSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { listActorHolds } from '../../actors/index.ts';
 import { resolveSecret, staleServiceTools } from '../../config/index.ts';
@@ -33,7 +33,7 @@ import { MAIN_BRANCH, type AcceptedMain } from '../../integrity/index.ts';
 import { resolveModel } from '../../models/index.ts';
 import { documentsWithoutVectors } from '../../search/index.ts';
 import { jobsWithoutModel, modelMessages, unavailableText } from '../models.ts';
-import { undeliveredNotifications } from '../../notify/index.ts';
+import { REJECTED_PREFIX, undeliveredNotifications } from '../../notify/index.ts';
 import { daemonRecord, recordedServiceTools, recoverRuns, vaultJobs } from '../../queue/index.ts';
 import { runProcess } from '../../process/index.ts';
 import { checkRegisteredIdentity, hosting, type RegisteredVault, type VaultIdentity } from '../../registry/index.ts';
@@ -268,6 +268,7 @@ async function machineFindings(context: OperationContext): Promise<Finding[]> {
     findings.push({ level: 'warning', check: 'notify', message: `A notification to "${n.alias}" ("${n.subject}") is ${n.state === 'pending' ? `undelivered after ${n.attempts} attempt(s)${n.lastError === undefined ? '' : ` (${n.lastError})`}` : 'undeliverable: its alias is gone'}.` });
   }
   const { config } = context.installation;
+  findings.push(...spoolFindings(context));
   if (context.installation.notify === undefined) findings.push({ level: 'warning', check: 'notify', message: 'notify is not configured, so owners are not told of unaccepted changes.' });
   if (config.budgets.dailyTokens === undefined) findings.push({ level: 'warning', check: 'budgets', message: 'budgets.daily-tokens is not set: nothing caps the tokens all work may use in a day.' });
   // The directories the installed service was given for its PATH: each must still hold its tool.
@@ -324,3 +325,61 @@ function doctorText(findings: readonly Finding[]): string {
   return findings.map((f) => `${f.level === 'ok' ? 'ok     ' : f.level === 'warning' ? 'warning' : 'PROBLEM'} ${f.check}${f.vault === undefined ? '' : ` [${f.vault}]`}: ${f.message}`).join('\n');
 }
 
+
+/** How long a message may wait in a spool before doctor says so. */
+const SPOOL_WAIT_MS = 3_600_000;
+
+/**
+ * Each notification spool (notifications.md "Spools"): a directory this user owns, that gives others nothing, that
+ * its group may write to but not list, whose group this user is in (so it can read what writers leave); and the
+ * messages it rejected, or that have waited more than an hour.
+ */
+function spoolFindings(context: OperationContext): Finding[] {
+  const findings: Finding[] = [];
+  const posix = context.installation.host.os !== 'win32';
+  for (const [alias, directory] of Object.entries(context.installation.notify?.spools ?? {})) {
+    const at = (level: Finding['level'], message: string): void => { findings.push({ level, check: 'spool', message: `${alias} (${directory}): ${message}` }); };
+    let stat;
+    try {
+      stat = statSync(directory);
+    } catch {
+      at('problem', 'does not exist. Create it, owned by this user, with a group for the writers: mode 2730 (setgid; the group may write, not list).');
+      continue;
+    }
+    if (!stat.isDirectory()) {
+      at('problem', 'is not a directory.');
+      continue;
+    }
+    if (posix) {
+      const mode = stat.mode & 0o7777;
+      const octal = mode.toString(8).padStart(4, '0');
+      if (process.getuid !== undefined && stat.uid !== process.getuid()) at('problem', 'is not owned by this user, so messages cannot be removed once sent.');
+      if ((mode & 0o007) !== 0) at('problem', `gives others access (mode ${octal}): only its owner and group may use it.`);
+      if ((mode & 0o030) !== 0o030) at('warning', `its group cannot write to it (mode ${octal}), so only this user can leave messages.`);
+      if ((mode & 0o040) !== 0) at('warning', `its group can list it (mode ${octal}), so writers can see each other's messages: 2730 lets them write only.`);
+      const groups = process.getgroups?.() ?? [];
+      if (process.getgid !== undefined && stat.gid !== process.getgid() && !groups.includes(stat.gid)) {
+        at('warning', 'this user is not in its group, so it can read only messages others may read too.');
+      }
+    }
+    let names: string[] = [];
+    try {
+      names = readdirSync(directory);
+    } catch {
+      at('problem', 'cannot be read by this user.');
+      continue;
+    }
+    const rejected = names.filter((n) => n.startsWith(REJECTED_PREFIX));
+    if (rejected.length > 0) at('warning', `${rejected.length} message(s) were rejected and renamed ${REJECTED_PREFIX}…: read them for what was wrong, then delete them.`);
+    const now = context.clock.now().getTime();
+    const waiting = names.filter((n) => !n.startsWith('.')).filter((n) => {
+      try {
+        return now - statSync(join(directory, n)).mtimeMs > SPOOL_WAIT_MS;
+      } catch {
+        return false;
+      }
+    });
+    if (waiting.length > 0) at('warning', `${waiting.length} message(s) have waited more than an hour: is the daemon running, or is the hour's notification limit reached?`);
+  }
+  return findings;
+}

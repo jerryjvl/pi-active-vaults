@@ -50,6 +50,8 @@ notify:
     user: vault@example.net
     password: "!<command that prints the password>"   # or ${SMTP_PASSWORD}
   limits: { per-hour: 10, max-bytes: 200000, cooldown: 12h }
+  spools:                       # optional: a drop directory per alias (below)
+    me: /var/spool/pi-active-vaults/me
 ```
 
 | Transport | Use when |
@@ -97,6 +99,59 @@ one test message at once, outside the outbox, and reports why it failed.
 
 **Volume is bounded.** Per-hour and size limits apply; bodies are plain UTF-8
 text.
+
+## Spools
+
+A spool lets a process that must not read the installation's config or
+secrets — a sandboxed service, a system unit running as another user — ask for
+a notification. `notify.spools` maps a recipient alias to a directory; the
+daemon reads each directory every minute and sends what it finds there to
+that alias, and to no other.
+
+A message is a small UTF-8 file: header lines, a blank line, then the body.
+
+```
+Subject: Blocked fetch
+Key: web-mcp:card
+Format: plain
+
+A URL carrying a card number was refused.
+```
+
+| Header | Meaning |
+|---|---|
+| `Subject` | Required. Line breaks are removed, as for any notification. |
+| `Key` | Optional deduplication key (letters, digits, `.`, `_`, `:`, `-`): a second message with it inside the cooldown is dropped. |
+| `Format` | `plain` (default) or `markdown`, which sends the body readable with an HTML alternative. |
+
+There is no recipient header: the directory is the recipient. Write the file
+under a name starting with `.` and rename it into place; names starting with
+`.` are never read, so a message is never read half-written. The file must be
+readable by the daemon's user — give it group read.
+
+What the daemon does with each message, oldest first:
+
+- **Valid:** it goes through the outbox like any other notification (the same
+  limits, deduplication and retries) and the file is removed.
+- **Invalid** — no subject, an unknown header, not UTF-8, larger than the size
+  limit, not a regular file, not readable: renamed `.rejected-<name>`, never
+  retried. `vault doctor` reports them; read them for what was wrong, then
+  delete them.
+- **Over the limit:** a spool may send at most half the hour's notifications
+  (`per-hour`, at least one), so a busy spool cannot crowd out the vaults' own
+  messages. Messages over that wait for a later pass; `vault doctor` reports
+  any that wait more than an hour.
+
+**Permissions are the access control.** Create each directory owned by the
+daemon's user, with a group of the processes allowed to notify that alias,
+mode `2730`: the group may create files but not list or read the directory, so
+writers cannot see each other's messages, and the setgid bit gives every file
+the directory's group. Put the daemon's user in that group so it can read
+what writers leave. One group per spool lets each alias be granted on its own.
+`vault doctor` checks the owner, that others have no access, that the group
+can write but not list, and that the daemon's user is in the group. The
+package never creates or changes a spool directory: the system's own
+configuration does.
 
 ## Records
 
