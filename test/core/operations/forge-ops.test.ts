@@ -25,6 +25,23 @@ test('propose pushes the actor branch and opens its pull request; sync takes the
   assert.equal(acceptedMain(t.context.state, 'home')?.sha, merged);
 }));
 
+// cli.md "vault sync": in forge mode an owner's open proposal is never merged with main locally, so
+// the pull request keeps the commit the owner approves; an agent actor's branch is still merged.
+test('sync leaves an owner\'s proposal as it stands in forge mode, and still merges main into an actor\'s branch', withForgeInstallation(async (t, forge) => {
+  for (const actor of ['alice', 'gardener']) {
+    assert.equal((await t.run('write', { path: `notes/${actor}.md`, content: actor, actor }, { surface: 'mcp' })).status, 'ok');
+    assert.equal((await t.run('commit', { message: `A note by ${actor}`, actor })).status, 'ok');
+  }
+  assert.equal((await t.run('propose', { actor: 'alice' })).status, 'ok');
+  const proposed = t.repo.git('rev-parse', 'refs/heads/actor/alice');
+  mergeInForge(forge, { 'merged.md': 'merged in the forge' });
+  const synced = await t.run('sync', {});
+  assert.equal(synced.status, 'ok', synced.text);
+  assert.match(synced.text, new RegExp(`alice: left as it is at ${proposed}`));
+  assert.match(synced.text, /gardener: merged at /);
+  assert.equal(t.repo.git('rev-parse', 'refs/heads/actor/alice'), proposed, 'the owner\'s branch is the commit proposed');
+}));
+
 // security-setup.md "Merging once approved": the forge is asked to merge a proposal itself once
 // approved; where it refuses (the account may not merge) or cannot, propose says to merge by hand.
 const proposeGardenerNote = async (t: Parameters<Parameters<typeof withForgeInstallation>[0]>[0]) => {

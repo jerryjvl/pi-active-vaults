@@ -207,13 +207,18 @@ export const workspaceOperation: Operation = {
 
 /** Your branch in a vault brought up to date for opening; a line when anything happened, or why it could not. */
 async function syncLine(context: OperationContext, committing: ActorCommitContext, vault: RegisteredVault, accepted: AcceptedMain, person: string): Promise<string[]> {
+  const identity = await identityOf(context, vault);
+  // As in `vault sync`: an owner's open proposal in forge mode is left as the commit they approve.
+  const owner = identity.ok && identity.value.review === 'forge' && identity.value.owners.includes(person);
   const synced = await syncActorBranch(committing, vault, accepted, person, {
     origin: { trace: newTraceId(context.ids), actor: person }, date: context.clock.now(), identity: packageIdentity(context.installation, person),
+    merge: !owner,
   });
   if (!synced.ok) return [`${vault.id}: not brought up to date (${synced.error.reason})`];
   switch (synced.value.outcome) {
     case 'fast-forwarded': case 'merged': return [`${vault.id}: brought up to date with the accepted main (${synced.value.outcome})`];
     case 'uncommitted-changes': return [`${vault.id}: left as it is (uncommitted changes)`];
+    case 'left-ahead': return [`${vault.id}: left as it is (your proposal is not in main yet; the forge merges it as it stands)`];
     default: return [];
   }
 }

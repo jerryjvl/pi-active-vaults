@@ -7,7 +7,10 @@
 // trailers — a commit without them counts as outside work, which taints a
 // proposal — and, like any new head, assessed by every check on the accepted
 // `main`, whose verdicts are recorded (the merge is already made; a failing
-// check then stands against the proposal until it is fixed). Syncing writes
+// check then stands against the proposal until it is fixed). A caller may ask
+// for no merge (`merge: false`): a branch with work of its own is then left as
+// it is (`left-ahead`), which is how an owner's open proposal in forge mode is
+// kept the commit the owner approves (operations/ops/proposals.ts). Syncing writes
 // as the actor: not while another session holds it, and never over
 // uncommitted changes in its worktree.
 
@@ -30,10 +33,12 @@ export interface SyncRequest {
   readonly identity?: Identity;
   /** The syncing session's own hold, when it has one. */
   readonly holder?: Holder;
+  /** Merge the accepted main into a branch with work of its own (default true); false leaves it `left-ahead`. */
+  readonly merge?: boolean;
 }
 
 export interface SyncOutcome {
-  readonly outcome: 'no-branch' | 'up-to-date' | 'fast-forwarded' | 'merged' | 'uncommitted-changes';
+  readonly outcome: 'no-branch' | 'up-to-date' | 'fast-forwarded' | 'merged' | 'left-ahead' | 'uncommitted-changes';
   /** The branch's head afterwards. */
   readonly head?: Sha;
   /** For a merge: every check's verdict on it. */
@@ -71,6 +76,7 @@ export async function syncActorBranch(
     return forwarded.error.reason === 'dirty-worktree' ? ok({ outcome: 'uncommitted-changes', head: tip.value }) : forwarded;
   }
 
+  if (request.merge === false) return ok({ outcome: 'left-ahead', head: tip.value });
   const worktree = await ensureActorWorktree(git, vault, accepted, actor, context.checks.reads);
   if (!worktree.ok) return worktree;
   const dirty = await hasTrackedChanges(git, worktree.value.path);

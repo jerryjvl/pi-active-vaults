@@ -214,10 +214,14 @@ export const syncOperation: Operation = {
       const synced = await syncActorBranch(committing, vault, accepted.value, actor, {
         origin: { trace: newTraceId(context.ids), actor }, date: context.clock.now(), identity: packageIdentity(context.installation, actor),
         ...(request.caller.holder === undefined ? {} : { holder: request.caller.holder }),
+        // An owner's branch in forge mode is a proposal only `vault propose` pushes: merging main into it
+        // here would leave a local head the owner never approved, and the pull request would stall.
+        merge: !(identity.value.review === 'forge' && identity.value.owners.includes(actor)),
       });
       if (!synced.ok) return fromError(synced.error, { outcomes });
       outcomes.push({ actor, ...synced.value });
-      if (synced.value.outcome !== 'no-branch') lines.push(`${actor}: ${synced.value.outcome}${synced.value.head === undefined ? '' : ` at ${synced.value.head}`}`);
+      if (synced.value.outcome === 'left-ahead') lines.push(`${actor}: left as it is at ${synced.value.head ?? ''}: its work is not in main yet, and the forge merges it as it stands (an owner's branch is never merged with main here, so the pull request keeps the commit you approve)`);
+      else if (synced.value.outcome !== 'no-branch') lines.push(`${actor}: ${synced.value.outcome}${synced.value.head === undefined ? '' : ` at ${synced.value.head}`}`);
     }
     if (identity.value.review === 'local' && vault.remote !== undefined) lines.push(await backupLine(context, { ...vault, remote: vault.remote }));
     return succeeded(lines.join('\n') || 'No actor branches to sync.', { outcomes });
