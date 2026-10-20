@@ -11,7 +11,7 @@ import {
 } from '../../actors/index.ts';
 import { backupVault } from '../../backup/index.ts';
 import { deriveEvents } from '../../events/index.ts';
-import { lostMergeReport, lostMerges, proposeToForge, syncWithForge } from '../../forge/index.ts';
+import { lostMergeReport, lostMerges, proposeToForge, syncWithForge, type MergeArrangement } from '../../forge/index.ts';
 import { diffText } from '../../git/index.ts';
 import { requireNoUnacceptedChange } from '../../integrity/index.ts';
 import { undeliveredNotifications } from '../../notify/index.ts';
@@ -244,8 +244,12 @@ export const proposeOperation: Operation = {
     const judged = await judgeForProposal(context, vault, actor, request.caller.person ?? actor);
     const proposed = await proposeToForge(forgeDeps(context, request.caller.person ?? actor), vault, actor);
     if (!proposed.ok) return fromError(proposed.error);
-    const { pull, opened, policy } = proposed.value;
-    return succeeded([...judged, `${opened ? 'Opened' : 'Updated'} pull request #${pull.number} (${pull.url}); vault/policy: ${policy.state}.`].join('\n'), proposed.value);
+    const { pull, opened, policy, merge } = proposed.value;
+    return succeeded([
+      ...judged,
+      `${opened ? 'Opened' : 'Updated'} pull request #${pull.number} (${pull.url}); vault/policy: ${policy.state}.`,
+      mergeText(merge),
+    ].join('\n'), proposed.value);
   },
 };
 
@@ -347,3 +351,16 @@ export const writeOperation: Operation = {
   },
 };
 
+
+/** What happens after approval: the forge merges it, or the owner must — and why. */
+export function mergeText(merge: MergeArrangement): string {
+  if (merge.by === 'forge') return merge.outcome === 'merged' ? 'It was already approved and passing: the forge merged it.' : 'The forge merges it once it is approved and vault/policy passes.';
+  switch (merge.why) {
+    case 'unsupported':
+      return 'Merge it by hand once approved: this forge (or its entry, auto-merge: false) does not merge it itself.';
+    case 'not-allowed':
+      return 'Merge it by hand once approved: the forge refused to schedule the merge, because this account may not merge. Add it to the branch protection\'s merge allowlist (security-setup.md).';
+    case 'failed':
+      return `Merge it by hand once approved: asking the forge to merge it failed (${merge.detail ?? 'unknown'}); the daemon asks again.`;
+  }
+}

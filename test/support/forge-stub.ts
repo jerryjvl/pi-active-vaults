@@ -39,6 +39,10 @@ export interface ForgeModel {
   onList?: (query: URLSearchParams) => void;
   /** GitHub: the active ruleset rules that apply to `main`. */
   rules?: object[];
+  /** Gitea: merges scheduled with merge_when_checks_succeed, by pull request and the head it was pinned to. */
+  scheduledMerges: { pull: number; head: string; style: string }[];
+  /** Gitea: the account is not on the merge allowlist, so scheduling a merge is refused (403). */
+  mergeForbidden?: boolean;
   /** GitLab: project settings. `resetApprovalsOnPush` undefined: the setting cannot be read (Free tier). */
   gitlab: { resetApprovalsOnPush?: boolean; pipelinesMustSucceed: boolean; approvalsRequired?: number };
 }
@@ -66,7 +70,7 @@ function page<T>(items: readonly T[], query: URLSearchParams, sizeKey: string): 
 }
 
 export async function startForgeStub(type: ForgeType, headSha: (branch: string) => string, model: Partial<ForgeModel> = {}): Promise<ForgeStub> {
-  const state: ForgeModel = { account: 'vault-bot', pulls: [], statuses: [], reviews: [], gitlab: { pipelinesMustSucceed: true }, ...model };
+  const state: ForgeModel = { account: 'vault-bot', pulls: [], statuses: [], reviews: [], scheduledMerges: [], gitlab: { pipelinesMustSucceed: true }, ...model };
   const base = BASE[type];
 
   const pullJson = (pull: StubPull): object =>
@@ -123,13 +127,22 @@ export async function startForgeStub(type: ForgeType, headSha: (branch: string) 
       state.pulls.push(pull);
       return { status: 201, body: pullJson(pull) };
     }
-    const one = new RegExp(`^${pullsPath}/(\\d+)(/reviews|/approvals)?$`).exec(rest);
+    const one = new RegExp(`^${pullsPath}/(\\d+)(/reviews|/approvals|/merge)?$`).exec(rest);
     const pull = one === null ? undefined : state.pulls.find((p) => p.number === Number(one[1]));
     if (one !== null && pull === undefined) return { status: 404, body: {} };
     if (pull !== undefined && one?.[2] === undefined && (method === 'PATCH' || method === 'PUT')) {
       pull.title = body['title'] ?? pull.title;
       pull.body = (type === 'gitlab' ? body['description'] : body['body']) ?? pull.body;
       return { body: pullJson(pull) };
+    }
+    if (pull !== undefined && method === 'POST' && one?.[2] === '/merge' && type === 'gitea') {
+      if (state.mergeForbidden === true) return { status: 403, body: { message: 'User not allowed to merge PR' } };
+      const asked = JSON.parse(request.body) as { merge_when_checks_succeed?: boolean; head_commit_id?: string; Do?: string };
+      if (asked.merge_when_checks_succeed !== true) return { status: 405, body: { message: 'the stub only schedules merges' } };
+      if (asked.head_commit_id !== (pull.sha ?? headSha(pull.head))) return { status: 409, body: { message: 'head out of date' } };
+      if (state.scheduledMerges.some((m) => m.pull === pull.number)) return { status: 409, body: { message: 'already scheduled' } };
+      state.scheduledMerges.push({ pull: pull.number, head: asked.head_commit_id, style: asked.Do ?? '' });
+      return { status: 201, body: {} };
     }
     if (pull !== undefined && method === 'GET' && one?.[2] === '/reviews' && type !== 'gitlab') {
       const reviews = state.reviews.filter((r) => r.pull === pull.number).map((r) => type === 'gitea'

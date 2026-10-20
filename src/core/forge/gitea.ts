@@ -2,13 +2,18 @@
 // `limit`. Reviews carry the commit they were made on, and a dismissed
 // approval is marked `dismissed`. A protected branch cannot be deleted.
 // Two merge styles rebase: "Rebase, then fast-forward" (`allow_rebase`) and
-// "Rebase, then create merge commit" (`allow_rebase_explicit`).
+// "Rebase, then create merge commit" (`allow_rebase_explicit`). A merge can be
+// scheduled — `merge_when_checks_succeed`, pinned to `head_commit_id` — and
+// Gitea then merges, as the account that asked, once the branch protection's
+// required statuses and approvals are met: 201 scheduled, 200 merged at once,
+// 409 already scheduled (or a head that moved, which cannot happen here: the
+// package asks only for the head it has just found), 403 that account may not merge.
 
 import type { ForgeEntry } from '../config/index.ts';
 import { isRecord, ok } from '../result/index.ts';
 import {
   POLICY_CONTEXT, UNPROTECTED, anyAllowed, forgeCaller, headPull, headPullWrites, isShaValue, mergedPulls, readAccount, readMergeMethods, standingApprovals,
-  type ForgeAdapter, type ForgeDepsBase,
+  type ForgeAdapter, type ForgeDepsBase, type PullRequest, type ScheduledMerge,
 } from './adapter.ts';
 
 const PAGE = 50;
@@ -67,5 +72,17 @@ export function giteaAdapter(entry: ForgeEntry, project: string, deps: ForgeDeps
       squash: anyAllowed(s['allow_squash_merge']),
       rebase: anyAllowed(s['allow_rebase'], s['allow_rebase_explicit']),
     })),
+    ...(entry.autoMerge ? {
+      async scheduleMerge(pull: PullRequest) {
+        const asked = await forge.call('POST', `${repo}/pulls/${pull.number}/merge`, {
+          Do: 'merge', merge_when_checks_succeed: true, head_commit_id: pull.headSha,
+        });
+        if (asked.ok) return ok<ScheduledMerge>(asked.value.status === 201 ? 'scheduled' : 'merged');
+        if (asked.error.reason !== 'http-error') return asked;
+        if (asked.error.status === 403) return ok<ScheduledMerge>('not-allowed');
+        if (asked.error.status === 409) return ok<ScheduledMerge>('scheduled');
+        return asked;
+      },
+    } : {}),
   };
 }

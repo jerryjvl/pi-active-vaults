@@ -54,7 +54,14 @@ export interface ForgeDeps extends ForgeDepsBase {
   readonly forges: readonly ForgeEntry[];
   /** What has been read from accepted mains, kept while they stay accepted. */
   readonly reads?: AcceptedReads;
+  /** The statuses last published, by head and context: one unchanged is not published again. */
+  readonly posted?: Map<string, string>;
 }
+
+/** Whether the forge merges the proposal itself once approved, and if not, why the owner must. */
+export type MergeArrangement =
+  | { readonly by: 'forge'; readonly outcome: 'scheduled' | 'merged' }
+  | { readonly by: 'owner'; readonly why: 'unsupported' | 'not-allowed' | 'failed'; readonly detail?: string };
 
 export type ForgeSyncError =
   | ForgeError
@@ -196,8 +203,13 @@ async function publish(
     : { state: unmet.some((r) => r.failed) ? 'failure' : 'pending', description: `Unmet: ${unmet.map((r) => r.requirement).join(', ')}` };
   const checks: CommitStatus[] = evaluation.value.checks.map((check) => ({ context: `vault/check/${check.name}`, state: checkState(check), description: check.status }));
   for (const status of [...checks, { context: POLICY_CONTEXT, ...policy }]) {
+    // Published only when it changed: the forge keeps every one, and a refresh that finds nothing new is quiet.
+    const key = `${vault.id}\0${proposal.head}\0${status.context}`;
+    const value = `${status.state}\0${status.description}`;
+    if (deps.posted?.get(key) === value) continue;
     const set = await adapter.setStatus(proposal.head, status);
     if (!set.ok) return set;
+    deps.posted?.set(key, value);
   }
   return ok({ policy, checks, unmet: unmet.map((r) => r.requirement) });
 }
@@ -227,10 +239,34 @@ function describe(proposal: Proposal): { title: string; body: string } {
   };
 }
 
-/** Pushes an actor's proposal and the package's notes, opens or updates its pull request, and publishes its statuses. */
+/** Asks the forge to merge the pull request at its head once its approvals and checks are met, where it can. */
+async function arrangeMerge(adapter: ForgeAdapter, pull: PullRequest): Promise<MergeArrangement> {
+  if (adapter.scheduleMerge === undefined) return { by: 'owner', why: 'unsupported' };
+  const asked = await adapter.scheduleMerge(pull);
+  if (!asked.ok) return { by: 'owner', why: 'failed', detail: asked.error.reason === 'http-error' ? `status ${asked.error.status}` : asked.error.reason };
+  return asked.value === 'not-allowed' ? { by: 'owner', why: 'not-allowed' } : { by: 'forge', outcome: asked.value };
+}
+
+/**
+ * Asks the forge to merge an actor's open pull request itself once it is approved and its checks pass —
+ * only at the head proposed: `not-proposed` when the forge's pull request holds another (or none).
+ */
+export async function scheduleProposalMerge(deps: ForgeDeps, vault: VaultLocation, actor: string): Promise<Result<MergeArrangement, ForgeSyncError>> {
+  const prepared = await prepare(deps, vault, actor);
+  if (!prepared.ok) return prepared;
+  const found = await prepared.value.adapter.findPullRequest(actorBranch(actor), MAIN_BRANCH);
+  if (!found.ok) return found;
+  if (found.value === undefined || found.value.headSha !== prepared.value.proposal.head) return err({ reason: 'not-proposed', actor });
+  return ok(await arrangeMerge(prepared.value.adapter, found.value));
+}
+
+/**
+ * Pushes an actor's proposal and the package's notes, opens or updates its pull request, publishes its
+ * statuses, and asks the forge to merge it once approved (forge entry `auto-merge`), saying how it went.
+ */
 export async function proposeToForge(
   deps: ForgeDeps, vault: VaultLocation, actor: string,
-): Promise<Result<{ pull: PullRequest; opened: boolean; policy: PolicyStatus; unmet: string[] }, ForgeSyncError>> {
+): Promise<Result<{ pull: PullRequest; opened: boolean; policy: PolicyStatus; unmet: string[]; merge: MergeArrangement }, ForgeSyncError>> {
   const prepared = await prepare(deps, vault, actor);
   if (!prepared.ok) return prepared;
   const { proposal, adapter } = prepared.value;
@@ -258,7 +294,10 @@ export async function proposeToForge(
     pull = found.value;
   }
   const published = await publish(deps, adapter, vault, prepared.value.accepted, prepared.value.owners, proposal, pull);
-  return published.ok ? ok({ pull, opened: found.value === undefined, policy: published.value.policy, unmet: published.value.unmet }) : published;
+  if (!published.ok) return published;
+  // The pull request now holds this head (just pushed), so the merge is asked for at exactly it.
+  const merge = await arrangeMerge(adapter, { ...pull, headSha: proposal.head });
+  return ok({ pull, opened: found.value === undefined, policy: published.value.policy, unmet: published.value.unmet, merge });
 }
 
 /**

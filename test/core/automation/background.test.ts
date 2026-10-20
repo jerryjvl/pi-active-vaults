@@ -61,7 +61,14 @@ test('a hosted forge vault\'s actor branches are proposed when their head moves,
   assert.equal(forge.stub.model.statuses.length, published, 'nothing new: nothing republished within minutes');
   t.clock.advance(5 * MINUTE);
   await automation.tick();
-  assert.ok(forge.stub.model.statuses.length > published, 'refreshed, to pick up reviews in the forge');
+  assert.equal(forge.stub.model.statuses.length, published, 'checked again, but nothing changed: nothing republished');
+  forge.stub.model.reviews.push({ pull: 1, user: 'alice', state: 'APPROVED', commit: first });
+  t.clock.advance(5 * MINUTE);
+  await automation.tick();
+  const policy = forge.stub.model.statuses.filter((s) => s.context === 'vault/policy');
+  assert.equal(policy.at(-1)?.state, 'success', 'refreshed: a review in the forge is picked up and published');
+  assert.ok(forge.stub.model.statuses.length > published);
+  assert.deepEqual(forge.stub.model.scheduledMerges.map((m) => [m.pull, m.head, m.style]), [[1, first, 'merge']], 'the forge was asked to merge it at that head, with a merge commit');
 
   const second = await commitAsGardener(t, 'notes/b.md', '# B\n');
   await automation.tick();
@@ -352,3 +359,19 @@ test('each tick reads the notification spools: a message left there is mailed to
     rmSync(box, { recursive: true, force: true });
   }
 });
+
+test('a merge the forge refused to schedule is in the daemon\'s status, and asked for again until it is accepted', withForgeInstallation(async (t, forge) => {
+  forge.stub.model.mergeForbidden = true;
+  const automation = automationFor(t, fakePi(t));
+  await automation.start();
+  const head = await commitAsGardener(t, 'notes/a.md', '# A\n');
+  await automation.tick();
+  assert.match((await forgeStatus(automation))[0]?.error ?? '', /gardener: the forge will not merge it itself \(this account may not merge/);
+  const scheduled = () => forge.stub.model.scheduledMerges.map((m) => m.head);
+  assert.equal(scheduled().length, 0);
+  forge.stub.model.mergeForbidden = false;
+  t.clock.advance(5 * MINUTE);
+  await automation.tick();
+  assert.deepEqual(scheduled(), [head], 'the allowlist fixed: scheduled without a new proposal');
+  assert.equal((await forgeStatus(automation))[0]?.error, undefined);
+}, { host: true }));

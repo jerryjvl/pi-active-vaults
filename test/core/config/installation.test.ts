@@ -89,7 +89,7 @@ test('the documented example loads, with kebab-case keys exposed in camelCase', 
   assert.ok(judgement?.role === 'judgement');
   assert.equal(judgement.token.kind, 'command');
   assert.deepEqual(config.forges, [
-    { host: 'git.example.net', type: 'gitea', token: { kind: 'env', name: 'FORGE_TOKEN', where: 'forges[0].token' } },
+    { host: 'git.example.net', type: 'gitea', token: { kind: 'env', name: 'FORGE_TOKEN', where: 'forges[0].token' }, autoMerge: true },
   ]);
   assert.deepEqual(config.labels.equivalent, [['private:geopolitics', 'digests:geopolitics']]);
   assert.deepEqual(config.subscriptions, [{ from: 'digests', to: 'private' }]);
@@ -217,7 +217,7 @@ test('loading a file distinguishes missing from unreadable and parses the rest',
 test('a forge may name its API base, for a forge whose API is not at the usual place', () => {
   const config = parse('forges:\n  - { host: git.lan, type: gitea, token: "${T}", api: "http://git.lan:3000/api/v1" }\n');
   assert.ok(config.ok);
-  assert.deepEqual(config.value.forges, [{ host: 'git.lan', type: 'gitea', token: { kind: 'env', name: 'T', where: 'forges[0].token' }, api: 'http://git.lan:3000/api/v1' }]);
+  assert.deepEqual(config.value.forges, [{ host: 'git.lan', type: 'gitea', token: { kind: 'env', name: 'T', where: 'forges[0].token' }, autoMerge: true, api: 'http://git.lan:3000/api/v1' }]);
   const bad = parse('forges:\n  - { host: git.lan, type: gitea, token: "${T}", api: "ftp://git.lan" }\n');
   assert.ok(!bad.ok && bad.error.reason === 'invalid');
   assert.deepEqual(bad.error.issues, [{ path: 'forges[0].api', message: 'must be an http or https URL' }]);
@@ -295,4 +295,13 @@ test('a vault may name the Git remote it is backed up to (local mode) or reviewe
   assert.equal(config.vaults[0]?.remote, 'flashstor');
   assert.equal(config.vaults[1]?.remote, undefined, 'none: the vault stays on this machine');
   assert.ok(issues('vaults:\n  - { id: a, path: /v/a, remote: "https://example.net/a.git" }').some((i) => i.startsWith('vaults[0].remote')), 'a name, not a URL: the URL is the clone\'s');
+});
+
+test('a forge entry\'s auto-merge is on unless set to false; anything but true or false is a problem', () => {
+  const off = parse('forges:\n  - { host: git.lan, type: gitea, token: "${T}", auto-merge: false }\n');
+  assert.ok(off.ok);
+  assert.equal(off.value.forges[0]?.autoMerge, false);
+  const bad = parse('forges:\n  - { host: git.lan, type: gitea, token: "${T}", auto-merge: sometimes }\n');
+  assert.ok(!bad.ok && bad.error.reason === 'invalid');
+  assert.deepEqual(bad.error.issues, [{ path: 'forges[0].auto-merge', message: 'must be true or false' }]);
 });

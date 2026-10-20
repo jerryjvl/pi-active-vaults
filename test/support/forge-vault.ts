@@ -89,15 +89,15 @@ export function mergePullInForge(forge: Forge, number: number, how: 'merge' | 's
 }
 
 /** A test installation whose vault is in forge mode with the forge configured; `forges: false` leaves the forge out of the config, and any `config` is added to it. */
-export function withForgeInstallation(run: (t: TestInstallation, forge: Forge) => Promise<void>, options: InstallationOptions & { readonly forges?: boolean } = {}): () => Promise<void> {
-  const { forges, config, ...rest } = options;
+export function withForgeInstallation(run: (t: TestInstallation, forge: Forge) => Promise<void>, options: InstallationOptions & { readonly forges?: boolean; readonly autoMerge?: boolean } = {}): () => Promise<void> {
+  const { forges, config, autoMerge, ...rest } = options;
   return () => withForge(async (forge) => {
     await withInstallation(async (t) => {
       connectToForge(t.repo, forge);
       await run(t, forge);
     }, {
       contract: { review: 'forge', extra: 'merge:\n  - { paths: ["**"], require: [checks, owner] }' },
-      config: [forges === false ? '' : `forges:\n  - { host: git.example.net, type: gitea, token: "\${FORGE_TOKEN}", api: "${forge.stub.api}" }`, config ?? ''].filter((c) => c !== '').join('\n'),
+      config: [forges === false ? '' : `forges:\n  - { host: git.example.net, type: gitea, token: "\${FORGE_TOKEN}", api: "${forge.stub.api}"${autoMerge === false ? ', auto-merge: false' : ''} }`, config ?? ''].filter((c) => c !== '').join('\n'),
       env: { FORGE_TOKEN },
       ...rest,
     })();

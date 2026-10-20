@@ -16,6 +16,7 @@ export {
   type MergeMethods,
   type ProtectionProblem,
   type PullRequest,
+  type ScheduledMerge,
   type StatusState,
 } from './adapter.ts';
 export {
@@ -34,8 +35,10 @@ export {
   publishStatuses,
   pushToForge,
   remoteOf,
+  scheduleProposalMerge,
   syncWithForge,
   type ForgeDeps,
+  type MergeArrangement,
   type ForgeSyncError,
   type PolicyStatus,
 } from './sync.ts';

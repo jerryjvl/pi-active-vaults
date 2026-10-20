@@ -463,7 +463,8 @@ models:                        # see Models below
   agent:     { model: homeserver/qwen3.8-27b, assume-prefix-cache: true } # a model as Pi names it
   quick:     { role: agent, model: homeserver/qwen3.8-flash, parallel: 2 }   # fan-out items at once
 forges:
-  - { host: git.example.net, type: gitea, token: "${FORGE_TOKEN}" }   # api: optional, when the API is not at the usual place
+  - { host: git.example.net, type: gitea, token: "${FORGE_TOKEN}" }   # api: optional, when the API is not at the usual place;
+                               # auto-merge: false to merge every proposal by hand (security-setup.md)
 mcp: { … }                     # see mcp.md
 labels:
   equivalent: [[private:geopolitics, digests:geopolitics]]

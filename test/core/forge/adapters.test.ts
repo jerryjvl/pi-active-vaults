@@ -16,7 +16,7 @@ const TYPES: readonly ForgeType[] = ['gitea', 'github', 'gitlab'];
 const SHA_1 = '1'.repeat(40);
 const SHA_2 = '2'.repeat(40);
 
-const entry = (type: ForgeType, api: string): ForgeEntry => ({ host: 'git.example.net', type, token: { kind: 'env', name: 'FORGE_TOKEN', where: 'forges[0].token' }, api });
+const entry = (type: ForgeType, api: string): ForgeEntry => ({ host: 'git.example.net', type, token: { kind: 'env', name: 'FORGE_TOKEN', where: 'forges[0].token' }, api, autoMerge: true });
 const deps = { client: { fetch, timeoutMs: 5000 }, secrets: { env: { FORGE_TOKEN }, runCommand: async () => assert.fail('no command') } };
 
 async function withForge(type: ForgeType, run: (adapter: ForgeAdapter, stub: ForgeStub) => Promise<void>, model: Partial<ForgeModel> = {}): Promise<void> {

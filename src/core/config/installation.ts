@@ -74,6 +74,8 @@ export interface ForgeEntry {
   readonly token: SecretRef;
   /** The API base, when it is not where the forge type usually has it. */
   readonly api?: string;
+  /** Whether a proposal's pull request is set to merge itself once its checks and approvals are met (default true). */
+  readonly autoMerge: boolean;
 }
 
 export interface InstallationConfig {
@@ -267,13 +269,15 @@ function readForges(r: Reader, value: unknown): ForgeEntry[] {
   const seen = new Set<string>();
   return r.list(value ?? [], 'forges').map((item, i) => {
     const path = `forges[${i}]`;
-    const f = r.record(item, path, ['host', 'type', 'token', 'api']);
+    const f = r.record(item, path, ['host', 'type', 'token', 'api', 'auto-merge']);
     const host = r.string(f['host'], join(path, 'host'), FORGE_HOST);
     if (host !== '' && seen.has(host)) r.add(join(path, 'host'), 'duplicate forge host');
     seen.add(host);
     const type = r.oneOf(f['type'], join(path, 'type'), FORGE_TYPES);
     const api = f['api'] === undefined ? undefined : httpUrl(r, f['api'], join(path, 'api'));
-    return { host, type: type ?? 'gitea', token: r.secret(f['token'], join(path, 'token')), ...(api === undefined ? {} : { api }) };
+    const autoMerge = f['auto-merge'] === undefined ? true : f['auto-merge'];
+    if (typeof autoMerge !== 'boolean') r.add(join(path, 'auto-merge'), 'must be true or false');
+    return { host, type: type ?? 'gitea', token: r.secret(f['token'], join(path, 'token')), autoMerge: autoMerge !== false, ...(api === undefined ? {} : { api }) };
   });
 }
 

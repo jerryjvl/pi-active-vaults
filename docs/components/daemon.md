@@ -154,10 +154,13 @@ person's own proposals:
 - **Proposals.** Each of the vault's `actors` with a proposal is judged for
   what its merge policy still needs, then kept current:
   when its head moves, the branch is pushed and its pull request opened or
-  updated with its statuses; otherwise the statuses are republished every five
-  minutes, to pick up reviews made in the forge — every minute while all it
-  waits for is an owner's approval. Failures show in `vault daemon status` and
-  are retried the next minute.
+  updated with its statuses; otherwise the statuses are evaluated again every
+  five minutes, to pick up reviews made in the forge — every minute while all
+  it waits for is an owner's approval — and published only when one changed.
+  With each new head the forge is asked to merge the pull request once it is
+  approved and its checks pass (security-setup.md "Merging once approved"); a
+  refusal is asked again each pass until the forge accepts. Failures show in
+  `vault daemon status` and are retried the next minute.
 - **The person's own proposal**, in every forge-mode vault they write to —
   run here or not. It is never pushed from here: proposing is theirs (`vault
   propose`). Once the forge has a pull request holding it, its statuses are

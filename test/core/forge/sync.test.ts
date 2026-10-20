@@ -29,7 +29,7 @@ function withForgeFor(v: TestVault, run: (forge: ForgeWithDeps) => Promise<void>
     connectToForge(v.repo, forge);
     const deps: ForgeDeps = {
       git: v.git, store: v.store, clock: v.clock, attribution: TEST_ATTRIBUTION,
-      forges: [{ host: 'git.example.net', type: 'gitea', token: { kind: 'env', name: 'T', where: 'forges[0].token' }, api: forge.stub.api }],
+      forges: [{ host: 'git.example.net', type: 'gitea', token: { kind: 'env', name: 'T', where: 'forges[0].token' }, api: forge.stub.api, autoMerge: true }],
       client: { fetch, timeoutMs: 5000 },
       secrets: { env: { T: FORGE_TOKEN }, runCommand: async () => assert.fail('no command') },
     };

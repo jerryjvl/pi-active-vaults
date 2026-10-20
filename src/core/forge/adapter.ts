@@ -78,7 +78,20 @@ export interface ForgeAdapter {
   protection(branch: string): Promise<Result<BranchProtection, ForgeError>>;
   /** Which merge methods that replace a proposal's commits the repository allows. */
   mergeMethods(): Promise<Result<MergeMethods, ForgeError>>;
+  /**
+   * Asks the forge to merge the pull request — with a merge commit, and only at the head given — once
+   * the branch protection's required checks and approvals are met. Absent where the package cannot ask
+   * (the forge type has no such call yet, or the forge entry turns it off): the owner merges by hand.
+   */
+  scheduleMerge?(pull: PullRequest): Promise<Result<ScheduledMerge, ForgeError>>;
 }
+
+/**
+ * What the forge said: `scheduled` (it merges when the checks and approvals are met; also when it already
+ * was), `merged` (they were met: merged now), `not-allowed` (the executor's account may not merge: put it
+ * on the branch protection's merge allowlist).
+ */
+export type ScheduledMerge = 'scheduled' | 'merged' | 'not-allowed';
 
 /** Allowed or not; `unknown` when the forge does not say (it may need more access). */
 export type Allowed = boolean | 'unknown';

@@ -66,7 +66,7 @@ its operation's parameters (`vault <command> --help`).
 | `vault accept <actor>` | Merge the SHA you last reviewed if the merge policy is satisfied |
 | `vault accept --adopt <sha>` | Show failed checks and control changes in the delta from the accepted `main` first, to be acknowledged; then the delta, and accept once confirmed. Without a terminal, it shows them and exits `3`; `--acknowledge <digest> --yes` confirms what was shown |
 | `vault sync [actor]` | Bring actor branches up to date with the accepted `main` — forward, or with a merge that the checks assess; in `forge` mode, fetch first; a `local` vault that names a remote is then backed up there (or told how to add the remote) |
-| `vault propose <actor>` | In `forge` mode: judge what the proposal still needs, push the actor branch and open or update its pull request |
+| `vault propose <actor>` | In `forge` mode: judge what the proposal still needs, push the actor branch, open or update its pull request, and ask the forge to merge it once approved — saying whether it will, or that it must be merged by hand and why (security-setup.md "Merging once approved") |
 | `vault commit -m <msg> [paths] [--actor <name>]` | Commit the actor's worktree as the current actor (else `--actor`, else the installation's `person`), with trailers, if every check passes; then judges what the proposal's merge rules need |
 
 ### Work

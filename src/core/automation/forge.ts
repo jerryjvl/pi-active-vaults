@@ -25,7 +25,7 @@
 // from Git, not from what this module remembers.
 
 import { readProposal, resetActorBranch, type ResetOutcome } from '../actors/index.ts';
-import { checkMerges, lostMergeNotice, lostMerges, proposeToForge, publishStatuses, syncWithForge, uncheckedMerges, type MergedProposal } from '../forge/index.ts';
+import { checkMerges, lostMergeNotice, lostMerges, proposeToForge, publishStatuses, scheduleProposalMerge, syncWithForge, uncheckedMerges, type MergeArrangement, type MergedProposal } from '../forge/index.ts';
 import { acceptedIdentity, type AcceptedMain } from '../integrity/index.ts';
 import { forgeDeps, identityOf, judgeForProposal, type OperationContext } from '../operations/index.ts';
 import { writersOf, type RegisteredVault } from '../registry/index.ts';
@@ -54,9 +54,11 @@ export interface ForgeSync {
 }
 
 export function createForgeSync(context: OperationContext): ForgeSync {
-  const current = new Map<string, { head: string; published: number; awaitingOwner: boolean }>();
+  const current = new Map<string, { head: string; published: number; awaitingOwner: boolean; merge?: MergeArrangement }>();
+  // Statuses published, shared by every pass: an unchanged one is not published again.
+  const posted = new Map<string, string>();
   const outcomes = new Map<string, ForgeOutcome>();
-  const deps = () => forgeDeps(context, context.installation.config.person ?? 'vault');
+  const deps = () => ({ ...forgeDeps(context, context.installation.config.person ?? 'vault'), posted });
 
   const proposeFor = async (vault: RegisteredVault, accepted: Parameters<typeof readProposal>[2], now: number, runsHere: boolean): Promise<{ proposed: string[]; error?: string }> => {
     const identity = await acceptedIdentity(context.reads, context.git, vault.path, accepted);
@@ -104,7 +106,15 @@ export function createForgeSync(context: OperationContext): ForgeSync {
         continue;
       }
       const awaitingOwner = sent.value.unmet.length === 1 && sent.value.unmet[0] === 'owner';
-      current.set(key, { head: proposal.value.head, published: now, awaitingOwner });
+      // Whether the forge merges it once approved: arranged with the proposal, and asked for again each pass
+      // until the forge has it — so a merge allowlist fixed later takes effect without a new proposal.
+      let merge = 'merge' in sent.value ? sent.value.merge : (last?.head === proposal.value.head ? last.merge : undefined);
+      if (merge === undefined || (merge.by === 'owner' && merge.why !== 'unsupported')) {
+        const arranged = await scheduleProposalMerge(deps(), vault, actor);
+        if (arranged.ok) merge = arranged.value;
+      }
+      if (merge?.by === 'owner' && merge.why !== 'unsupported') error ??= `${actor}: the forge will not merge it itself (${merge.why === 'not-allowed' ? 'this account may not merge: add it to the merge allowlist' : merge.detail ?? 'failed'})`;
+      current.set(key, { head: proposal.value.head, published: now, awaitingOwner, ...(merge === undefined ? {} : { merge }) });
       proposed.push(actor);
     }
     return { proposed, ...(error === undefined ? {} : { error }) };
