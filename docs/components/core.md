@@ -106,12 +106,18 @@ enforces this; a new module must be given a layer.
   still refused, re-chunked at 1,000, 700, 450 and then 300 characters, its
   keyword chunks replaced to match. Nothing is truncated. A document refused
   even at 300 keeps keyword search and is named by `vault reindex` and
-  `vault doctor`. Unreachable models, time-outs and refused credentials stop
-  the pass instead; vectors made so far are kept.
+  `vault doctor`. Unreachable or unavailable models (a gateway answering 502,
+  503 or 504), time-outs, rate limits and refused credentials stop the pass
+  instead; vectors made so far are kept, and the daemon tries the rest again
+  later (daemon.md "Index upkeep").
 - Ranking: keyword and vector results fused by rank, then reranked when a rerank
   model is configured.
 - Each returned hit is checked against the accepted `main`: `current`,
   `changed`, `moved` (followed through renames) or `gone`.
+- The daemon keeps each vault's index at its accepted `main`: after an
+  owner's accept or a merge fetched from the forge, the next tick brings it
+  up to date (daemon.md "Index upkeep"). `vault reindex` does the same on
+  demand, with progress.
 - The index is disposable. It is rebuilt from Git and records the embedding
   model it was built with; a different model requires a rebuild.
 - Whatever is missing — an embedding model, the policy's permission, the

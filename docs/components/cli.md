@@ -55,7 +55,7 @@ its operation's parameters (`vault <command> --help`).
 | `vault search <query>` | Search registered vaults (`--vault`, `--scope <glob>`) |
 | `vault read <path>` | Print a document, with freshness against the accepted `main` |
 | `vault contract <path>` | Effective contract for a path, with the origin of each key |
-| `vault reindex [vault]` | Rebuild the search index. An update that runs longer than a few seconds says how far it has got on standard error — documents read, then chunks embedded — every few seconds and at the end of each phase |
+| `vault reindex [vault]` | Bring the search index up to the accepted `main` now (the daemon also does so on its next tick after `main` moves). An update that runs longer than a few seconds says how far it has got on standard error — documents read, then chunks embedded — every few seconds and at the end of each phase |
 
 ### Proposals
 

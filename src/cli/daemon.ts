@@ -57,6 +57,7 @@ function statusText(status: unknown): string {
   const forge = Array.isArray(status['forge']) ? status['forge'].filter(isRecord) : [];
   const backups = Array.isArray(status['backups']) ? status['backups'].filter(isRecord) : [];
   const spools = Array.isArray(status['spools']) ? status['spools'].filter(isRecord) : [];
+  const indexing = Array.isArray(status['indexing']) ? status['indexing'].filter(isRecord) : [];
   const line = (s: unknown): string => (isRecord(s) ? `  ${String(s['vault'])}:${String(s['document'])} (trace ${String(s['trace'])})` : '');
   return [
     `The daemon runs: ${queued.length} queued, ${running.length} running.`,
@@ -68,6 +69,7 @@ function statusText(status: unknown): string {
     ...spools.map((s) => `Spool ${String(s['alias'])} (${String(s['directory'])}): ${s['error'] === undefined
       ? `${String(s['sentLastHour'])} sent in the last hour${Number(s['waiting']) > 0 ? `, ${String(s['waiting'])} waiting` : ''}${Number(s['rejected']) > 0 ? `, ${String(s['rejected'])} rejected (see vault doctor)` : ''}`
       : `cannot be read (${String(s['error'])})`}`),
+    ...indexing.map((i) => `Index ${String(i['vault'])}: ${i['sha'] === undefined ? `not updated (${String(i['error'])})` : `at ${String(i['sha']).slice(0, 12)} (${String(i['added'])} added, ${String(i['changed'])} changed, ${String(i['removed'])} removed)${i['error'] === undefined ? '' : `; ${String(i['error'])}, retried later`}`} at ${String(i['at'])}`),
   ].join('\n');
 }
 

@@ -9,7 +9,9 @@
 //  - tick: forge sync first (a merge in the forge moves the accepted main,
 //    and each merged proposal is checked for its commits reaching it), then
 //    backups of local-mode vaults that name a remote (backups.ts), then
-//    which vaults it runs and which are paused (their owners told once), the Git events since each job's cursor, the timers that came due,
+//    which vaults it runs and which are paused (their owners told once), index
+//    upkeep for every vault whose accepted main moved (indexing.ts, in the
+//    background), the Git events since each job's cursor, the timers that came due,
 //    queued work past its queue time, the notification spools (spools.ts),
 //    the outbox's retries, and log rotation;
 //  - schedule: starts what may start — in priority order, within capacity,
@@ -27,6 +29,7 @@ import { expireQueued, listSpawns, recoverRuns, runProcesses, schedulable, type 
 import { scanGitEvents } from './events.ts';
 import { createBackups } from './backups.ts';
 import { createSpools } from './spools.ts';
+import { createIndexing } from './indexing.ts';
 import { createForgeSync } from './forge.ts';
 import { METHODS, answer, claimRequested, inTree, noticeOf, readRequest, refuse, type Notice, type Reply } from './protocol.ts';
 import { startRun, type PiCommand, type RunHandle } from './run.ts';
@@ -50,7 +53,7 @@ export interface Automation {
   /** One pass; `vault` limits Git events to that vault's (its hook said its refs changed). */
   tick(vault?: string): Promise<void>;
   schedule(): Promise<SpawnEntry[]>;
-  /** Resolves once no run is in progress. */
+  /** Resolves once no run and no index update is in progress. */
   idle(): Promise<void>;
   /** Answers one request; `subscriber` receives the notices a `subscribe` asks for, until `forget`. */
   handle(request: unknown, subscriber: (notice: Notice) => void): Promise<Reply>;
@@ -80,6 +83,7 @@ export function createAutomation(context: OperationContext, options: AutomationO
   const forge = createForgeSync(context);
   const backups = createBackups(context);
   const spools = createSpools(context);
+  const indexing = createIndexing(context);
 
   const tell = (notice: Notice): void => {
     for (const listener of listeners) listener(notice);
@@ -101,6 +105,8 @@ export function createAutomation(context: OperationContext, options: AutomationO
     const nowPaused = new Set(unaccepted.keys());
     const resumed = new Set([...paused].filter((id) => !nowPaused.has(id)));
     paused = nowPaused;
+    // An accept or a fetched merge moves an accepted main: bring its index up to it (in the background).
+    indexing.tick(context.installation.vaults.filter((v) => !paused.has(v.id) && (only === undefined || v.id === only)));
     const m = await matchingOf();
     await scanGitEvents(context, m, hosted, paused, only);
     if (only === undefined) {
@@ -141,8 +147,12 @@ export function createAutomation(context: OperationContext, options: AutomationO
     return started;
   };
 
-  const idle = async (): Promise<void> => {
+  const runsEnded = async (): Promise<void> => {
     while (runs.size > 0) await Promise.allSettled([...runs.values()].map((r) => r.ended));
+  };
+  const idle = async (): Promise<void> => {
+    await runsEnded();
+    await indexing.idle();
   };
 
   const status = (): unknown => {
@@ -156,6 +166,7 @@ export function createAutomation(context: OperationContext, options: AutomationO
       forge: forge.outcomes(),
       backups: backups.outcomes(),
       spools: spools.outcomes(),
+      indexing: indexing.outcomes(),
       budgets: { dailyUsed: usedToday(context.state, context.clock), ...(dailyTokens === undefined ? {} : { dailyTokens }) },
     };
   };
@@ -207,7 +218,8 @@ export function createAutomation(context: OperationContext, options: AutomationO
     },
     async stop() {
       for (const run of runs.values()) run.stop('restart');
-      await idle();
+      // An index update is not waited for: its documents are written in one transaction, and the next start finishes any vectors it left.
+      await runsEnded();
     },
   };
 }

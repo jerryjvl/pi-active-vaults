@@ -99,9 +99,15 @@ function removeDocument(tx: Queryable, vault: string, path: string): void {
 /** Successively smaller chunk sizes for a document the embedding model refuses at the usual size. */
 const RECHUNK_SIZES = [1000, 700, 450, 300];
 
-/** A refusal smaller chunks might cure: the model answered, but not with a credentials, missing-model or rate-limit status. */
+/**
+ * A refusal smaller chunks might cure: the model answered, but not with a
+ * credentials, missing-model, rate-limit or unavailable status. A gateway
+ * whose model is down or restarting (502, 503, 504) says nothing about the
+ * content, so the update fails and is tried again rather than marking the
+ * document unembeddable.
+ */
 function refusedContent(error: ModelError): boolean {
-  return error.reason === 'http-error' && ![401, 403, 404, 407, 429].includes(error.status);
+  return error.reason === 'http-error' && ![401, 403, 404, 407, 429, 502, 503, 504].includes(error.status);
 }
 
 interface MissingDocument {

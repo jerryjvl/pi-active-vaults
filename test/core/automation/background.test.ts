@@ -20,6 +20,8 @@ import { acceptedMain } from '../../../src/core/integrity/index.ts';
 import { sendNotification, undeliveredNotifications } from '../../../src/core/notify/index.ts';
 import { notifyDeps, scriptEnvironment } from '../../../src/core/operations/index.ts';
 import { automationFor, fakePi } from '../../support/daemon.ts';
+import { startStubServer } from '../../support/stub-server.ts';
+import { RETRY_MS } from '../../../src/core/automation/indexing.ts';
 import { mergeInForge, mergePullInForge, withForgeInstallation, type Forge } from '../../support/forge-vault.ts';
 import { withInstallation, type TestInstallation } from '../../support/installation.ts';
 
@@ -375,3 +377,86 @@ test('a merge the forge refused to schedule is in the daemon\'s status, and aske
   assert.deepEqual(scheduled(), [head], 'the allowlist fixed: scheduled without a new proposal');
   assert.equal((await forgeStatus(automation))[0]?.error, undefined);
 }, { host: true }));
+
+async function indexStatus(automation: Automation): Promise<{ vault: string; at: string; sha?: string; added?: number; changed?: number; removed?: number; error?: string }[]> {
+  const reply = await automation.handle({ id: 's', method: 'status', params: {} }, () => {});
+  return (reply as { result: { indexing: { vault: string; at: string; sha?: string; added?: number; changed?: number; removed?: number; error?: string }[] } }).result.indexing;
+}
+
+test('each tick brings the search index up to an accepted main that moved, in the background; an unaccepted commit is never indexed', withInstallation(async (t) => {
+  t.repo.write('notes/router.md', '# Router\nThe router lives in the hall cupboard.\n');
+  t.repo.commit('router');
+  t.accept();
+  const automation = automationFor(t, fakePi(t));
+  await automation.start();
+  await automation.idle();
+  assert.match((await t.run('search', { query: 'cupboard router' })).text, /^home:notes\/router\.md/, 'a vault never indexed is brought in');
+  const first = (await indexStatus(automation)).find((s) => s.vault === 'home');
+  assert.equal(first?.sha, t.repo.git('rev-parse', 'main'));
+
+  t.repo.write('notes/kettle.md', '# Kettle\nThe kettle descales monthly.\n');
+  t.repo.commit('kettle');
+  await automation.tick();
+  await automation.idle();
+  assert.ok((await t.run('search', { query: 'kettle descales' })).text.startsWith('No hits.'), 'not accepted yet: not searchable');
+
+  const accepted = t.accept();
+  await automation.tick();
+  await automation.idle();
+  assert.match((await t.run('search', { query: 'kettle descales' })).text, /^home:notes\/kettle\.md/, 'accepted: searchable after the next tick');
+  const second = (await indexStatus(automation)).find((s) => s.vault === 'home');
+  assert.deepEqual({ sha: second?.sha, added: second?.added, changed: second?.changed, removed: second?.removed }, { sha: accepted.sha, added: 1, changed: 0, removed: 0 });
+
+  await automation.tick();
+  await automation.idle();
+  assert.equal((await indexStatus(automation)).find((s) => s.vault === 'home')?.at, second?.at, 'an index already at the accepted main is left alone');
+}));
+
+test('a merge fetched from the forge is indexed on the same tick that makes it the accepted main', withForgeInstallation(async (t, forge) => {
+  const automation = automationFor(t, fakePi(t));
+  await automation.start();
+  await automation.idle();
+  const merged = mergeInForge(forge, { 'notes/merged.md': '# Merged\nThe heat pump filter was replaced.\n' });
+  await automation.tick();
+  await automation.idle();
+  assert.equal(acceptedMain(t.context.state, 'home')?.sha, merged);
+  assert.match((await t.run('search', { query: 'heat pump filter' })).text, /^home:notes\/merged\.md/);
+}));
+
+test('vectors that failed are tried again after a pause, not every minute; keyword search works meanwhile', async () => {
+  let failing = true;
+  const embed = await startStubServer((request) => {
+    if (failing) return { status: 503, body: { error: 'down' } };
+    const input = (JSON.parse(request.body) as { input: string[] }).input;
+    return { body: { data: input.map((_, index) => ({ index, embedding: [1, 0, 0, 0] })) } };
+  });
+  try {
+    await withInstallation(async (t) => {
+      t.repo.write('notes/router.md', '# Router\nThe router lives in the hall cupboard.\n');
+      t.repo.commit('router');
+      t.accept();
+      const automation = automationFor(t, fakePi(t));
+      await automation.start();
+      await automation.idle();
+      const first = (await indexStatus(automation)).find((s) => s.vault === 'home');
+      assert.match(first?.error ?? '', /^vectors: /, 'the embedding model was down');
+      assert.match((await t.run('search', { query: 'cupboard router' })).text, /^home:notes\/router\.md/, 'keyword search meanwhile');
+      const asked = embed.requests.length;
+      failing = false;
+      t.clock.advance(MINUTE);
+      await automation.tick();
+      await automation.idle();
+      assert.equal(embed.requests.length, asked, 'not retried a minute later');
+      t.clock.advance(RETRY_MS);
+      await automation.tick();
+      await automation.idle();
+      assert.ok(embed.requests.length > asked, 'retried after the pause');
+      assert.equal((await indexStatus(automation)).find((s) => s.vault === 'home')?.error, undefined);
+    }, {
+      noDefaultModels: true,
+      config: `models:\n  agent: { model: faux/faux-1 }\n  embed: { url: "${embed.url}/v1", model: embed-model, token: "!echo t" }\npolicy:\n  - { vaults: [home], allow-models: [agent, embed] }`,
+    })();
+  } finally {
+    await embed.close();
+  }
+});

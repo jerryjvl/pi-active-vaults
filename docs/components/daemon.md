@@ -16,6 +16,7 @@ Git changes, and queued spawns. One per machine, as a user service.
 | **Traces** | Trace IDs, full logs, rotation |
 | **Outbox** | Each minute, retries due notifications with backoff ([Notifications](../notifications.md)) |
 | **Forge sync** | Below |
+| **Index upkeep** | Below |
 | **MCP server** | Serves each MCP profile that has an endpoint; one that cannot be served (unresolved token, address in use) is reported and the rest still are ([MCP](../mcp.md)) |
 
 ## Spawn lifecycle
@@ -186,6 +187,21 @@ person's own proposals:
   else. `main` is never pushed.
 
 Attestation and trace notes are fetched, merged line by line and pushed.
+
+## Index upkeep
+
+Each tick, after forge sync and the integrity check, every vault on the
+machine whose accepted `main` is not the commit its search index was built at
+is brought up to it: after an owner's accept, a merge fetched from the forge,
+or the vault's first registration. A paused vault waits; one with nothing
+accepted is left alone. The update runs in the background, one per vault at a
+time, so a long embedding never holds up the tick. When its vectors fail (the
+embedding model unreachable or unavailable) the documents are already
+searchable by keyword, and the vectors are tried again fifteen minutes later
+rather than every minute; vectors a previous daemon left unfinished get one
+attempt when it starts. Stopping does not wait for an update. `vault daemon
+status` shows each vault's last update: the commit, what was added, changed
+and removed, and why its vectors did not finish.
 
 ## Notification spools
 
