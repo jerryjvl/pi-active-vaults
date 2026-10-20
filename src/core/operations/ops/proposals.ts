@@ -6,7 +6,7 @@
 
 import { writeFileSync } from 'node:fs';
 import {
-  accept, adopt, adoptionDelta, commitAsActor, ensureActorWorktree, heldByAnother, worktreeFile, listActorHolds, readProposal, review, syncActorBranch,
+  accept, adopt, adoptionDelta, commitAsActor, conflictNotice, ensureActorWorktree, heldByAnother, worktreeFile, listActorHolds, readProposal, review, syncActorBranch,
   type AdoptionDelta, type Review,
 } from '../../actors/index.ts';
 import { backupVault } from '../../backup/index.ts';
@@ -21,7 +21,7 @@ import { writersOf, type RegisteredVault } from '../../registry/index.ts';
 import { newTraceId, recordRun } from '../../traces/index.ts';
 import { packageIdentity, type OperationContext } from '../context.ts';
 import { vaultRelative } from '../locate.ts';
-import { fromError, invalid, refused, succeeded } from '../messages.ts';
+import { failed, fromError, invalid, refused, succeeded } from '../messages.ts';
 import type { Operation } from '../types.ts';
 import { jobsWithoutModel, unavailableText } from '../models.ts';
 import { requestSpawns, spawnLines } from '../spawning.ts';
@@ -218,6 +218,8 @@ export const syncOperation: Operation = {
         // here would leave a local head the owner never approved, and the pull request would stall.
         merge: !(identity.value.review === 'forge' && identity.value.owners.includes(actor)),
       });
+      // Only an owner can resolve a conflict, by hand: say what conflicts and how, not just that it did.
+      if (!synced.ok && synced.error.reason === 'sync-conflict') return failed(conflictNotice(vault, synced.error.conflict, identity.value.review), { outcomes });
       if (!synced.ok) return fromError(synced.error, { outcomes });
       outcomes.push({ actor, ...synced.value });
       if (synced.value.outcome === 'left-ahead') lines.push(`${actor}: left as it is at ${synced.value.head ?? ''}: its work is not in main yet, and the forge merges it as it stands (an owner's branch is never merged with main here, so the pull request keeps the commit you approve)`);

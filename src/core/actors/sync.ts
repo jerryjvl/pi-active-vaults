@@ -13,18 +13,25 @@
 // kept the commit the owner approves (operations/ops/proposals.ts). Syncing writes
 // as the actor: not while another session holds it, and never over
 // uncommitted changes in its worktree.
+//
+// A merge that conflicts is undone, and the branch cannot be synced until an
+// owner resolves it by hand. `syncConflict` finds such a branch by a trial
+// merge that touches nothing, so the daemon can tell the owners before a job
+// or a pull request runs into it (a sync that meets one returns it the same
+// way, as `sync-conflict`); `conflictNotice` is the one wording of what
+// conflicts and how to resolve it, for every surface that reports it.
 
 import {
-  addTrailers, fastForward, hasTrackedChanges, isAncestor, listWorktrees, mergeSha, resolveRevision, updateRef,
-  type Identity, type Sha,
+  addTrailers, fastForward, hasTrackedChanges, isAncestor, listWorktrees, mergeConflicts, mergeSha, resolveRevision, updateRef,
+  type Git, type GitError, type Identity, type Sha,
 } from '../git/index.ts';
 import type { AcceptedMain } from '../integrity/index.ts';
-import type { RegisteredVault } from '../registry/index.ts';
+import type { RegisteredVault, VaultIdentity } from '../registry/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
 import { recordCheckResults, runChecks, type CheckResult } from '../scripts/index.ts';
 import { heldByAnother, type Holder } from './holds.ts';
 import { packageTrailers, type CommitOrigin } from './trailers.ts';
-import { actorBranch, ensureActorWorktree, type ActorCommitContext, type ActorCommitError, type WorktreeError } from './worktrees.ts';
+import { actorBranch, actorWorktreePath, ensureActorWorktree, type ActorCommitContext, type ActorCommitError, type WorktreeError } from './worktrees.ts';
 
 export interface SyncRequest {
   readonly origin: CommitOrigin;
@@ -45,7 +52,8 @@ export interface SyncOutcome {
   readonly checks?: readonly CheckResult[];
 }
 
-export type SyncError = ActorCommitError | WorktreeError;
+/** A merge that conflicts carries the conflict, so a caller can say what conflicts and how to resolve it. */
+export type SyncError = ActorCommitError | WorktreeError | { readonly reason: 'sync-conflict'; readonly conflict: SyncConflict };
 
 export async function syncActorBranch(
   context: ActorCommitContext, vault: RegisteredVault, accepted: AcceptedMain, actor: string, request: SyncRequest,
@@ -87,7 +95,11 @@ export async function syncActorBranch(
   const merged = await mergeSha(git, worktree.value.path, accepted.sha, {
     message: message.value.trim(), date: request.date, ...(request.identity === undefined ? {} : { identity: request.identity }),
   });
-  if (!merged.ok) return merged;
+  if (!merged.ok) {
+    return merged.error.reason === 'conflict'
+      ? err({ reason: 'sync-conflict', conflict: { actor, head: tip.value, accepted: accepted.sha, paths: merged.error.paths } })
+      : merged;
+  }
 
   const checked = await runChecks({ git, store: context.store, vault }, { commit: merged.value.head, actor }, context.checks);
   if (!checked.ok) return checked;
@@ -95,4 +107,45 @@ export async function syncActorBranch(
   const recorded = await recordCheckResults(git, vault.path, merged.value.head, checked.value.results, { ...attribution, date: context.clock.now() });
   if (!recorded.ok) return err({ reason: 'checks-not-recorded', sha: merged.value.head, cause: recorded.error });
   return ok({ outcome: 'merged', head: merged.value.head, checks: checked.value.results });
+}
+
+/** An actor's branch that cannot be synced: merging the accepted main into it conflicts in `paths`. */
+export interface SyncConflict {
+  readonly actor: string;
+  /** The branch's head, and the accepted main it conflicts with. */
+  readonly head: Sha;
+  readonly accepted: Sha;
+  readonly paths: readonly string[];
+}
+
+/**
+ * Whether syncing `actor`'s branch with the accepted main would conflict, by a
+ * trial merge: undefined when it would not (no branch, already up to date,
+ * nothing of its own, or a clean merge). Nothing is touched.
+ */
+export async function syncConflict(
+  git: Git, vault: RegisteredVault, accepted: AcceptedMain, actor: string,
+): Promise<Result<SyncConflict | undefined, GitError>> {
+  const tip = await resolveRevision(git, vault.path, `refs/heads/${actorBranch(actor)}`);
+  if (!tip.ok) return tip.error.reason === 'unknown-revision' ? ok(undefined) : tip;
+  for (const [ancestor, descendant] of [[accepted.sha, tip.value], [tip.value, accepted.sha]] as const) {
+    const contained = await isAncestor(git, vault.path, ancestor, descendant);
+    if (!contained.ok) return contained;
+    if (contained.value) return ok(undefined); // up to date, or a fast-forward
+  }
+  const paths = await mergeConflicts(git, vault.path, tip.value, accepted.sha);
+  if (!paths.ok) return paths;
+  return ok(paths.value.length === 0 ? undefined : { actor, head: tip.value, accepted: accepted.sha, paths: paths.value });
+}
+
+/** What conflicts and how an owner resolves it: by hand in the actor's worktree, finished with `vault commit` (and `vault propose` in forge mode). */
+export function conflictNotice(vault: RegisteredVault, conflict: SyncConflict, review: VaultIdentity['review']): string {
+  const { actor } = conflict;
+  const forge = review === 'forge';
+  return [
+    `${actorBranch(actor)} (at ${conflict.head}) conflicts with the accepted main (${conflict.accepted}) in: ${conflict.paths.join(', ')}.`,
+    `Until it is resolved, its branch cannot be brought up to date, so its jobs stop out-of-date${forge ? ' and its pull request cannot merge' : ''}.`,
+    `To resolve it, while no session holds ${actor}: in ${actorWorktreePath(vault, actor)}, run "git merge ${conflict.accepted}",`
+      + ` resolve and stage those files, then run "vault commit ${vault.id} --actor ${actor}"${forge ? ` and "vault propose ${vault.id} ${actor}"` : ''}.`,
+  ].join('\n');
 }

@@ -10,7 +10,7 @@ Git changes, and queued spawns. One per machine, as a user service.
 | **Single instance** | Takes the daemon's record in the state database (process ID and start time, void once that process ends), then binds its socket. If another daemon holds either, it exits `0`, so a service manager does not restart it |
 | **Git events** | Each vault's `reference-transaction` hook leaves a file named after the vault in `<state>/refs`; refs are also polled every minute |
 | **Timers** | Evaluated each minute in the machine's time zone. A run is identified by its local date and scheduled time, so a daylight-saving change neither repeats nor skips it; `missed` applies on start |
-| **Integrity** | On every ref change, checks for an unaccepted change; pauses that vault's automation and tells its owners once per unaccepted tip |
+| **Integrity** | On every ref change, checks for an unaccepted change; pauses that vault's automation and tells its owners once per unaccepted tip. For each vault it runs, a trial merge finds any writer's branch that could not be brought up to date with the accepted `main` because the merge would conflict, and tells the owners once per branch head and accepted `main`: which files, and how to resolve it |
 | **Matching, claims, scheduling** | Below |
 | **Budgets** | Document budgets, cascade pools and the daily ceiling |
 | **Traces** | Trace IDs, full logs, rotation |
@@ -99,7 +99,8 @@ Before starting Pi, it brings the actor's branch up to date with the accepted
 `main`, as `vault sync` does: a merge, so the branch keeps its own unaccepted
 work and gains what the owner changed on `main`. A branch that cannot be
 brought up to date (a conflict, uncommitted changes) is stopped `out-of-date`
-and Pi is not started.
+and Pi is not started; for a conflict, its log says which files and how an
+owner resolves it.
 
 It forks the originating session when that session subscribed here (giving
 its file) and the condition's `context` is not `bare`. The daemon records the

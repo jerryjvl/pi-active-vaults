@@ -33,11 +33,11 @@
 
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { TRAILER, ensureActorWorktree, syncActorBranch, trailerValue } from '../actors/index.ts';
+import { TRAILER, conflictNotice, ensureActorWorktree, syncActorBranch, trailerValue } from '../actors/index.ts';
 import { budgetState } from '../budgets/index.ts';
 import { ensurePrivateDir } from '../config/index.ts';
 import { commitsBetween, resolveRevision } from '../git/index.ts';
-import { requireNoUnacceptedChange } from '../integrity/index.ts';
+import { acceptedIdentity, requireNoUnacceptedChange } from '../integrity/index.ts';
 import { resolveModel } from '../models/index.ts';
 import { packageIdentity, type OperationContext } from '../operations/index.ts';
 import { processStartTime, startChild } from '../process/index.ts';
@@ -133,6 +133,11 @@ export async function startRun(
     { git: context.git, store: context.state, alive: context.alive, clock: context.clock, checks: await context.scriptOptions(), attribution: { identity: writer } },
     vault, accepted.value, spawn.actor, { origin: { trace: spawn.trace, actor: spawn.actor }, date: context.clock.now(), identity: writer },
   );
+  if (!synced.ok && synced.error.reason === 'sync-conflict') {
+    // Only an owner can resolve it: the log says what conflicts and how (the owners are told by the daemon too).
+    const identity = await acceptedIdentity(context.reads, context.git, vault.path, accepted.value);
+    if (identity.ok) return end('out-of-date', conflictNotice(vault, synced.error.conflict, identity.value.review));
+  }
   if (!synced.ok || synced.value.outcome === 'uncommitted-changes') {
     const why = !synced.ok ? synced.error.reason : 'uncommitted changes in its worktree';
     return end('out-of-date', `its actor's branch could not be brought up to date with the accepted main (${why}); "vault sync ${spawn.actor}" resolves it`);

@@ -239,4 +239,7 @@ test('a branch that conflicts with the accepted main stops the run out-of-date, 
   assert.equal(pi.starts().length, before, 'Pi was not started again');
   const last = listSpawns(t.context.state).at(-1);
   assert.equal(last?.reason, 'out-of-date');
+  const why = readFullLog(t.installation.paths.logs, last?.trace ?? '').map((l) => l.text).join('\n');
+  assert.match(why, /actor\/gardener .*conflicts with the accepted main .* in: notes\//, 'the log says what conflicts and how to resolve it');
+  assert.match(why, /vault commit/);
 }));

@@ -31,6 +31,7 @@ const REFUSALS = new Set([
   'unaccepted-change', 'policy-unmet', 'checks-failed', 'not-owner', 'not-reviewed', 'branch-moved', 'actor-busy',
   'raw-address', 'unknown-recipient', 'rate-limited', 'too-large', 'unacknowledged', 'not-main-tip', 'not-permitted',
   'no-person', 'not-a-vault-actor', 'forge-mode', 'not-forge-mode', 'not-pushable', 'shadows-builtin', 'unknown-actor', 'outside-worktree',
+  'unresolved-conflicts', 'merge-in-progress',
 ]);
 
 type ErrorValue = { readonly reason: string } & Record<string, unknown>;
@@ -104,6 +105,14 @@ export function describeError(error: ErrorValue): string {
       return 'The worktree has uncommitted changes.';
     case 'conflict':
       return `The merge conflicts in: ${(e['paths'] as string[] | undefined)?.join(', ') ?? ''}; nothing was changed.`;
+    case 'sync-conflict': {
+      const conflict = (e['conflict'] ?? {}) as { actor?: string; paths?: string[] };
+      return `actor/${conflict.actor ?? ''} conflicts with the accepted main in: ${conflict.paths?.join(', ') ?? ''}; nothing was changed. An owner merges the accepted main into it by hand, then commits with "vault commit".`;
+    }
+    case 'unresolved-conflicts':
+      return `The merge in progress still has conflicts in: ${(e['paths'] as string[] | undefined)?.join(', ') ?? ''}; resolve and stage them (git add), then commit again.`;
+    case 'merge-in-progress':
+      return 'A merge is in progress: it is committed whole, so name no paths.';
     case 'no-such-script':
       return `There is no script "${str(e['name'])}" on the accepted main.`;
     case 'invalid-script':

@@ -192,7 +192,8 @@ test('credentials embedded in a URL are redacted from anything git reports', () 
 });
 
 test('the minimum supported git version is enforced by comparison, not string order', () => {
-  assert.equal(meetsMinimumGitVersion('2.36.0'), true);
+  assert.equal(meetsMinimumGitVersion('2.38.0'), true);
+  assert.equal(meetsMinimumGitVersion('2.37.9'), false);
   assert.equal(meetsMinimumGitVersion('2.55.0'), true);
   assert.equal(meetsMinimumGitVersion('3.0.1'), true);
   assert.equal(meetsMinimumGitVersion('2.9.5'), false);

@@ -10,9 +10,14 @@
 //    the branch it was prepared on, if that branch has not moved since;
 //  - a merge takes a full SHA, never a name that could move between review and
 //    accept; it refuses a tree with tracked changes, and a conflict is undone so
-//    the repository is left as it was.
+//    the repository is left as it was;
+//  - a commit made while a merge is in progress (one resolved by hand) is that
+//    merge: it records the merged commits as further parents, is committed
+//    whole, and is refused while any path is still unresolved — so conflict
+//    markers are never committed, and the merge is never flattened into a
+//    commit that carries the other side's changes as its own.
 
-import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { err, ok, type Result } from '../result/index.ts';
@@ -145,6 +150,14 @@ export async function prepareCommit(git: Git, repo: string, options: CommitOptio
   const head = await resolveRevision(git, repo, 'HEAD');
   if (!head.ok && head.error.reason !== 'unknown-revision') return head;
   const parent = head.ok ? head.value : null;
+  const merging = await mergingHeads(git, repo);
+  if (!merging.ok) return merging;
+  if (merging.value.length > 0) {
+    if (stage !== 'all') return err({ reason: 'merge-in-progress' });
+    // Staging everything would take a conflicted file, markers and all, as resolved.
+    const unresolved = await unmergedPaths(git, repo);
+    if (unresolved.length > 0) return err({ reason: 'unresolved-conflicts', paths: unresolved });
+  }
 
   const tree = await withScratchIndex(async (index) => {
     if (stage === 'all') {
@@ -161,7 +174,8 @@ export async function prepareCommit(git: Git, repo: string, options: CommitOptio
     return runForText(git, ['write-tree'], { cwd: repo, env: index });
   });
   if (!tree.ok) return tree;
-  if (options.allowEmpty !== true) {
+  // A merge whose resolution keeps the branch's tree still records what was merged.
+  if (options.allowEmpty !== true && merging.value.length === 0) {
     // The parent's tree, or the empty tree (in the repository's own object format).
     const before = parent === null
       ? await runForText(git, ['hash-object', '-t', 'tree', '--stdin'], { cwd: repo, input: '' })
@@ -177,7 +191,8 @@ export async function prepareCommit(git: Git, repo: string, options: CommitOptio
   // As `git commit --cleanup=whitespace`: surrounding blank lines and trailing spaces go; lines starting with # stay.
   const message = await runChecked(git, ['stripspace'], { cwd: repo, input: withTrailers.value });
   if (!message.ok) return message;
-  const args = ['-c', 'commit.gpgsign=false', 'commit-tree', '--no-gpg-sign', tree.value, ...(parent === null ? [] : ['-p', parent]), '-F', '-'];
+  const parents = [...(parent === null ? [] : [parent]), ...merging.value];
+  const args = ['-c', 'commit.gpgsign=false', 'commit-tree', '--no-gpg-sign', tree.value, ...parents.flatMap((p) => ['-p', p]), '-F', '-'];
   const sha = await runForText(git, args, { cwd: repo, input: message.value.stdout, env: env.value });
   if (!sha.ok) return sha;
   return ok({ sha: sha.value, ref: ref.value.stdout.toString('utf8').trim(), parent, stage });
@@ -191,6 +206,7 @@ export async function prepareCommit(git: Git, repo: string, options: CommitOptio
 export async function landCommit(git: Git, repo: string, prepared: PreparedCommit): Promise<Result<Sha, GitError>> {
   const moved = await updateRef(git, repo, prepared.ref, prepared.sha, prepared.parent);
   if (!moved.ok) return moved;
+  // `git reset` also ends a merge in progress (MERGE_HEAD and its state go): the commit just landed is that merge.
   const synced = await runForSuccess(git, ['reset', '--quiet', ...(prepared.stage === 'all' ? [] : ['--', ...prepared.stage])], { cwd: repo });
   return synced.ok ? ok(prepared.sha) : synced;
 }
@@ -199,6 +215,40 @@ export async function landCommit(git: Git, repo: string, prepared: PreparedCommi
 export async function createCommit(git: Git, repo: string, options: CommitOptions): Promise<Result<Sha, GitError>> {
   const prepared = await prepareCommit(git, repo, options);
   return prepared.ok ? landCommit(git, repo, prepared.value) : prepared;
+}
+
+/**
+ * The paths where merging `theirs` into `ours` would conflict; none when it
+ * would merge cleanly. A trial merge (`merge-tree`): no branch, index or
+ * worktree is touched, only objects that nothing refers to are written.
+ */
+export async function mergeConflicts(git: Git, repo: string, ours: Sha, theirs: Sha): Promise<Result<string[], GitError>> {
+  for (const sha of [ours, theirs]) {
+    const checked = checkSha(sha);
+    if (!checked.ok) return checked;
+  }
+  const args = ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', ours, theirs];
+  const ran = await runGit(git, args, { cwd: repo });
+  if (!ran.ok) return ran;
+  // Exit 0: clean; 1: conflicts, listed after the resulting tree's ID; anything else failed.
+  if (ran.value.exitCode !== 0 && ran.value.exitCode !== 1) return err(failure(args, ran.value));
+  const [, ...paths] = ran.value.stdout.toString('utf8').split('\0').filter((p) => p !== '');
+  return ok(ran.value.exitCode === 0 ? [] : [...new Set(paths)]);
+}
+
+/** The commits a merge in progress is merging (`MERGE_HEAD`), in order; none when no merge is in progress. */
+async function mergingHeads(git: Git, repo: string): Promise<Result<Sha[], GitError>> {
+  const path = await runForText(git, ['rev-parse', '--git-path', 'MERGE_HEAD'], { cwd: repo });
+  if (!path.ok) return path;
+  const file = resolve(repo, path.value);
+  if (!existsSync(file)) return ok([]);
+  const heads: Sha[] = [];
+  for (const line of readFileSync(file, 'utf8').split('\n').map((l) => l.trim()).filter((l) => l !== '')) {
+    const checked = checkSha(line);
+    if (!checked.ok) return checked;
+    heads.push(checked.value);
+  }
+  return ok(heads);
 }
 
 async function unmergedPaths(git: Git, repo: string): Promise<string[]> {

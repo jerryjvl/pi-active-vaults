@@ -9,11 +9,18 @@
 // are told once per unaccepted tip, through `builtin:notify`'s outbox, when
 // they are recipient aliases of this installation; nothing is sent otherwise.
 // `notifyOwners` is that one way of telling owners, used for every notice.
+//
+// The owners of a vault this installation runs are also told, once per
+// branch head and accepted main, of a writer's branch that cannot be brought
+// up to date because merging the accepted main into it would conflict: left
+// alone, its jobs stop out-of-date and its pull request cannot merge, and
+// only an owner can resolve it.
 
+import { conflictNotice, syncConflict } from '../actors/index.ts';
 import { integrityStatus, acceptedIdentity, acceptedMain, unacceptedNotice, type AcceptedMain, type UnacceptedChange } from '../integrity/index.ts';
 import { sendNotification } from '../notify/index.ts';
 import { notifyDeps, scriptEnvironment, type OperationContext } from '../operations/index.ts';
-import { hosting, type RegisteredVault, type VaultIdentity } from '../registry/index.ts';
+import { hosting, writersOf, type RegisteredVault, type VaultIdentity } from '../registry/index.ts';
 import { newTraceId } from '../traces/index.ts';
 
 /** The vaults whose timer and Git-event jobs run on this installation. */
@@ -51,6 +58,34 @@ export async function tellOwners(context: OperationContext, vault: RegisteredVau
   await notifyOwners(context, vault, change.accepted, (review) => ({
     subject: `Vault "${vault.id}": an unaccepted change to main`, body: `${unacceptedNotice(change, review)}\n`, key,
   }));
+}
+
+/**
+ * Tells the owners of each of `vaults` about every writer's branch that would
+ * conflict with the accepted main, once per branch head and accepted main
+ * (`told` remembers it while the daemon runs, and the outbox drops a repeat
+ * within its cooldown). The trial merge runs each tick only for a branch that
+ * has diverged from the accepted main — an open proposal behind a newer merge
+ * — and touches nothing.
+ */
+export async function tellConflicts(context: OperationContext, vaults: readonly RegisteredVault[], told: Set<string>): Promise<void> {
+  for (const vault of vaults) {
+    const accepted = acceptedMain(context.state, vault.id);
+    if (accepted === undefined) continue;
+    const identity = await acceptedIdentity(context.reads, context.git, vault.path, accepted);
+    if (!identity.ok) continue;
+    for (const actor of writersOf(identity.value)) {
+      const conflict = await syncConflict(context.git, vault, accepted, actor);
+      if (!conflict.ok || conflict.value === undefined) continue;
+      const found = conflict.value;
+      const key = `conflict:${vault.id}:${actor}:${found.head}:${accepted.sha}`;
+      if (told.has(key)) continue;
+      told.add(key);
+      await notifyOwners(context, vault, accepted, (review) => ({
+        subject: `Vault "${vault.id}": actor/${actor} conflicts with main`, body: `${conflictNotice(vault, found, review)}\n`, key,
+      }));
+    }
+  }
 }
 
 /**

@@ -9,7 +9,8 @@
 //  - tick: forge sync first (a merge in the forge moves the accepted main,
 //    and each merged proposal is checked for its commits reaching it), then
 //    backups of local-mode vaults that name a remote (backups.ts), then
-//    which vaults it runs and which are paused (their owners told once), index
+//    which vaults it runs and which are paused (their owners told once), the
+//    branches of the vaults it runs that would conflict with main (told once), index
 //    upkeep for every vault whose accepted main moved (indexing.ts, in the
 //    background), the Git events since each job's cursor, the timers that came due,
 //    queued work past its queue time, the notification spools (spools.ts),
@@ -34,7 +35,7 @@ import { createForgeSync } from './forge.ts';
 import { METHODS, answer, claimRequested, inTree, noticeOf, readRequest, refuse, type Notice, type Reply } from './protocol.ts';
 import { startRun, type PiCommand, type RunHandle } from './run.ts';
 import { tickTimers } from './timers.ts';
-import { hostedVaults, pausedVaults, tellOwners } from './vaults.ts';
+import { hostedVaults, pausedVaults, tellConflicts, tellOwners } from './vaults.ts';
 
 export interface AutomationOptions {
   readonly pi: PiCommand;
@@ -105,6 +106,7 @@ export function createAutomation(context: OperationContext, options: AutomationO
     const nowPaused = new Set(unaccepted.keys());
     const resumed = new Set([...paused].filter((id) => !nowPaused.has(id)));
     paused = nowPaused;
+    await tellConflicts(context, hosted.filter((v) => !paused.has(v.id)), told);
     // An accept or a fetched merge moves an accepted main: bring its index up to it (in the background).
     indexing.tick(context.installation.vaults.filter((v) => !paused.has(v.id) && (only === undefined || v.id === only)));
     const m = await matchingOf();

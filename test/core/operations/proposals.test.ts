@@ -144,6 +144,22 @@ test('sync brings an actor branch with no work of its own up to the accepted mai
   assert.match(synced.text, new RegExp(`gardener: fast-forwarded at ${sha}`));
 }));
 
+test('sync of a branch that conflicts with the accepted main says what conflicts and how to resolve it, and changes nothing', withInstallation(async (t) => {
+  t.repo.write('a.md', 'base');
+  t.accept(t.repo.commit('base'));
+  await t.run('write', { path: 'a.md', content: 'the gardener', actor: 'gardener' }, { surface: 'mcp' });
+  const made = await t.run('commit', { message: 'gardener edit', actor: 'gardener' });
+  assert.equal(made.status, 'ok', made.text);
+  const head = t.repo.git('rev-parse', 'refs/heads/actor/gardener');
+  t.repo.write('a.md', 'main');
+  t.accept(t.repo.commit('main edit'));
+  const synced = await t.run('sync', { actor: 'gardener' });
+  assert.notEqual(synced.status, 'ok');
+  assert.match(synced.text, /actor\/gardener .*conflicts with the accepted main .* in: a\.md/);
+  assert.match(synced.text, /git merge [0-9a-f]{40}/);
+  assert.equal(t.repo.git('rev-parse', 'refs/heads/actor/gardener'), head, 'nothing changed');
+}));
+
 test('undelivered notifications, being the whole installation\'s, are shown by status only on local surfaces', withInstallation(async (t) => {
   const { sendNotification } = await import('../../../src/core/notify/index.ts');
   const config = t.installation.notify;

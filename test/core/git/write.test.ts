@@ -3,7 +3,10 @@
 // assess it before it lands, and lands only on the branch it was prepared on
 // if that has not moved; a commit's tree is exported exactly as committed; accept
 // merges the reviewed SHA only (never a branch name) and never into a dirty
-// tree; a conflict leaves the repository as it was (security.md, AGENTS.md §6).
+// tree; a conflict leaves the repository as it was (security.md, AGENTS.md §6);
+// a commit made during a merge resolved by hand is that merge, whole, and is
+// refused while a path is unresolved (cli.md "vault commit"); a trial merge
+// reports conflicts and touches nothing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -16,6 +19,7 @@ import {
   exportTree,
   hasTrackedChanges,
   landCommit,
+  mergeConflicts,
   mergeSha,
   prepareCommit,
 } from '../../../src/core/git/index.ts';
@@ -310,4 +314,84 @@ test('a commit\'s tree is exported as committed — not the working tree — wit
   } finally {
     rmSync(target, { recursive: true, force: true });
   }
+}));
+
+/** On actor/alice, a merge of main that conflicts in a.md and is left in progress; returns both tips. */
+function conflictedMerge(repo: TempRepo): { ours: string; theirs: string } {
+  repo.write('a.md', 'base\n');
+  repo.commit('base');
+  repo.git('checkout', '--quiet', '-b', 'actor/alice');
+  repo.write('a.md', 'alice\n');
+  repo.write('b.md', 'alice only\n');
+  const ours = repo.commit('alice edit');
+  repo.git('checkout', '--quiet', 'main');
+  repo.write('a.md', 'main\n');
+  const theirs = repo.commit('main edit');
+  repo.git('checkout', '--quiet', 'actor/alice');
+  assert.throws(() => repo.git('merge', '--quiet', '--no-edit', theirs), 'the merge conflicts');
+  return { ours, theirs };
+}
+
+test('a commit made while a merge is in progress records the merged commit as a second parent and ends the merge', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  const { ours, theirs } = conflictedMerge(repo);
+  repo.write('a.md', 'resolved\n');
+  repo.git('add', 'a.md');
+  const made = await createCommit(git, repo.path, { message: 'Sync actor/alice with main' });
+  assert.ok(made.ok, JSON.stringify(made));
+  assert.equal(repo.git('rev-list', '--parents', '-n1', 'HEAD'), `${made.value} ${ours} ${theirs}`);
+  assert.equal(repo.git('show', `${made.value}:a.md`), 'resolved');
+  assert.equal(existsSync(join(repo.path, '.git', 'MERGE_HEAD')), false, 'no merge is left in progress');
+  assert.equal(repo.git('status', '--porcelain'), '');
+}));
+
+test('a merge resolved to the branch\'s own tree is still committed as a merge', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  const { ours, theirs } = conflictedMerge(repo);
+  repo.git('checkout', '--ours', 'a.md');
+  repo.git('add', 'a.md');
+  const made = await createCommit(git, repo.path, { message: 'Keep ours' });
+  assert.ok(made.ok, JSON.stringify(made));
+  assert.equal(repo.git('rev-list', '--parents', '-n1', 'HEAD'), `${made.value} ${ours} ${theirs}`);
+}));
+
+test('a commit is refused while a merge still has unresolved conflicts, and the merge stays in progress', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  const { ours } = conflictedMerge(repo);
+  const made = await createCommit(git, repo.path, { message: 'Too early' });
+  assert.deepEqual(made, { ok: false, error: { reason: 'unresolved-conflicts', paths: ['a.md'] } });
+  assert.equal(repo.git('rev-parse', 'HEAD'), ours);
+  assert.equal(existsSync(join(repo.path, '.git', 'MERGE_HEAD')), true);
+}));
+
+test('a commit of some paths is refused while a merge is in progress: a merge is committed whole', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  const { ours } = conflictedMerge(repo);
+  repo.write('a.md', 'resolved\n');
+  repo.git('add', 'a.md');
+  const made = await createCommit(git, repo.path, { message: 'Part', stage: ['a.md'] });
+  assert.equal(made.ok === false && made.error.reason, 'merge-in-progress');
+  assert.equal(repo.git('rev-parse', 'HEAD'), ours);
+}));
+
+test('a trial merge reports the paths two commits conflict in, and touches no branch, index or worktree', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('a.md', 'base\n');
+  repo.write('b.md', 'base\n');
+  repo.commit('base');
+  repo.git('checkout', '--quiet', '-b', 'actor/alice');
+  repo.write('a.md', 'alice\n');
+  const alice = repo.commit('alice edit');
+  repo.git('checkout', '--quiet', 'main');
+  repo.write('b.md', 'main\n');
+  const clean = repo.commit('main edits b');
+  assert.deepEqual(await mergeConflicts(git, repo.path, alice, clean), { ok: true, value: [] });
+  repo.write('a.md', 'main\n');
+  const tip = repo.commit('main edits a');
+  assert.deepEqual(await mergeConflicts(git, repo.path, alice, tip), { ok: true, value: ['a.md'] });
+  assert.equal(repo.git('rev-parse', 'HEAD'), tip);
+  assert.equal(repo.git('status', '--porcelain'), '');
+  assert.equal(existsSync(join(repo.path, '.git', 'MERGE_HEAD')), false);
+  const named = await mergeConflicts(git, repo.path, 'actor/alice', tip);
+  assert.equal(named.ok === false && named.error.reason, 'invalid-argument', 'only full SHAs');
 }));

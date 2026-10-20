@@ -23,7 +23,7 @@ on their own branches; owners decide what reaches `main`.
 - Linux, macOS or Windows
 - Pi ≥ 1.3, with a model configured
 - Node.js ≥ 22.18
-- Git ≥ 2.36
+- Git ≥ 2.38
 
 ## Getting started
 

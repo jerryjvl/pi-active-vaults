@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ensureActorWorktree, isTaintedCommit, syncActorBranch, takeActorHold } from '../../../src/core/actors/index.ts';
+import { conflictNotice, ensureActorWorktree, isTaintedCommit, syncActorBranch, syncConflict, takeActorHold } from '../../../src/core/actors/index.ts';
 import { readAttestations } from '../../../src/core/attestations/index.ts';
 import { commitsBetween } from '../../../src/core/git/index.ts';
 import type { ProcessLiveness } from '../../../src/core/process/index.ts';
@@ -80,4 +80,31 @@ test('syncing is refused while another session holds the actor, and leaves uncom
   const dirty = await syncActorBranch(context(v), v.vault, accepted, 'gardener', { origin, date: v.clock.now() });
   assert.deepEqual(dirty, { ok: true, value: { outcome: 'uncommitted-changes', head: first.sha } });
   assert.equal(v.repo.git('rev-parse', 'refs/heads/actor/gardener'), first.sha);
+}));
+
+test('a branch whose merge with the accepted main would conflict is found without touching it; one that would merge cleanly is not', withTestVault(async (v) => {
+  v.repo.write('notes/a.md', 'base');
+  v.repo.commit('base');
+  v.accept();
+  assert.deepEqual(await syncConflict(v.git, v.vault, v.accept(), 'gardener'), { ok: true, value: undefined }, 'no branch');
+  const head = v.propose({ 'notes/a.md': 'gardener' });
+  const clean = v.accept(advanceMain(v, 'news.md'));
+  assert.deepEqual(await syncConflict(v.git, v.vault, clean, 'gardener'), { ok: true, value: undefined }, 'a clean merge');
+  v.repo.write('notes/a.md', 'main');
+  const accepted = v.accept(v.repo.commit('main edits a'));
+  const found = await syncConflict(v.git, v.vault, accepted, 'gardener');
+  assert.deepEqual(found, { ok: true, value: { actor: 'gardener', head, accepted: accepted.sha, paths: ['notes/a.md'] } });
+  assert.equal(v.repo.git('rev-parse', 'refs/heads/actor/gardener'), head, 'the branch is untouched');
+  const synced = await syncActorBranch(context(v), v.vault, accepted, 'gardener', { origin, date: v.clock.now() });
+  assert.deepEqual(synced, { ok: false, error: { reason: 'sync-conflict', conflict: found.ok ? found.value : undefined } }, 'sync refuses it as the trial merge said');
+}));
+
+test('the conflict notice names the paths and how an owner resolves it; the pull request step only in forge mode', withTestVault(async (v) => {
+  const conflict = { actor: 'gardener', head: 'a'.repeat(40), accepted: 'b'.repeat(40), paths: ['notes/a.md', 'notes/b.md'] };
+  const local = conflictNotice(v.vault, conflict, 'local');
+  assert.match(local, /actor\/gardener .*conflicts with the accepted main .* in: notes\/a\.md, notes\/b\.md/);
+  assert.ok(local.includes('git merge ' + 'b'.repeat(40)));
+  assert.ok(local.includes(`vault commit ${v.vault.id} --actor gardener`));
+  assert.ok(!local.includes('vault propose'));
+  assert.ok(conflictNotice(v.vault, conflict, 'forge').includes(`vault propose ${v.vault.id} gardener`));
 }));

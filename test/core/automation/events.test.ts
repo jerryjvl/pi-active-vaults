@@ -2,7 +2,8 @@
 // job's cursor up to the accepted main and matched against `applies-when`;
 // "Matching" — nothing is lost while the daemon is down; "Spawn lifecycle" — each
 // spawn is claimed once; "Integrity" — an unaccepted change pauses the
-// vault's automation, and the owner is notified once; "Hosting" — only a
+// vault's automation, and the owner is notified once, as of a branch that
+// would conflict with the accepted main; "Hosting" — only a
 // vault this installation hosts (or is the executor of) runs its jobs here.
 // concepts.md "Session tree" — work a run commits stays in its tree.
 import { test } from 'node:test';
@@ -73,6 +74,30 @@ test('an unaccepted change pauses the vault: nothing is claimed, and the owner i
   t.accept(stray);
   await automation.tick();
   assert.deepEqual(claimed(t), [['jobs/watch.md', 'merged', stray]]);
+}, {
+  host: true,
+  config: 'notify:\n  from: "Vault <vault@example.net>"\n  recipients: { alice: alice@example.net }\n  transport: { type: sendmail, command: /nonexistent/sendmail }',
+}));
+
+test('an actor branch that would conflict with the accepted main is told to the owner once, naming the paths', withInstallation(async (t) => {
+  accepted(t, 'a note', { 'notes/a.md': 'base' });
+  t.repo.git('checkout', '--quiet', '-b', 'actor/gardener');
+  t.repo.write('notes/a.md', 'the gardener');
+  t.repo.commit(`gardener edit${PACKAGE_TRAILERS}`);
+  t.repo.git('checkout', '--quiet', 'main');
+  const automation = automationFor(t, fakePi(t));
+  await automation.start();
+  accepted(t, 'elsewhere', { 'other/x.md': 'X' });
+  await automation.tick();
+  const conflicts = () => t.context.state.all<{ alias: string; subject: string; body: string }>("SELECT alias, subject, body FROM notify_outbox WHERE key LIKE 'conflict:%'");
+  assert.deepEqual(conflicts(), [], 'a clean merge is not told');
+  accepted(t, 'main edits the same note', { 'notes/a.md': 'main' });
+  await automation.tick();
+  await automation.tick();
+  const told = conflicts();
+  assert.deepEqual(told.map((m) => m.alias), ['alice'], 'once, to the owner');
+  assert.match(told[0]?.subject ?? '', /actor\/gardener/);
+  assert.match(told[0]?.body ?? '', /in: notes\/a\.md/);
 }, {
   host: true,
   config: 'notify:\n  from: "Vault <vault@example.net>"\n  recipients: { alice: alice@example.net }\n  transport: { type: sendmail, command: /nonexistent/sendmail }',

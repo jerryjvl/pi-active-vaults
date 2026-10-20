@@ -6,8 +6,8 @@ import { checkBranchName, checkRefName, checkRefPrefix, checkRevision, checkSha 
 
 export type Sha = string;
 
-/** Git releases older than this lack options the package relies on (`worktree list -z`, `merge --no-verify`). */
-export const MINIMUM_GIT_VERSION = [2, 36] as const;
+/** Git releases older than this lack options the package relies on (`worktree list -z`, `merge --no-verify`, `merge-tree --write-tree`). */
+export const MINIMUM_GIT_VERSION = [2, 38] as const;
 
 export async function gitVersion(git: Git): Promise<Result<string, GitError>> {
   const text = await runForText(git, ['--version'], { cwd: process.cwd() });

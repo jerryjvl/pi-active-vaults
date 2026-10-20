@@ -44,6 +44,7 @@ export {
   fastForward,
   hasTrackedChanges,
   landCommit,
+  mergeConflicts,
   mergeSha,
   prepareCommit,
   resetHard,

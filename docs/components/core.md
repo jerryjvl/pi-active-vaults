@@ -87,7 +87,7 @@ enforces this; a new module must be given a layer.
 | `integrityStatus` | Vault | `accepted`, or the unaccepted change with its commits |
 | `runScript` | Vault, script name, arguments | Exit status and output |
 | `runChecks` | Vault, commit, actor | Each check's verdict on that commit (`pass`, `fail`, `error`) |
-| `commitAsActor` | Vault, actor worktree, message | The commit, landed only if every check passed it, with their verdicts recorded |
+| `commitAsActor` | Vault, actor worktree, message | The commit, landed only if every check passed it, with their verdicts recorded; with a merge in progress, that merge |
 | `search` | Query, vault scope | Ranked hits, each with a freshness verdict |
 | `enqueueSpawn` | Document, condition, event, parent trace | Queue entry or the existing claim |
 
