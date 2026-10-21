@@ -254,7 +254,9 @@ instruction for each, and optionally an instruction to combine the results. The
 list can come from anything the session can do. Each item is a session of its
 own, on the same model, that can look but not write: Pi's read-only file tools,
 `vault_read`, `vault_search`, and the tools of the MCP servers the fan-out names
-from the person's own Pi configuration (a web search, say). Items run as many
+from the person's own Pi configuration (a web search, say). Each item also gets
+the person's own standing instructions from Pi's `APPEND_SYSTEM.md` (what may
+leave the machine, say), never a project's. Items run as many
 at a time as the agent model's `parallel` allows. The session that fanned out
 writes what comes back. An item that fails is reported as failed, never handed
 to the gather; without a gather instruction each item's outcome comes back as

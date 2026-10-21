@@ -57,6 +57,8 @@ export interface PiOptions {
   readonly extra?: (pi: ExtensionAPI) => void;
   /** MCP servers in Pi's user-level `mcp.json`, as `mcpServers` holds them. */
   readonly mcpServers?: Readonly<Record<string, unknown>>;
+  /** The installation's own instructions, in Pi's user-level `APPEND_SYSTEM.md`. */
+  readonly appendSystem?: string;
 }
 
 function textOf(content: unknown): string {
@@ -87,6 +89,7 @@ function recordingUi(notices: PiSession['notices'], confirm: boolean | undefined
 export async function openPi(t: TestInstallation, options: PiOptions = {}): Promise<PiSession> {
   const agentDir = mkdtempSync(join(tmpdir(), 'pav-pi-'));
   if (options.mcpServers !== undefined) writeFileSync(join(agentDir, 'mcp.json'), JSON.stringify({ mcpServers: options.mcpServers }));
+  if (options.appendSystem !== undefined) writeFileSync(join(agentDir, 'APPEND_SYSTEM.md'), options.appendSystem);
   const faux = fauxProvider();
   const requests: PiRequest[] = [];
   const events: PiSession['events'] = [];

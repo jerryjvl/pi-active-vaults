@@ -5,12 +5,16 @@
 //
 // It loads nothing else: no extensions, skills, prompt templates or context
 // files, and only the named servers from the user's own `mcp.json` (never a
-// project's, which a vault's content could supply). Its model and thinking
+// project's, which a vault's content could supply). Its system prompt gains the
+// item instruction and then the installation's own `APPEND_SYSTEM.md` from the
+// agent directory — the rules the person set for every session, such as what
+// may leave the machine — but never a project's, for the same reason. (Passing
+// an append prompt stops Pi finding that file itself, so it is named here.) Its model and thinking
 // level are the parent session's. The parent sees each tool call and each
 // model response as it happens, so it can log, taint and budget the item's
 // work as its own.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   createAgentSession, createMcpExtension, DefaultResourceLoader, getAgentDir, SessionManager, SettingsManager,
@@ -69,6 +73,12 @@ export function mcpServersOf(names: readonly string[], options: ItemSessionOptio
   return { ok: true, value: Object.fromEntries(names.map((n) => [n, servers[n] as McpServerConfig])) };
 }
 
+/** The installation's own `APPEND_SYSTEM.md`, as Pi resolves an append source (a path is read), when there is one. */
+function installationRules(agentDir: string): string[] {
+  const file = join(agentDir, 'APPEND_SYSTEM.md');
+  return existsSync(file) ? [file] : [];
+}
+
 const textOf = (message: AssistantMessage): string => message.content.map((c) => (c.type === 'text' ? c.text : '')).join('').trim();
 
 export async function runItem(request: ItemRequest, options: ItemSessionOptions = {}): Promise<ItemResult> {
@@ -77,7 +87,7 @@ export async function runItem(request: ItemRequest, options: ItemSessionOptions 
   const resourceLoader = new DefaultResourceLoader({
     cwd: request.cwd, agentDir,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    appendSystemPrompt: [ITEM_SYSTEM],
+    appendSystemPrompt: [ITEM_SYSTEM, ...installationRules(agentDir)],
     extensionFactories: servers.length === 0 ? [] : [createMcpExtension({
       // Only the named servers, with their tools declared to the model directly.
       loadConfig: () => ({

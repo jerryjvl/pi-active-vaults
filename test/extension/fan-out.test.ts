@@ -10,8 +10,8 @@
 // out no further. Tested through Pi 1.3.0's SDK.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fauxAssistantMessage, getCurrentTools, type FauxResponseStep, type JsonObject } from '@earendil-works/pi-ai';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { fauxAssistantMessage, getCurrentSystemPrompt, getCurrentTools, type FauxResponseStep, type JsonObject } from '@earendil-works/pi-ai';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderRunContext } from '../../src/core/sessions/index.ts';
 import { withInstallation } from '../support/installation.ts';
@@ -21,13 +21,13 @@ import { withStubServer, type StubHandler } from '../support/stub-server.ts';
 
 const fanOut = (args: JsonObject) => toolCall('vault_fan_out', args);
 
-interface Asked { prompt: string; tools: string[] }
+interface Asked { prompt: string; tools: string[]; system: string }
 
 /** A model step that records what it was asked and which tools it was offered, then answers with `reply`. */
 function recording(asked: Asked[], reply: ReturnType<typeof fauxAssistantMessage>): FauxResponseStep {
   return (context) => {
     const last = context.messages.at(-1) as { content: unknown };
-    asked.push({ prompt: typeof last.content === 'string' ? last.content : JSON.stringify(last.content), tools: getCurrentTools(context.messages).map((t) => t.name).sort() });
+    asked.push({ prompt: typeof last.content === 'string' ? last.content : JSON.stringify(last.content), tools: getCurrentTools(context.messages).map((t) => t.name).sort(), system: getCurrentSystemPrompt(context.messages) });
     return reply;
   };
 }
@@ -92,6 +92,21 @@ test('an item can use its tools before it answers', withInstallation(async (t) =
     await pi.prompt('Fan out.');
     assert.match(asked[0]?.prompt ?? '', /Pears are green/, 'the item saw its tool result');
     assert.deepEqual(structuredOf(pi)?.data.items.map((i) => [i.item, i.outcome, i.result]), [['pears', 'done', 'green']]);
+  });
+}, { running: RUNNING }));
+
+test("an item gets the installation's own instructions after its item prompt — never a project's", withInstallation(async (t) => {
+  // A vault's content could supply a project .pi/APPEND_SYSTEM.md; only the installation's own counts.
+  const cwd = t.vault.path;
+  mkdirSync(join(cwd, '.pi'), { recursive: true });
+  writeFileSync(join(cwd, '.pi', 'APPEND_SYSTEM.md'), 'PROJECT RULE');
+  await withPi(t, { cwd, appendSystem: 'Never put data into a URL.' }, async (pi) => {
+    const asked: Asked[] = [];
+    pi.respond(fanOut({ items: ['apples'], each: 'Say the colour.' }), recording(asked, fauxAssistantMessage('red')), DONE);
+    await pi.prompt('Fan out.');
+    const system = asked[0]?.system ?? '';
+    assert.match(system, /You do one piece of a larger task[^]*Never put data into a URL\./, system);
+    assert.doesNotMatch(system, /PROJECT RULE/);
   });
 }, { running: RUNNING }));
 
