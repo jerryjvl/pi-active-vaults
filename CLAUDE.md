@@ -14,6 +14,7 @@
 
 ## How to work here
 
+- **Changes go on a branch;** they merge to `main` only with the owner's OK.
 - **Hold to the principles.** The most important for implementation:
   - all logic in `src/core/`, adapters stay thin;
   - nothing hardcoded — models, URLs and paths come from configuration;
