@@ -1,5 +1,6 @@
 // Public surface of the integrity module: the accepted `main` per vault and
-// unaccepted-change detection, with the notice every surface shows.
+// unaccepted-change detection, with the notice every surface shows, and the
+// cached reads from the accepted `main`.
 
 export {
   acceptedMain,
@@ -23,9 +24,12 @@ export {
 export {
   UNCACHED_READS,
   acceptedContract,
+  acceptedFrontmatter,
   acceptedContracts,
   acceptedDocument,
   acceptedIdentity,
   createAcceptedReads,
   type AcceptedReads,
+  type AcceptedReadsOptions,
 } from './reads.ts';
+export { frontmatterCache, readsSchema, type CommittedFrontmatter, type FrontmatterCache } from './frontmatter.ts';

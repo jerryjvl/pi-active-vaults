@@ -15,7 +15,9 @@
 //  - only the accepted main is ever a key: the branded `AcceptedMain` cannot
 //    name an unaccepted commit, so an unaccepted change is never read;
 //  - a read that failed (an error value, or a throw) is not kept, so a
-//    passing Git failure is tried again rather than remembered.
+//    passing Git failure is tried again rather than remembered;
+//  - documents' frontmatter is also kept across processes (`frontmatter.ts`),
+//    by blob, so a new process or a new accepted main parses only what changed.
 //
 // The vault catalog in a session's system prompt is not one of these reads:
 // it is fixed for the session (pi-conventions.md "Prompt-cache stability").
@@ -26,10 +28,17 @@ import { pathTypeAt, type Git, type GitError } from '../git/index.ts';
 import { readVaultIdentity, type IdentityError, type VaultIdentity } from '../registry/index.ts';
 import type { Result } from '../result/index.ts';
 import type { AcceptedMain } from './accepted.ts';
+import { scanFrontmatter, type CommittedFrontmatter, type FrontmatterCache } from './frontmatter.ts';
 
 export interface AcceptedReads {
   /** What `load` gives for `key` at the vault's accepted main `accepted`, loaded once while it stays accepted. */
   read<T>(accepted: AcceptedMain, key: string, load: () => Promise<T>): Promise<T>;
+  /** Parsed frontmatter kept beyond this process, when there is somewhere to keep it. */
+  readonly frontmatter?: FrontmatterCache;
+}
+
+export interface AcceptedReadsOptions {
+  readonly frontmatter?: FrontmatterCache;
 }
 
 /** A value that is an error result is not kept. */
@@ -37,9 +46,10 @@ function failed(value: unknown): boolean {
   return typeof value === 'object' && value !== null && (value as { ok?: unknown }).ok === false;
 }
 
-export function createAcceptedReads(): AcceptedReads {
+export function createAcceptedReads(options: AcceptedReadsOptions = {}): AcceptedReads {
   const vaults = new Map<string, { sha: string; reads: Map<string, Promise<unknown>> }>();
   return {
+    ...(options.frontmatter === undefined ? {} : { frontmatter: options.frontmatter }),
     read<T>(accepted: AcceptedMain, key: string, load: () => Promise<T>): Promise<T> {
       let held = vaults.get(accepted.vault);
       if (held === undefined || held.sha !== accepted.sha) {
@@ -90,4 +100,11 @@ export async function acceptedContract(
 /** A document at the accepted main. */
 export function acceptedDocument(reads: AcceptedReads, git: Git, repo: string, accepted: AcceptedMain, path: string): Promise<Result<CommittedDocument, GitError>> {
   return reads.read(accepted, `document:${path}`, () => readDocumentAt(git, repo, accepted.sha, path));
+}
+
+/** The frontmatter of every document at the accepted main, by path in tree order. */
+export function acceptedFrontmatter(
+  reads: AcceptedReads, git: Git, repo: string, accepted: AcceptedMain,
+): Promise<Result<Map<string, CommittedFrontmatter>, GitError>> {
+  return reads.read(accepted, 'frontmatter', () => scanFrontmatter(git, repo, accepted.vault, accepted.sha, reads.frontmatter));
 }

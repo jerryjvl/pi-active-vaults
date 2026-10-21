@@ -28,7 +28,7 @@
 
 import { contractReader } from '../contracts/index.ts';
 import { inPackageDirectory, isDocumentPath } from '../documents/index.ts';
-import { TREE_MODES, listTree, readTextAt, type GitError, type Sha } from '../git/index.ts';
+import { TREE_MODES, listTree, readBlobs, readTextAt, type GitError, type Sha } from '../git/index.ts';
 import { requireNoUnacceptedChange, type UnacceptedChangeError, type VaultLocation } from '../integrity/index.ts';
 import { embed, type ModelError } from '../models/index.ts';
 import { err, ok, type Result } from '../result/index.ts';
@@ -70,6 +70,7 @@ export type ProgressListener = (progress: IndexProgress) => void;
 interface Wanted {
   readonly path: string;
   readonly blob: string;
+  readonly size: number;
   readonly scope: IndexScope;
 }
 
@@ -264,7 +265,7 @@ export async function updateIndex(context: SearchContext, vault: VaultLocation, 
       continue;
     }
     const scope = contract.value.values['index'] ?? 'default';
-    if (scope === 'default' || scope === 'opt-in') wanted.push({ path: entry.path, blob: entry.sha, scope });
+    if (scope === 'default' || scope === 'opt-in') wanted.push({ path: entry.path, blob: entry.sha, size: entry.size, scope });
   }
 
   const indexed = new Map(index.all<{ path: string; blob: string; scope: string }>(
@@ -272,17 +273,17 @@ export async function updateIndex(context: SearchContext, vault: VaultLocation, 
   ).map((row) => [row.path, row]));
   const prepared: Prepared[] = [];
   const rescoped: Wanted[] = [];
-  const toRead = wanted.filter((document) => indexed.get(document.path)?.blob !== document.blob).length;
+  const toRead = wanted.filter((document) => indexed.get(document.path)?.blob !== document.blob);
   for (const document of wanted) {
     const before = indexed.get(document.path);
-    if (before?.blob === document.blob) {
-      if (before.scope !== document.scope) rescoped.push(document);
-      continue;
-    }
-    const text = await readTextAt(git, vault.path, sha, document.path);
-    if (!text.ok) return text;
-    prepared.push({ ...document, ...chunkDocument(vault.id, document.path, text.value ?? '') });
-    onProgress?.({ vault: vault.id, phase: 'reading', done: prepared.length, total: toRead });
+    if (before?.blob === document.blob && before.scope !== document.scope) rescoped.push(document);
+  }
+  const blobs = await readBlobs(git, vault.path, toRead.map((document) => ({ sha: document.blob, size: document.size })));
+  if (!blobs.ok) return blobs;
+  for (const document of toRead) {
+    const text = blobs.value.get(document.blob)?.toString('utf8') ?? '';
+    prepared.push({ ...document, ...chunkDocument(vault.id, document.path, text) });
+    onProgress?.({ vault: vault.id, phase: 'reading', done: prepared.length, total: toRead.length });
   }
   const keep = new Set(wanted.map((w) => w.path));
   const removed = [...indexed.keys()].filter((path) => !keep.has(path)).sort();

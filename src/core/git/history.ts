@@ -6,7 +6,7 @@
 import { err, ok, type Result } from '../result/index.ts';
 import { failure, runChecked, runForText, runGit, type Git, type GitError } from './exec.ts';
 import { resolveRevision, type Sha } from './refs.ts';
-import { checkRevision, checkTreePath } from './validate.ts';
+import { checkRevision, checkSha, checkTreePath } from './validate.ts';
 
 export interface Trailer {
   readonly key: string;
@@ -177,6 +177,8 @@ export interface TreeEntry {
   readonly mode: string;
   /** The blob's object name: the content hash of this exact content. */
   readonly sha: Sha;
+  /** The blob's size in bytes. */
+  readonly size: number;
 }
 
 /** Every file in the revision's tree, or only those under the directory `under`; submodules are not files. */
@@ -187,17 +189,75 @@ export async function listTree(git: Git, repo: string, revision: string, under?:
   }
   const sha = await resolveRevision(git, repo, revision);
   if (!sha.ok) return sha;
-  const args = ['ls-tree', '-r', '-z', '--full-tree', sha.value, ...(under === undefined ? [] : ['--', under])];
+  const args = ['ls-tree', '-r', '-z', '--long', '--full-tree', sha.value, ...(under === undefined ? [] : ['--', under])];
   const ran = await runChecked(git, args, { cwd: repo });
   if (!ran.ok) return ran;
-  // Each record is "<mode> <type> <object>\t<path>".
+  // Each record is "<mode> <type> <object> <size>\t<path>", the size padded with spaces.
   const entries: TreeEntry[] = [];
   for (const record of ran.value.stdout.toString('utf8').split('\0')) {
     const tab = record.indexOf('\t');
-    const [mode = '', type = '', object = ''] = record.slice(0, tab).split(' ');
-    if (tab > 0 && type === 'blob') entries.push({ path: record.slice(tab + 1), mode, sha: object });
+    const [mode = '', type = '', object = '', size = ''] = record.slice(0, tab).split(/ +/);
+    if (tab > 0 && type === 'blob') entries.push({ path: record.slice(tab + 1), mode, sha: object, size: Number(size) });
   }
   return ok(entries);
+}
+
+// What `cat-file --batch` prints before each blob's content ("<object> blob <size>\n")
+// and after it ("\n"), bounded generously, so a chunk's output is known before it runs.
+const BATCH_OVERHEAD_BYTES = 128;
+
+/**
+ * The content of each blob, by object name: many files for a few processes
+ * rather than one each, which is what makes reading a whole tree affordable.
+ * The blobs are read in chunks whose output fits the output limit; a single
+ * blob larger than the limit is `output-too-large`, as reading it alone is.
+ */
+export async function readBlobs(git: Git, repo: string, blobs: readonly Pick<TreeEntry, 'sha' | 'size'>[]): Promise<Result<Map<Sha, Buffer>, GitError>> {
+  const wanted = new Map<Sha, number>();
+  for (const { sha, size } of blobs) {
+    // Object names are the whole input: one that is not a full SHA could be a revision expression.
+    const checked = checkSha(sha);
+    if (!checked.ok) return checked;
+    wanted.set(sha, size);
+  }
+  const chunks: Sha[][] = [];
+  let room = 0;
+  for (const [sha, size] of wanted) {
+    const needs = size + BATCH_OVERHEAD_BYTES;
+    if (chunks.length === 0 || needs > room) {
+      chunks.push([]);
+      room = git.maxOutputBytes;
+    }
+    chunks.at(-1)?.push(sha);
+    room -= needs;
+  }
+  const found = new Map<Sha, Buffer>();
+  for (const chunk of chunks) {
+    const args = ['cat-file', '--batch'];
+    const ran = await runChecked(git, args, { cwd: repo, input: `${chunk.join('\n')}\n` });
+    if (!ran.ok) return ran;
+    const read = parseBatch(ran.value.stdout, chunk, found);
+    if (!read.ok) return err(failure(args, { ...ran.value, stderr: read.error }));
+  }
+  return ok(found);
+}
+
+/** Reads `cat-file --batch` output for `shas`, in order, into `into`; otherwise why it cannot be read. */
+function parseBatch(output: Buffer, shas: readonly Sha[], into: Map<Sha, Buffer>): Result<void, string> {
+  let at = 0;
+  for (const sha of shas) {
+    const newline = output.indexOf(0x0a, at);
+    if (newline < 0) return err(`no output for ${sha}`);
+    const [object = '', type = '', size = ''] = output.subarray(at, newline).toString('utf8').split(' ');
+    // A blob the tree names but the repository lacks is a broken repository, never an empty file.
+    if (object !== sha || type !== 'blob') return err(`${sha} ${type === '' ? 'missing' : `is ${type}`}`);
+    const start = newline + 1;
+    const end = start + Number(size);
+    if (!Number.isSafeInteger(end) || end >= output.length) return err(`output for ${sha} is cut short`);
+    into.set(sha, output.subarray(start, end));
+    at = end + 1;
+  }
+  return ok(undefined);
 }
 
 /** Every file in the revision's tree, as slash-separated paths. */

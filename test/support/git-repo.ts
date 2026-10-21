@@ -5,7 +5,7 @@
 // so results do not depend on the machine.
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createGit, type Git } from '../../src/core/git/index.ts';
@@ -67,6 +67,17 @@ export const TEST_ATTRIBUTION = { identity: { name: 'Vault', email: 'vault@examp
 /** The core git module, running under the repository's isolated environment. */
 export function gitFor(repo: TempRepo): Git {
   return createGit({ env: repo.env });
+}
+
+/** `git` logging each process it starts (`GIT_TRACE`, kept inside `.git`), and a count of those since the last `reset`. */
+export function countingGit(git: Git, repo: Pick<TempRepo, 'path'>): { git: Git; processes(command?: string): number; reset(): void } {
+  const file = join(repo.path, '.git', 'trace.txt');
+  writeFileSync(file, '');
+  return {
+    git: { ...git, env: { ...git.env, GIT_TRACE: file } },
+    processes: (command = '') => readFileSync(file, 'utf8').split('\n').filter((line) => line.includes(`trace: built-in: git ${command}`)).length,
+    reset: () => writeFileSync(file, ''),
+  };
 }
 
 /** Wraps a test body so its repository is always removed afterwards. */

@@ -103,7 +103,7 @@ Everything a vault shares lives in Git. Everything local to a machine lives in
 | File | Holds | Lifecycle |
 |---|---|---|
 | `state.sqlite` | Accepted `main` per vault, spawn queue and claims, job cursors, run state, actor holds, budget ledger, review records, notification outbox, merge results | Durable; never deleted by the package |
-| `index.sqlite` | Chunks, keyword index (FTS5), vectors (`sqlite-vec`), content hashes, the embedding model it was built with | Derived from Git; safe to delete and rebuild |
+| `index.sqlite` | Chunks, keyword index (FTS5), vectors (`sqlite-vec`), content hashes, the embedding model it was built with; documents' parsed frontmatter by blob | Derived from Git; safe to delete and rebuild |
 
 - **One access path.** Only the core's `store` module opens these files.
 - **Atomic.** Every multi-step change is a single transaction started with
@@ -137,6 +137,13 @@ daemon alike:
   the older one is dropped. Nothing is re-read while it is unchanged.
 - Only an accepted SHA is ever read, so an unaccepted change never is; a read
   that failed is not kept.
+- What is read for a whole tree — every document's frontmatter, every
+  contract — is read in one listing and a few batched reads, however many
+  files the vault has.
+- Documents' parsed frontmatter is also kept in `index.sqlite` by vault, path
+  and blob, so a new process or a newly accepted SHA parses only content that
+  changed. A kept value is used only for the blob it was parsed from; one that
+  cannot be read or written is re-parsed, never an error.
 
 The exception is the vault catalog in a session's system prompt: it is fixed
 for the session (see [Pi conventions](pi-conventions.md#prompt-cache-stability)).

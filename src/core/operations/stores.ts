@@ -10,7 +10,7 @@ import { actorsSchema } from '../actors/index.ts';
 import { budgetsSchema } from '../budgets/index.ts';
 import type { InstallationPaths } from '../config/index.ts';
 import { forgeSchema } from '../forge/index.ts';
-import { integritySchema } from '../integrity/index.ts';
+import { integritySchema, readsSchema } from '../integrity/index.ts';
 import { notifySchema } from '../notify/index.ts';
 import { queueSchema } from '../queue/index.ts';
 import { searchSchema } from '../search/index.ts';
@@ -27,7 +27,7 @@ import {
 
 export const STATE_MODULES: readonly ModuleSchema[] = [integritySchema, actorsSchema, budgetsSchema, queueSchema, notifySchema, forgeSchema];
 
-export const INDEX_MODULES: readonly ModuleSchema[] = [searchSchema];
+export const INDEX_MODULES: readonly ModuleSchema[] = [searchSchema, readsSchema];
 
 export function openStateStore(paths: Pick<InstallationPaths, 'stateDb'>, options?: StoreOptions): Result<Store, StoreError> {
   return openStore(paths.stateDb, STATE_FILE, STATE_MODULES, options);

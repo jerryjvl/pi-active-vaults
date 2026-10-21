@@ -49,7 +49,7 @@ enforces this; a new module must be given a layer.
 | `socket` | The one place the package listens, only for the user: the daemon's socket (Unix domain socket or Windows named pipe) with JSON-lines requests, and local HTTP endpoints with bounded request bodies |
 | `config` | Load and validate the installation config and register vaults in it; resolve secrets and the platform's directories; where a path really lands; the `vault` launcher and the daemon's service definitions |
 | `registry` | The vaults on this machine: their paths, root contracts and catalog entries |
-| `git` | Wrapper around the `git` command line: refs, notes, worktrees, diffs, merges, trailers |
+| `git` | Wrapper around the `git` command line: refs, notes, worktrees, diffs, merges, trailers; many blobs read in one process |
 | `documents` | Parse and write Markdown with frontmatter, preserving formatting of untouched content |
 | `contracts` | Find `_contract.md` files, merge them into an effective contract with per-key strategies, report the origin of each key |
 | `conditions` | Parse `applies-when`; list the documents on the accepted `main` with their conditions (their own, then their contracts'); match Git and session events against conditions; the path globs merge rules share; timer schedules, and which slots — local date and time — a tick runs |
@@ -57,7 +57,7 @@ enforces this; a new module must be given a layer.
 | `policy` | Evaluate merge rules against changed paths and attestations |
 | `attestations` | Read and write attestation records in Git notes |
 | `actors` | Actor branches and worktrees; holds (one writer per actor); committing as an actor when every check passes; syncing with the accepted `main`; resetting a lost merge's branch when safe; proposals, review records, SHA-bound accept and adopt |
-| `integrity` | The accepted `main` per vault: record it on accept and adopt, detect unaccepted changes, provide the notice every surface shows; the one cache of what is read from it (see [Architecture](../architecture.md#reads-from-the-accepted-main)) |
+| `integrity` | The accepted `main` per vault: record it on accept and adopt, detect unaccepted changes, provide the notice every surface shows; the one cache of what is read from it, with documents' frontmatter kept in the index by blob (see [Architecture](../architecture.md#reads-from-the-accepted-main)) |
 | `scripts` | Resolve built-ins and the vault's scripts and checks from the accepted `main`, parse headers, run them with their declared limits; run the checks against an exact commit and record their verdicts |
 | `templates` | Validate a template's marker, create a vault from it with fresh history and recorded origin — or an empty vault |
 | `judgements` | Run judgement checks: build the state from a document, ask each of the contract's axes of the judgement model it names (else the default), apply `pass-when`, record the attestation (see Judgements) |

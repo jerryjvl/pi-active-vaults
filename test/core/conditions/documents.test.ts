@@ -7,6 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { documentConditions } from '../../../src/core/conditions/index.ts';
+import { countingGit } from '../../support/git-repo.ts';
 import { withTestVault } from '../../support/vault.ts';
 
 const job = (fields: string) => `---\n${fields}\n---\nThe job.\n`;
@@ -85,4 +86,22 @@ test('a document\'s model is its own, else its nearest contract\'s, with where i
     ['jobs/own.md', { value: 'big', origin: 'jobs/own.md' }],
     ['top.md', undefined],
   ]);
+}));
+
+test('finding conditions takes the same few git processes however many documents and contracts the tree has', withTestVault(async (v) => {
+  const counted = countingGit(v.git, v.repo);
+  v.repo.write('jobs/daily.md', job(timer));
+  v.repo.commit('one job');
+  assert.ok((await documentConditions(counted.git, v.vault.path, v.accept())).ok);
+  const one = counted.processes();
+  for (let i = 0; i < 30; i += 1) {
+    v.repo.write(`area${i}/_contract.md`, '---\nindex: default\n---\n');
+    v.repo.write(`area${i}/deeper/job${i}.md`, job(timer));
+  }
+  v.repo.commit('many');
+  counted.reset();
+  const many = await documentConditions(counted.git, v.vault.path, v.accept());
+  assert.ok(many.ok);
+  assert.equal(many.value.length, 31);
+  assert.equal(counted.processes(), one);
 }));

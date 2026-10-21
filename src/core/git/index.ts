@@ -29,6 +29,7 @@ export {
   listFiles,
   listTree,
   pathTypeAt,
+  readBlobs,
   readFileAt,
   readTextAt,
   type CommitInfo,

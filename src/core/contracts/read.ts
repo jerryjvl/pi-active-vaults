@@ -6,15 +6,17 @@
 // passes the accepted `main` — never from a working tree or a branch tip. A
 // governing contract that cannot be parsed fails the whole result.
 
-import { describeDocumentError, readDocumentAt } from '../documents/index.ts';
-import { pathTypeAt, resolveRevision, type Git, type GitError, type Sha } from '../git/index.ts';
+import { describeDocumentError, parseDocument } from '../documents/index.ts';
+import { listTree, pathTypeAt, readBlobs, resolveRevision, type Git, type GitError, type Sha } from '../git/index.ts';
 import { err, ok, type Issue, type Result } from '../result/index.ts';
 import { ROOT_CONTRACT, mergeContracts, type ContractFile, type EffectiveContract } from './merge.ts';
 
 export type ContractError = GitError | { readonly reason: 'invalid-contract'; readonly issues: readonly Issue[] };
 
-function contractFileIn(directory: string): string {
-  return directory === '' ? ROOT_CONTRACT : `${directory}/${ROOT_CONTRACT}`;
+/** The directory a `_contract.md` governs (`''` for the root's), or undefined when `path` is not a contract file. */
+export function contractDirectory(path: string): string | undefined {
+  if (path === ROOT_CONTRACT) return '';
+  return path.endsWith(`/${ROOT_CONTRACT}`) ? path.slice(0, -ROOT_CONTRACT.length - 1) : undefined;
 }
 
 /** The directories whose contracts govern `path`, root (`''`) first. */
@@ -31,35 +33,50 @@ export interface ContractReader {
   forDirectory(path: string): Promise<Result<EffectiveContract, ContractError>>;
 }
 
-/** Reads contracts at one commit, reading and parsing each `_contract.md` once however many paths ask. */
-export function contractReader(git: Git, repo: string, sha: Sha): ContractReader {
-  const files = new Map<string, Promise<Result<ContractFile | undefined, ContractError>>>();
+type ContractFiles = ReadonlyMap<string, Result<ContractFile, ContractError>>;
 
-  const read = async (directory: string): Promise<Result<ContractFile | undefined, ContractError>> => {
-    const path = contractFileIn(directory);
-    const document = await readDocumentAt(git, repo, sha, path);
-    if (!document.ok) return document;
-    switch (document.value.state) {
-      case 'missing':
-        return ok(undefined);
-      case 'unreadable':
-        return err({ reason: 'invalid-contract', issues: [{ path, message: describeDocumentError(document.value.error) }] });
-      case 'read':
-        return ok({ path, frontmatter: document.value.document.frontmatter, body: document.value.document.body });
-    }
-  };
+/** Every contract at the commit, by the directory it governs; one that cannot be parsed is its error. */
+async function readContractFiles(git: Git, repo: string, sha: Sha): Promise<Result<ContractFiles, GitError>> {
+  const tree = await listTree(git, repo, sha);
+  if (!tree.ok) return tree;
+  const entries = tree.value.flatMap((entry) => {
+    const directory = contractDirectory(entry.path);
+    return directory === undefined ? [] : [{ ...entry, directory }];
+  });
+  const blobs = await readBlobs(git, repo, entries);
+  if (!blobs.ok) return blobs;
+  const files = new Map<string, Result<ContractFile, ContractError>>();
+  for (const { path, sha: blob, directory } of entries) {
+    const parsed = parseDocument(blobs.value.get(blob)?.toString('utf8') ?? '');
+    files.set(directory, parsed.ok
+      ? ok({ path, frontmatter: parsed.value.frontmatter, body: parsed.value.body })
+      : err({ reason: 'invalid-contract', issues: [{ path, message: describeDocumentError(parsed.error) }] }));
+  }
+  return ok(files);
+}
+
+/**
+ * Reads contracts at one commit. The first path asked for lists the tree and
+ * reads every contract in it together — a few processes however many
+ * directories the tree has — and each is parsed once however many paths ask.
+ */
+export function contractReader(git: Git, repo: string, sha: Sha): ContractReader {
+  let files: Promise<Result<ContractFiles, GitError>> | undefined;
+  // A Git failure is not kept, so a passing one is tried again by the next path.
+  const all = (): Promise<Result<ContractFiles, GitError>> => (files ??= readContractFiles(git, repo, sha).then((read) => {
+    if (!read.ok) files = undefined;
+    return read;
+  }));
 
   const effective = async (path: string, isDirectory: boolean): Promise<Result<EffectiveContract, ContractError>> => {
+    const read = await all();
+    if (!read.ok) return read;
     const chain: ContractFile[] = [];
     for (const directory of governingDirectories(path, isDirectory)) {
-      let file = files.get(directory);
-      if (file === undefined) {
-        file = read(directory);
-        files.set(directory, file);
-      }
-      const found = await file;
+      const found = read.value.get(directory);
+      if (found === undefined) continue;
       if (!found.ok) return found;
-      if (found.value !== undefined) chain.push(found.value);
+      chain.push(found.value);
     }
     const merged = mergeContracts(chain);
     return merged.ok ? merged : err({ reason: 'invalid-contract', issues: merged.error });

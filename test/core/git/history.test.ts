@@ -3,7 +3,7 @@
 // executable and instructional content comes only from the accepted `main`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   changedPaths,
@@ -14,6 +14,7 @@ import {
   listTree,
   mergeBase,
   pathTypeAt,
+  readBlobs,
   readFileAt,
   readTextAt,
 } from '../../../src/core/git/index.ts';
@@ -192,7 +193,7 @@ test('the merge base of two revisions is their latest common commit, or absent f
   assert.deepEqual(await mergeBase(git, repo.path, unrelated, main), { ok: true, value: undefined });
 }));
 
-test('a tree listing gives each file with its mode and blob SHA, optionally under one directory', withTempRepo(async (repo) => {
+test('a tree listing gives each file with its mode, blob SHA and size, optionally under one directory', withTempRepo(async (repo) => {
   const git = gitFor(repo);
   repo.write('.vault/scripts/run.sh', '#!/bin/sh\necho hi\n');
   repo.write('.vault/scripts/lib/util.sh', 'x');
@@ -205,14 +206,53 @@ test('a tree listing gives each file with its mode and blob SHA, optionally unde
   const listed = await listTree(git, repo.path, sha, '.vault/scripts');
   assert.ok(listed.ok);
   assert.deepEqual(listed.value, [
-    { path: '.vault/scripts/lib/util.sh', mode: '100644', sha: repo.git('rev-parse', `${sha}:.vault/scripts/lib/util.sh`) },
-    { path: '.vault/scripts/run.sh', mode: '100755', sha: repo.git('rev-parse', `${sha}:.vault/scripts/run.sh`) },
+    { path: '.vault/scripts/lib/util.sh', mode: '100644', sha: repo.git('rev-parse', `${sha}:.vault/scripts/lib/util.sh`), size: 1 },
+    { path: '.vault/scripts/run.sh', mode: '100755', sha: repo.git('rev-parse', `${sha}:.vault/scripts/run.sh`), size: 18 },
   ]);
   const whole = await listTree(git, repo.path, sha);
   assert.ok(whole.ok);
   assert.deepEqual(whole.value.map((e) => e.path), ['.vault/scripts/lib/util.sh', '.vault/scripts/run.sh', 'notes/a.md']);
   assert.deepEqual(await listTree(git, repo.path, sha, 'missing'), { ok: true, value: [] });
   assert.equal((await listTree(git, repo.path, sha, '../x')).ok, false);
+}));
+
+test('blobs are read together, byte for byte, by object name', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('a.md', 'first');
+  writeFileSync(join(repo.path, 'b.bin'), Buffer.from([0, 10, 255, 10]));
+  repo.write('empty.md', '');
+  repo.write('same.md', 'first');
+  const sha = repo.commit('files');
+  const tree = await listTree(git, repo.path, sha);
+  assert.ok(tree.ok);
+  const read = await readBlobs(git, repo.path, tree.value);
+  assert.ok(read.ok, JSON.stringify(read));
+  assert.equal(read.value.size, 3, 'identical content is one blob');
+  for (const entry of tree.value) assert.deepEqual(read.value.get(entry.sha), readFileSync(join(repo.path, entry.path)), entry.path);
+  assert.deepEqual(await readBlobs(git, repo.path, []), { ok: true, value: new Map() });
+}));
+
+test('blobs are read in as many runs as the output limit needs, and one past the limit is too large', withTempRepo(async (repo) => {
+  for (const name of ['a', 'b', 'c']) repo.write(`${name}.md`, name.repeat(200));
+  const sha = repo.commit('files');
+  const tree = await listTree(gitFor(repo), repo.path, sha);
+  assert.ok(tree.ok);
+  const small = { ...gitFor(repo), maxOutputBytes: 400 };
+  const read = await readBlobs(small, repo.path, tree.value);
+  assert.ok(read.ok, JSON.stringify(read));
+  assert.deepEqual([...read.value.values()].map((b) => b.toString()).sort(), ['a', 'b', 'c'].map((n) => n.repeat(200)));
+  assert.deepEqual(await readBlobs({ ...small, maxOutputBytes: 100 }, repo.path, tree.value), { ok: false, error: { reason: 'output-too-large', command: 'cat-file' } });
+}));
+
+test('reading blobs fails closed: a name that is not a full SHA is refused, and one the repository lacks is an error', withTempRepo(async (repo) => {
+  const git = gitFor(repo);
+  repo.write('a.md', 'a');
+  repo.commit('a');
+  for (const sha of ['HEAD', `${'a'.repeat(40)}\nHEAD`]) {
+    assert.deepEqual(await readBlobs(git, repo.path, [{ sha, size: 1 }]), { ok: false, error: { reason: 'invalid-argument', argument: 'sha' } });
+  }
+  const missing = await readBlobs(git, repo.path, [{ sha: '0'.repeat(40), size: 1 }]);
+  assert.equal(missing.ok ? 'read' : missing.error.reason, 'git-failed');
 }));
 
 test('text at a revision is read as UTF-8, and a file the revision lacks is absent rather than an error', withTempRepo(async (repo) => {

@@ -9,4 +9,4 @@ export {
   type EffectiveContract,
   type Strategy,
 } from './merge.ts';
-export { contractReader, effectiveContract, effectiveContractWith, type ContractError, type ContractReader } from './read.ts';
+export { contractDirectory, contractReader, effectiveContract, effectiveContractWith, type ContractError, type ContractReader } from './read.ts';

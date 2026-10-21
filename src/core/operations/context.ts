@@ -20,7 +20,7 @@ import { systemSecretDeps, type SecretDeps } from '../config/index.ts';
 import { createGit, type Git, type Identity } from '../git/index.ts';
 import type { HttpClient } from '../http/index.ts';
 import { createIdSource, type IdSource } from '../ids/index.ts';
-import { createAcceptedReads, type AcceptedReads } from '../integrity/index.ts';
+import { createAcceptedReads, frontmatterCache, type AcceptedReads } from '../integrity/index.ts';
 import { processStartTime, type ProcessLiveness } from '../process/index.ts';
 import type { Result } from '../result/index.ts';
 import { findWindowsShell, probeNetworkSandbox, type CheckRunOptions, type NetworkSandbox } from '../scripts/index.ts';
@@ -100,14 +100,16 @@ export function createContext(installation: Installation, options: ContextOption
   let index: Result<Store, StoreError> | undefined;
   let scripts: Promise<CheckRunOptions> | undefined;
   const os = installation.host.os;
-  const reads = createAcceptedReads();
+  const openIndex = (): Result<Store, StoreError> => (index ??= openIndexStore(installation.paths));
+  // Frontmatter is kept in the index, which is derived and disposable: one that cannot be opened keeps nothing.
+  const reads = createAcceptedReads({ frontmatter: frontmatterCache(() => { const opened = openIndex(); return opened.ok ? opened.value : undefined; }) });
   return {
     ok: true,
     value: {
       installation,
       git,
       state: state.value,
-      index: () => (index ??= openIndexStore(installation.paths)),
+      index: openIndex,
       clock,
       ids: options.ids ?? createIdSource({ clock, randomBytes: (n) => randomBytes(n) }),
       http: { fetch: options.fetch ?? fetch },

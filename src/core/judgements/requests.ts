@@ -8,7 +8,7 @@
 // read or parsed offers none: judging reports that itself, and this listing
 // only ever says less.
 
-import { ROOT_CONTRACT } from '../contracts/index.ts';
+import { ROOT_CONTRACT, contractDirectory } from '../contracts/index.ts';
 import { listFiles, type Git, type GitError } from '../git/index.ts';
 import { UNCACHED_READS, acceptedContracts, type AcceptedMain, type AcceptedReads } from '../integrity/index.ts';
 import { ok, type Result } from '../result/index.ts';
@@ -28,7 +28,7 @@ export async function axisModelRequests(
 ): Promise<Result<AxisRequest[], GitError>> {
   const files = await listFiles(git, repo, accepted.sha);
   if (!files.ok) return files;
-  const directories = [...new Set(['', ...files.value.filter((f) => f === ROOT_CONTRACT || f.endsWith(`/${ROOT_CONTRACT}`)).map((f) => f.slice(0, Math.max(0, f.length - ROOT_CONTRACT.length - 1)))])]
+  const directories = [...new Set(['', ...files.value.flatMap((f) => contractDirectory(f) ?? [])])]
     .sort((a, b) => a.split('/').length - b.split('/').length || (a < b ? -1 : a > b ? 1 : 0));
   const contracts = await acceptedContracts(reads, git, repo, accepted);
   const found = new Map<string, AxisRequest>();
