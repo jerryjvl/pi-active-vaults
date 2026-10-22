@@ -8,7 +8,7 @@ import { isRecord } from '../core/result/index.ts';
 import { locate, runOperation, unacceptedNotices, type Location, type Operation, type OperationOutcome, type ParamSurface } from '../core/operations/index.ts';
 import type { SpawnEntry } from '../core/queue/index.ts';
 import type { RegisteredVault } from '../core/registry/index.ts';
-import { callerOf, holdActor } from '../core/sessions/index.ts';
+import { callerOf, holdForOperation } from '../core/sessions/index.ts';
 import type { Live } from './live.ts';
 
 /** The package's channels on Pi's event bus, namespaced and versioned (api.md "Events"). */
@@ -33,8 +33,7 @@ export async function operate(
   request: { readonly vaults: readonly RegisteredVault[]; readonly params: Readonly<Record<string, unknown>>; readonly cwd: string },
 ): Promise<{ outcome: OperationOutcome; notices: string[] }> {
   const { context, session } = live;
-  // A busy actor at the start may be free now; an operation that writes needs the hold, and one that does not loses nothing.
-  if (!session.held) await holdActor(context, session);
+  await holdForOperation(context, session, operation.vault, request.vaults);
   const outcome = await runOperation(context, operation, surface, { vaults: request.vaults, params: request.params, caller: callerOf(context, session, request.cwd) });
   publishSpawns(pi, spawnsIn(outcome));
   const notices = (await unacceptedNotices(context, request.vaults)).map((n) => n.notice);

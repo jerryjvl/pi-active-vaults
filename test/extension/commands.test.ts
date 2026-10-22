@@ -1,7 +1,8 @@
 // Documented behaviour: api.md "Commands" — `/vault <command>` offers the
 // catalogue's Pi commands, typed by the person, so they may act as an owner:
 // status, review, accept (and adopt, confirmed first), contract, jobs, run,
-// trace, doctor, and `install-cli` to put the launcher on PATH. Arguments are
+// trace, doctor; `actor` to show or change whom the session writes as (no tool
+// can); and `install-cli` to put the launcher on PATH. Arguments are
 // read like the CLI's. Tested through Pi 1.3.0's SDK.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,7 +12,7 @@ import { join } from 'node:path';
 import { acceptedMain } from '../../src/core/integrity/index.ts';
 import { listSpawns } from '../../src/core/queue/index.ts';
 import { withInstallation } from '../support/installation.ts';
-import { withPi } from '../support/pi.ts';
+import { DONE, withPi } from '../support/pi.ts';
 import { RUNNING } from '../support/session.ts';
 
 const OUTPUT = 'pav:vault';
@@ -30,6 +31,23 @@ test('/vault alone lists the commands; an unknown one says so', withInstallation
     await pi.prompt('/vault frobnicate');
     assert.match(pi.customMessages(OUTPUT).at(-1) ?? '', /"frobnicate" is not a \/vault command/);
     assert.equal(pi.requests.length, 0, 'commands are not sent to the model');
+  });
+}, { running: RUNNING }));
+
+test('/vault actor shows whom the session writes as, and changes it; the model is told, and has no tool to do it itself', withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    await pi.prompt('/vault actor');
+    assert.match(pi.customMessages(OUTPUT).at(-1) ?? '', /writes as alice/);
+    await pi.prompt('/vault actor gardener');
+    assert.match(pi.customMessages(OUTPUT).at(-1) ?? '', new RegExp(`writes as gardener[^]*home: ${join(t.vault.worktrees, 'gardener').replace(/[\\/.]/g, '.')}`));
+    await pi.prompt('/vault actor mallory');
+    assert.match(pi.customMessages(OUTPUT).at(-1) ?? '', /mallory writes in no registered vault/);
+    assert.equal(pi.requests.length, 0, 'commands are not sent to the model on their own');
+    pi.respond(DONE);
+    await pi.prompt('Hello.');
+    const [request] = pi.requests;
+    assert.match(JSON.stringify(request?.messages), /writes as gardener/);
+    assert.ok(!pi.runtime.session.getAllTools().some((tool) => /actor/.test(tool.name)), 'no tool changes the actor');
   });
 }, { running: RUNNING }));
 

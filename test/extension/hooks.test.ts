@@ -63,6 +63,16 @@ test('writes outside the session\'s worktree are blocked with where to write ins
   });
 }, { running: RUNNING }));
 
+test('started outside every vault, a session is told it writes as the person, and writes in their worktree', withInstallation(async (t) => {
+  await withPi(t, { cwd: t.dir.path }, async (pi) => {
+    const worktree = join(t.vault.worktrees, 'alice');
+    pi.respond(toolCall('write', { path: join(worktree, 'notes', 'a.md'), content: 'From outside.' }), DONE);
+    await pi.prompt('Write.');
+    assert.match(JSON.stringify(pi.requests[0]?.messages), /This session writes as alice/);
+    assert.equal(readFileSync(join(worktree, 'notes', 'a.md'), 'utf8'), 'From outside.');
+  });
+}, { running: RUNNING }));
+
 test('a shell command that pushes is blocked', { skip: process.platform === 'win32' ? 'bash' : false }, withInstallation(async (t) => {
   await withPi(t, { flags: { 'vault-actor': 'gardener' } }, async (pi) => {
     pi.respond(toolCall('bash', { command: 'git push origin actor/gardener' }), DONE);

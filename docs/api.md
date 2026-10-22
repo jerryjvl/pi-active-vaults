@@ -57,6 +57,7 @@ message, shown and not sent to the model on its own.
 | `/vault run <document>` | Run a job now |
 | `/vault trace <id>` | Show a trace |
 | `/vault doctor` | Health check |
+| `/vault actor [name]` | Show whom the session writes as and its worktree in each vault, or write as `name` instead (see [Pi extension](components/extension.md#actor-and-budget)); a session command, not an operation, so it has no tool |
 | `/vault install-cli` | Put the `vault` launcher on `PATH` (see [CLI](components/cli.md#installation-of-the-command)) |
 
 ## Hooks
@@ -74,7 +75,7 @@ message, shown and not sent to the model on its own.
 | Flag | Use |
 |---|---|
 | `--vault-run <file>` | Headless run context written by the daemon: vault, job document, actor, agent model, trace (whose allotment is the budget), triggering event (see [Pi extension](components/extension.md#headless-sessions)) |
-| `--vault-actor <name>` | Actor for an interactive session (default from configuration) |
+| `--vault-actor <name>` | Actor for an interactive session not started in an actor's worktree (default: the installation's `person`) |
 
 ## Events
 

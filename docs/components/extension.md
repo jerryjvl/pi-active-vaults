@@ -11,24 +11,35 @@ The registered surface is listed in [Pi API surface](../api.md).
 
 | Pi event | The extension |
 |---|---|
-| `session_start` | Loads the installation config; compiles the vault catalog; determines the session's actor and budget, and takes the actor's hold (or reports who holds it); connects to the daemon if one is running; handles the start as a session event |
-| `before_agent_start` | Adds the vault catalog as a system-prompt section (stable, ordered by vault ID); adds what is waiting for the model — unaccepted-change notices, a run's brief, `session.start` documents |
+| `session_start` | Loads the installation config; compiles the vault catalog; determines the session's actor and budget, and takes the actor's hold in the vault it runs in (or reports who holds it); connects to the daemon if one is running; handles the start as a session event |
+| `before_agent_start` | Adds the vault catalog as a system-prompt section (stable, ordered by vault ID); adds what is waiting for the model — unaccepted-change notices, a run's brief or else where the session writes, `session.start` documents |
 | `tool_call` | Applies the write guard; records session events — the tool, and each vault path it touches |
 | `tool_result` | Records results needed for traces; marks the session tainted when it used an untrusted tool or read outside the vaults; appends the context the call's paths brought in |
 | `turn_end` | Records the turn's tokens against the session budget, so a crash loses at most the turn in progress; compaction is recorded the same way |
-| `session_shutdown` | Flushes the trace; releases the actor; disconnects; releases resources |
+| `session_shutdown` | Flushes the trace; releases the actor's holds; disconnects; releases resources |
 
 ## Behaviour
 
 ### Actor and budget
 
-An interactive session writes in the vault it runs in, as the actor whose
-worktree it runs in, else the one given with `--vault-actor`, else the
-installation's `person`; its edits go to that actor's worktree. A session
-outside every vault writes as no actor. An interactive session is the root of
-a session tree of its own, bounded only by the daily ceiling; its work counts
-towards the day, and it is never stopped. A busy actor is reported with the
-session holding it, and taken once free.
+An interactive session writes as the actor whose worktree it runs in, else
+the one given with `--vault-actor`, else the installation's `person` —
+also when it runs outside every vault. It writes in every vault where that
+actor is one of the `actors` or `owners`, each time in that actor's worktree
+there. It holds the actor in the vault it runs in from its start, and in
+any other from its first write there. A busy actor is reported with the
+session holding it, and taken once free. The model is told at the start whom
+it writes as and where.
+
+`/vault actor <name>` changes the actor; only the person can, since it is a
+command and not a tool. The session's holds are released, and work left
+uncommitted stays in the old actor's worktree, with the commands to commit it
+there. A name that writes in no vault changes nothing. A headless run always
+writes as its job's actor.
+
+An interactive session is the root of a session tree of its own, bounded only
+by the daily ceiling; its work counts towards the day, and it is never
+stopped.
 
 ### Unaccepted changes
 
@@ -46,10 +57,11 @@ accepted `main`. Injection appends; it never rewrites earlier context.
 
 ### Write guard
 
-Blocks file writes outside the session's actor worktree (including its Git
-internals) and writes while another session holds its actor; outside the
-vaults, an interactive session writes as Pi normally would and a headless run
-not at all. Blocks shell commands that push, or would move `main`: commands
+Blocks file writes in a vault outside the session's actor worktree there
+(including its Git internals) and writes while another session holds its
+actor there; outside the vaults, an interactive session writes as Pi normally
+would and a headless run not at all. A blocked write says where to write
+instead, or why the session writes nowhere in that vault. Blocks shell commands that push, or would move `main`: commands
 are read as words, following `cd`, `git -C` and command substitutions. Blocked
 calls return an explanation the model can act on. The guard is a safety net for
 agent mistakes, not a security boundary (see [Security model](../security.md)).

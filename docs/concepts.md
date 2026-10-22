@@ -360,10 +360,11 @@ A named writer — an agent role or a person — with its own branch (default
 config). An actor is one of the root contract's `actors` or `owners`. Many jobs
 may write into one actor's branch; each actor's branch is one review lane.
 
-**One writer at a time.** At most one session writes as an actor at once. The
-daemon runs one job per actor at a time and queues the rest. A Pi session
-started as a busy actor is told which session holds it, and can wait or choose
-another actor. A session holds its actor through a record of its process, so a
+**One writer at a time.** At most one session writes as an actor in a vault at
+once. The daemon runs one job per actor at a time and queues the rest. A Pi
+session whose actor is busy is told which session holds it, and can wait or
+have the person choose another actor (`/vault actor`). A session holds its
+actor through a record of its process, so a
 session that has ended — however it ended — holds nothing, and there is
 nothing to unlock.
 

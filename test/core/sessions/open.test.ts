@@ -1,10 +1,11 @@
 // Documented behaviour: extension.md "Session lifecycle" and concepts.md
 // "Actor" — a session determines its actor and budget at start and takes the
-// actor's hold, or reports who holds it; a busy actor can be waited for; a
-// session holds its actor through a record of its process, so an ended one
-// holds nothing; shutdown releases it. An interactive session's actor is the
-// one whose worktree it runs in, else the one given (`--vault-actor`), else
-// the installation's person; a headless session takes actor, trace and the
+// actor's hold in the vault it runs in, or reports who holds it; a busy actor
+// can be waited for; a session holds its actor through a record of its
+// process, so an ended one holds nothing; shutdown releases it. An interactive
+// session's actor is the one whose worktree it runs in, else the one given
+// (`--vault-actor`), else the installation's person — outside every vault
+// too, where it holds nothing until it writes; a headless session takes actor, trace and the
 // spawn's budget from the daemon's run file (api.md "Flags") and runs only
 // with all of them (gates fail closed) — including the `agent` model it was
 // started on, which must be one the policy allows for its vault and the model
@@ -16,7 +17,7 @@ import { join } from 'node:path';
 import { actorHold, takeActorHold } from '../../../src/core/actors/index.ts';
 import { budgetState } from '../../../src/core/budgets/index.ts';
 import { eventJson } from '../../../src/core/conditions/index.ts';
-import { closeSession, holdActor, openSession, type SessionStart } from '../../../src/core/sessions/index.ts';
+import { closeSession, holdIn, openSession, type SessionStart } from '../../../src/core/sessions/index.ts';
 import { withInstallation, type TestInstallation } from '../../support/installation.ts';
 import { AGENT_MODEL } from '../../support/models.ts';
 import { ME, OTHER, OTHER_HOLDER, RUNNING, runOf, startedSpawn } from '../../support/session.ts';
@@ -33,8 +34,8 @@ test('an interactive session in a vault writes as the installation\'s person, ho
   assert.equal(session.mode, 'interactive');
   assert.equal(session.vault?.id, 'home');
   assert.equal(session.actor, 'alice');
-  assert.equal(session.worktree, join(t.vault.worktrees, 'alice'));
-  assert.equal(session.held, true);
+  assert.equal(session.worktrees.get('home'), join(t.vault.worktrees, 'alice'));
+  assert.ok(session.holds.has('home'));
   assert.equal((await actorHold(t.context.state, t.context.alive, 'home', 'alice'))?.holder.session, 'pi-session-1');
   assert.match(session.trace, /^[0-9A-Z]{26}$/);
   assert.ok(budgetState(t.context.state, t.installation.config.budgets, t.clock, session.trace) !== undefined);
@@ -57,17 +58,17 @@ test('an actor another session holds is reported with that session; the session 
   assert.ok((await takeActorHold(t.context.state, t.context.alive, t.clock, { vault: 'home', actor: 'alice', holder: OTHER_HOLDER })).ok);
   const opened = await openSession(t.context, start(t));
   assert.ok(opened.ok);
-  assert.equal(opened.value.session.held, false);
+  assert.equal(opened.value.session.holds.size, 0);
   assert.ok(opened.value.notices.some((n) => /alice.*held by session other-session/.test(n)), opened.value.notices.join('\n'));
   delete live[OTHER]; // the other session ends
-  assert.ok((await holdActor(t.context, opened.value.session)).ok);
-  assert.equal(opened.value.session.held, true);
+  assert.ok((await holdIn(t.context, opened.value.session, t.vault)).ok);
+  assert.ok(opened.value.session.holds.has('home'));
 }, { running: live }));
 
 test('a session whose own process cannot be told holds nothing, and says so', withInstallation(async (t) => {
   const opened = await openSession(t.context, start(t, { pid: 99 }));
   assert.ok(opened.ok);
-  assert.equal(opened.value.session.held, false);
+  assert.equal(opened.value.session.holds.size, 0);
   assert.ok(opened.value.notices.some((n) => /cannot hold/.test(n)), opened.value.notices.join('\n'));
   assert.equal(await actorHold(t.context.state, t.context.alive, 'home', 'alice'), undefined);
 }, { running: RUNNING }));
@@ -75,17 +76,20 @@ test('a session whose own process cannot be told holds nothing, and says so', wi
 test('an actor the vault does not have is no writer: the session holds nothing and has no worktree', withInstallation(async (t) => {
   const opened = await openSession(t.context, start(t, { actor: 'mallory' }));
   assert.ok(opened.ok);
-  assert.equal(opened.value.session.held, false);
-  assert.equal(opened.value.session.worktree, undefined);
+  assert.equal(opened.value.session.holds.size, 0);
+  assert.equal(opened.value.session.worktrees.get('home'), undefined);
   assert.ok(opened.value.notices.some((n) => /mallory is not one of the actors/.test(n)), opened.value.notices.join('\n'));
 }, { running: RUNNING }));
 
-test('a session outside every vault reads and writes nothing as an actor', withInstallation(async (t) => {
+test('a session outside every vault writes as the installation\'s person, or the actor asked for, and holds nothing yet', withInstallation(async (t) => {
   const opened = await openSession(t.context, start(t, { cwd: t.dir.path }));
   assert.ok(opened.ok);
   assert.equal(opened.value.session.vault, undefined);
-  assert.equal(opened.value.session.actor, undefined);
-  assert.equal(opened.value.session.held, false);
+  assert.equal(opened.value.session.actor, 'alice');
+  assert.equal(opened.value.session.holds.size, 0);
+  const asked = await openSession(t.context, start(t, { session: 'pi-session-2', cwd: t.dir.path, actor: 'gardener' }));
+  assert.ok(asked.ok);
+  assert.equal(asked.value.session.actor, 'gardener');
 }, { running: RUNNING }));
 
 test('the start reports every vault with an unaccepted change', withInstallation(async (t) => {
@@ -103,7 +107,7 @@ test('closing releases the hold and ends the session\'s budget; closing twice is
   closeSession(t.context, session);
   closeSession(t.context, session);
   assert.equal(await actorHold(t.context.state, t.context.alive, 'home', 'alice'), undefined);
-  assert.equal(session.held, false);
+  assert.equal(session.holds.size, 0);
 }, { running: RUNNING }));
 
 test('a headless session runs as the run file says: its vault, actor, trace and the spawn\'s budget', withInstallation(async (t) => {
@@ -114,8 +118,8 @@ test('a headless session runs as the run file says: its vault, actor, trace and 
   assert.equal(session.mode, 'headless');
   assert.equal(session.trace, entry.trace);
   assert.equal(session.actor, 'gardener');
-  assert.equal(session.held, true);
-  assert.equal(session.worktree, join(t.vault.worktrees, 'gardener'));
+  assert.ok(session.holds.has('home'));
+  assert.equal(session.worktrees.get('home'), join(t.vault.worktrees, 'gardener'));
 }, { running: RUNNING }));
 
 test('a headless session without its spawn\'s budget, or whose actor is held, does not run', withInstallation(async (t) => {

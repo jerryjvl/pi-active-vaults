@@ -10,10 +10,14 @@
 // will do. What it misses, the accepted `main` and merge policy still catch.
 //
 // Invariants:
-//  - in a vault, a session writes only in its own actor's worktree, never in
-//    the worktree's Git internals, and only while it holds that actor;
+//  - in a vault, a session writes only in its actor's worktree there, never
+//    in the worktree's Git internals, and only while it holds that actor
+//    there (`holdIn`);
 //  - outside the vaults, an interactive session writes as Pi normally would,
 //    but a headless run writes only in its worktree;
+//  - a refusal says where the session writes instead, or why it writes
+//    nowhere in that vault — and, when a person drives it, that only they
+//    can change its actor;
 //  - control changes (contracts, `.vault/`, conditions, budgets) are allowed in
 //    the worktree: an owner sees them at merge;
 //  - pushing is always blocked — the package pushes proposals (`vault
@@ -24,7 +28,8 @@ import { isGitProgram } from '../git/index.ts';
 import { MAIN_BRANCH } from '../integrity/index.ts';
 import { locate, type OperationContext } from '../operations/index.ts';
 import type { RegisteredVault } from '../registry/index.ts';
-import { holdActor, holdRefusalText, type VaultSession } from './session.ts';
+import { holdIn, writeRefusalText, writerIn } from './actor.ts';
+import type { VaultSession } from './session.ts';
 
 /** A tool call as the guard sees it: a file it writes (absolute), or a shell command and where it runs. */
 export type GuardedCall =
@@ -52,29 +57,22 @@ const isGitInternal = (rest: string): boolean => rest.split('/')[0]?.toLowerCase
 
 async function guardWrite(context: OperationContext, session: VaultSession, path: string): Promise<GuardVerdict> {
   const place = placeOf(context.installation.vaults, path);
-  const own = session.vault !== undefined && session.worktree !== undefined && place.kind !== 'outside'
-    && place.vault.id === session.vault.id && place.kind === 'worktree' && place.actor === session.actor;
-  if (own) {
+  if (place.kind === 'outside') {
+    const own = session.vault === undefined ? undefined : session.worktrees.get(session.vault.id);
+    return session.mode === 'interactive' ? ALLOWED : blocked(`A job writes only in its worktree (${own ?? 'none'}); ${path} is outside it.`);
+  }
+  if (place.kind === 'worktree' && place.actor === session.actor) {
     if (isGitInternal(place.rest)) return blocked(`${path} is in the worktree's Git internals; write documents, and commit with vault_commit.`);
-    const held = await holdActor(context, session);
-    return held.ok ? ALLOWED : blocked(holdRefusalText(session, held.error));
+    const held = await holdIn(context, session, place.vault);
+    return held.ok ? ALLOWED : blocked(writeRefusalText(session, held.error));
   }
-  switch (place.kind) {
-    case 'outside':
-      return session.mode === 'interactive' ? ALLOWED
-        : blocked(`A job writes only in its worktree (${session.worktree ?? 'none'}); ${path} is outside it.`);
-    case 'checkout': {
-      const instead = session.vault?.id === place.vault.id && session.worktree !== undefined && !isGitInternal(place.rest)
-        ? ` Write to ${join(session.worktree, ...place.rest.split('/'))} instead, and commit with vault_commit.` : '';
-      return blocked(`${path} is in vault "${place.vault.id}"'s checkout, which holds main; changes reach main only through review.${instead}${noActorIn(session, place.vault)}`);
-    }
-    case 'worktree':
-      return blocked(`${path} is in ${place.actor}'s worktree of vault "${place.vault.id}"; this session writes ${session.worktree === undefined ? 'in no worktree' : `only in ${session.worktree}`}.${noActorIn(session, place.vault)}`);
+  const own = await writerIn(context, session, place.vault);
+  const why = own.ok ? '' : ` ${writeRefusalText(session, own.error)}`;
+  if (place.kind === 'checkout') {
+    const instead = own.ok && !isGitInternal(place.rest) ? ` Write to ${join(own.value, ...place.rest.split('/'))} instead, and commit with vault_commit.` : '';
+    return blocked(`${path} is in vault "${place.vault.id}"'s checkout, which holds main; changes reach main only through review.${instead}${why}`);
   }
-}
-
-function noActorIn(session: VaultSession, vault: RegisteredVault): string {
-  return session.vault?.id === vault.id && session.worktree !== undefined ? '' : ` This session has no actor in vault "${vault.id}".`;
+  return blocked(`${path} is in ${place.actor}'s worktree of vault "${place.vault.id}"; this session writes as ${session.actor ?? 'no actor'}${own.ok ? `, only in ${own.value}` : ''}.${why}`);
 }
 
 // ---- Shell commands ----

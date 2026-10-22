@@ -3,11 +3,12 @@
 // everything:
 //
 //  - session_start: load the installation, link to the daemon if one runs,
-//    open the vault session (actor, hold, trace, budget — or, headless,
+//    open the vault session (actor, holds, trace, budget — or, headless,
 //    refuse and shut down), fix the catalog, subscribe to the notices of the
 //    session's spawns, handle the start as a session event, publish `ready`;
 //  - before_agent_start: the catalog as a prompt section, and whatever is
-//    waiting for the model (start notices, a run's brief, start documents);
+//    waiting for the model (start notices, a run's brief or else where the
+//    session writes, start documents);
 //  - tool_call: the write guard (blocking deliberately, with the reason), then
 //    the tool and the paths it touches as session events;
 //  - tool_result: the result in the trace's full log, taint, and the context
@@ -26,7 +27,7 @@ import {
   callVaultPaths, createContext, describeError, loadInstallation, locate, operationNamed, type ContextOptions,
 } from '../core/operations/index.ts';
 import {
-  catalogText, closeSession, guardToolCall, logToolResult, openSession, parseRunContext, recordTurn, renderInjections, sessionEvent, taints,
+  catalogText, closeSession, describeWriting, guardToolCall, logToolResult, openSession, parseRunContext, recordTurn, renderInjections, sessionEvent, taints,
   type GuardedCall, type SessionEvent, type VaultSession,
 } from '../core/sessions/index.ts';
 import type { OperationContext } from '../core/operations/index.ts';
@@ -98,7 +99,8 @@ async function start(pi: ExtensionAPI, holder: Holder, options: HookOptions, ctx
   holder.problem = undefined;
   for (const notice of notices) ctx.ui.notify(notice, 'warning');
   live.pending.push(...notices);
-  if (session.brief !== undefined) live.pending.push(session.brief);
+  // The model is told where it writes; a run's brief says so for its one worktree.
+  live.pending.push(session.brief ?? (await describeWriting(context, session)));
   if (link !== undefined) {
     // Before the start's own spawns are requested, so their notices arrive too.
     const file = ctx.sessionManager.getSessionFile();

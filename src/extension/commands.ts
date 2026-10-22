@@ -1,6 +1,9 @@
 // `/vault <command>` (api.md "Commands"): the catalogue's Pi commands, typed
 // by the person, so they act as the installation's person and may be owner
-// acts; plus `install-cli`, which puts the `vault` launcher on PATH. A command
+// acts; plus `install-cli`, which puts the `vault` launcher on PATH, and
+// `actor`, which shows or changes whom the session writes as — the session's
+// own state, so no operation, and a command so that only the person, never
+// the model, chooses whose name its work goes under. A command
 // line is read exactly as the CLI reads one. What a command says is added to
 // the session, shown and kept for the model, and nothing is sent to the model
 // by it. An operation awaiting confirmation (adopting) asks the person first,
@@ -12,19 +15,23 @@ import { describeLauncher, writeLauncher, type Host } from '../core/config/index
 import {
   CATALOGUE, commandRequest, describeCommandLineError, locate, outcomeData, parseLine, splitArguments, usage, type Operation,
 } from '../core/operations/index.ts';
+import { describeWriting, switchActor, switchRefusalText } from '../core/sessions/index.ts';
 import { liveOr, type Holder } from './live.ts';
 import { operate } from './operate.ts';
 
 const OUTPUT = 'pav:vault';
 const COMMANDS = CATALOGUE.filter((o) => o.surfaces.command);
 const nameOf = (operation: Operation): string => operation.command ?? operation.name;
+const ACTOR_SUMMARY = 'Show whom this session writes as and where, or write as another actor';
+/** The commands that are the session's own, not operations, with their summaries. */
+const OWN: readonly (readonly [string, string])[] = [['actor', ACTOR_SUMMARY], ['install-cli', 'Put the vault launcher on PATH']];
 
 function overview(): string {
   return [
     'Usage: /vault <command> [vault] [args]   (/vault <command> --help for its options)',
     '',
     ...COMMANDS.map((o) => `  /vault ${nameOf(o).padEnd(12)} ${o.summary}`),
-    `  /vault ${'install-cli'.padEnd(12)} Put the vault launcher on PATH`,
+    ...OWN.map(([name, summary]) => `  /vault ${name.padEnd(12)} ${summary}`),
   ].join('\n');
 }
 
@@ -44,10 +51,22 @@ export function registerCommands(pi: ExtensionAPI, holder: Holder, host: () => H
     pi.sendMessage({ customType: OUTPUT, content: text, display: true, ...(details === undefined ? {} : { details }) });
   };
 
+  async function actor(rest: readonly string[]): Promise<void> {
+    const [name, ...extra] = rest;
+    if (extra.length > 0 || name?.startsWith('-') === true) return say(`Usage: /vault actor [name]   ${ACTOR_SUMMARY}`);
+    const found = liveOr(holder);
+    if ('problem' in found) return say(found.problem);
+    const { context, session } = found.live;
+    if (name === undefined) return say(await describeWriting(context, session));
+    const switched = await switchActor(context, session, name);
+    say(switched.ok ? switched.value : switchRefusalText(switched.error));
+  }
+
   async function run(words: readonly string[], ctx: ExtensionCommandContext): Promise<void> {
     const [command = '', ...rest] = words;
     if (command === '' || command === 'help' || command === '--help') return say(overview());
     if (command === 'install-cli') return say(installCli(host()));
+    if (command === 'actor') return actor(rest);
     const operation = COMMANDS.find((o) => nameOf(o) === command);
     if (operation === undefined) return say(`"${command}" is not a /vault command.\n\n${overview()}`);
     const line = parseLine(operation, rest, 'command');
@@ -69,9 +88,9 @@ export function registerCommands(pi: ExtensionAPI, holder: Holder, host: () => H
   }
 
   pi.registerCommand('vault', {
-    description: 'Vault commands: status, review, accept, contract, jobs, run, trace, doctor, install-cli',
+    description: 'Vault commands: status, review, accept, contract, jobs, run, trace, doctor, actor, install-cli',
     getArgumentCompletions: (prefix) => {
-      const names = [...COMMANDS.map(nameOf), 'install-cli'].filter((n) => n.startsWith(prefix.trim()));
+      const names = [...COMMANDS.map(nameOf), ...OWN.map(([name]) => name)].filter((n) => n.startsWith(prefix.trim()));
       return names.length === 0 ? null : names.map((value) => ({ value, label: value }));
     },
     handler: async (args, ctx) => run(splitArguments(args), ctx),

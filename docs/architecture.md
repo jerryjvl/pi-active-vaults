@@ -157,8 +157,9 @@ for the session (see [Pi conventions](pi-conventions.md#prompt-cache-stability))
 2. The model searches and reads vault content through the vault tools.
 3. When the session reads or edits a governed path, the extension injects the
    effective contract and any matching `inject` documents.
-4. Edits go to the session's actor worktree. The write guard blocks paths the
-   actor may not change.
+4. Edits go to the session's actor's worktree in each vault — by default the
+   installation's `person`, wherever Pi started. The write guard blocks paths
+   the actor may not change.
 5. Commits carry trace and session trailers. Matching `spawn` conditions are sent
    to the daemon, or queued in the state database if it is not running.
 
