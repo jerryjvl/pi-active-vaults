@@ -16,12 +16,16 @@ const FRONT_MATTER = /^---\r?\n[\s\S]*?\r?\n---\r?\n/;
 const escape = (text: string): string =>
   text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 
+// Code is set in monospace by an inline style: mail clients drop <style> blocks, and
+// not every one gives <code> a monospace face of its own.
+const CODE = '<code style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">';
+
 /** One line's inline markup, on text that is escaped here first. */
 function inline(text: string): string {
   // Code spans and link targets are set aside, so emphasis never reaches inside them.
   const held: string[] = [];
   const hold = (html: string): string => `\u0000${held.push(html) - 1}\u0000`;
-  let html = escape(text).replace(/`([^`]+)`/g, (_, code: string) => hold(`<code>${code}</code>`));
+  let html = escape(text).replace(/`([^`]+)`/g, (_, code: string) => hold(`${CODE}${code}</code>`));
   // Links: [text](url), the URL as escaped above, kept only when it is http(s).
   // A URL may hold one level of balanced parentheses (as Wikipedia's do).
   html = html.replace(/\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)/g, (_, label: string, url: string) =>
@@ -92,7 +96,7 @@ function render(block: Block): string {
     case 'heading': return `<h${block.level}>${inline(block.text)}</h${block.level}>`;
     case 'paragraph': return `<p>${block.lines.map(inline).join(' ')}</p>`;
     case 'quote': return `<blockquote>${block.lines.map(inline).join('<br>')}</blockquote>`;
-    case 'code': return `<pre><code>${escape(block.lines.join('\n'))}</code></pre>`;
+    case 'code': return `<pre>${CODE}${escape(block.lines.join('\n'))}</code></pre>`;
     case 'rule': return '<hr>';
     case 'list': {
       const items = block.items.map((lines) => `<li>${lines.map(inline).join('<br>')}</li>`).join('');

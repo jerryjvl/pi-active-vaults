@@ -24,7 +24,8 @@ the `vault_script` tool; people and scripts use `vault notify`.
 A **Markdown body** is sent to be read, not decoded: its front matter is
 dropped, and the message carries the Markdown as text with an HTML alternative
 rendered from a small subset — headings, paragraphs, lists, quotes, code,
-rules, bold, italics, inline code and links. Everything in the body is escaped
+rules, bold, italics, inline code and links, with code in monospace (an inline
+style, the only kind mail clients keep). Everything in the body is escaped
 first, so HTML in it (perhaps from a web page) is shown, never rendered; only
 `http` and `https` links become links; nothing is fetched or embedded. The
 HTML is kept with the message, so a retry sends the same message.
