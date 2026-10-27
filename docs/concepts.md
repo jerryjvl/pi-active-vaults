@@ -261,7 +261,10 @@ at a time as the agent model's `parallel` allows. The session that fanned out
 writes what comes back. An item that fails is reported as failed, never handed
 to the gather; without a gather instruction each item's outcome comes back as
 it is, or, with `save: scratch:<name>`, goes to a file in the session's
-scratch directory with only a summary back, for scripts to work on. The items'
+scratch directory with only a summary back, for scripts to work on. The items
+can come from there too: `items: scratch:<name>`, a JSON array of strings a
+script wrote, so bulky material passes by name rather than being retyped by
+the session's model. The items'
 work is the session's: their tool calls are in its trace, a tool that taints
 taints the session, and their tokens count against its budget.
 

@@ -23,7 +23,7 @@ CLI's `--json` — for programmatic callers.
 | `vault_contract` | `codemode` | `path` | Effective contract with the origin of each key |
 | `vault_commit` | `direct` | `message`, `paths?` | Commit SHA and what it spawned, or the checks that blocked it |
 | `vault_script` | `direct` | `name`, `args?` | Exit status and output of an approved script |
-| `vault_fan_out` | `direct` | `items`, `each`, `gather?`, `mcp?` (MCP servers the item sessions may use), `save?` (`scratch:<name>`) | The gathered result; without `gather`, each item's outcome as JSON, or saved to the scratch file with a summary back; each item's outcome (`done`, `failed`, `skipped`) |
+| `vault_fan_out` | `direct` | `items` (a list, or `scratch:<name>` holding one as a JSON array of strings), `each`, `gather?`, `mcp?` (MCP servers the item sessions may use), `save?` (`scratch:<name>`) | The gathered result; without `gather`, each item's outcome as JSON, or saved to the scratch file with a summary back; each item's outcome (`done`, `failed`, `skipped`) |
 | `vault_jobs` | `codemode` | `vaults?` | Jobs, conditions, last and next run |
 
 Judgements and acceptance are deliberately not tools: the model must not judge

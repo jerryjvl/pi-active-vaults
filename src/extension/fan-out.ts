@@ -14,9 +14,12 @@
 // item that fails is reported as failed, never handed to the gather. Without a
 // `gather` instruction the items' outcomes come back as they are, as JSON — or,
 // with `save: scratch:<name>`, go to that file in the session's scratch
-// directory, with only a summary back, for scripts to work on.
+// directory, with only a summary back, for scripts to work on. The items may
+// come from there too (`items: scratch:<name>`, a JSON array of strings a
+// script wrote), so bulky material passes between scripts and items by name,
+// never retyped by the session's model.
 
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { AssistantMessage, Usage } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
@@ -35,7 +38,7 @@ const GATHER_SYSTEM = 'You combine the results of a task done for several items.
 const ITEM_VAULT_TOOLS = ['read', 'search'] as const;
 
 const PARAMETERS = Type.Object({
-  items: Type.Array(Type.String(), { description: 'The items, one piece of work each' }),
+  items: Type.Union([Type.Array(Type.String()), Type.String()], { description: 'The items, one piece of work each; or scratch:<name>, a file in the session\'s scratch directory holding them as a JSON array of strings' }),
   each: Type.String({ description: 'The instruction for each item' }),
   gather: Type.Optional(Type.String({ description: 'How to combine the results; without it, each item\'s outcome as JSON' })),
   mcp: Type.Optional(Type.Array(Type.String(), { description: 'MCP servers (from mcp.json) the items may use' })),
@@ -68,6 +71,22 @@ function add(a: Usage, b: Usage): Usage {
 
 const textOf = (message: AssistantMessage): string => message.content.map((c) => (c.type === 'text' ? c.text : '')).join('').trim();
 const quoted = (text: string): string => text.replaceAll('<', '&lt;');
+/** An item as a summary names it: a long one (a letter's JSON, say) by its start only. */
+const label = (item: string): string => (item.length > 80 ? `${item.slice(0, 77)}…` : item);
+
+/** The items as given, or as read from the scratch file a script wrote them to; a string is why not. */
+function itemsOf(items: readonly string[] | string, scratch: string | undefined): readonly string[] | string {
+  if (typeof items !== 'string') return items;
+  const file = scratchFile(scratch, items);
+  if (file === undefined) return `${items} is not a file in this session's scratch directory (scratch:<name>).`;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    return `${items} cannot be read as JSON.`;
+  }
+  return Array.isArray(parsed) && parsed.every((x) => typeof x === 'string') ? parsed : `${items} must hold a JSON array of strings.`;
+}
 
 async function ask(ctx: ExtensionContext, system: string, prompt: string, signal: AbortSignal | undefined): Promise<AssistantMessage | string> {
   if (ctx.model === undefined) return 'no model is selected';
@@ -99,16 +118,20 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
     parameters: PARAMETERS,
     outputSchema: OUTPUT,
     exposure: 'direct',
-    async execute(_id, { items: list, each, gather, mcp = [], save }, signal, _onUpdate, ctx) {
+    async execute(_id, { items: given, each, gather, mcp = [], save }, signal, _onUpdate, ctx) {
       const fail = (text: string, status: 'failed' | 'invalid') => ({ content: [{ type: 'text' as const, text }], details: undefined, isError: true, structuredContent: { status, data: null, text, notices: [] } });
+      const found = liveOr(holder);
+      const live = 'live' in found ? found.live : undefined;
+      // The scratch directory, made only when a call names a file in it.
+      const scratch = live !== undefined && (typeof given === 'string' || save !== undefined) ? scratchFor(live.context.installation.paths, live.session.trace) : undefined;
+      const list = itemsOf(given, scratch);
+      if (typeof list === 'string') return fail(list, 'invalid');
       if (list.length === 0) return fail('Give at least one item.', 'invalid');
       if (ctx.model === undefined) return fail('No model is selected for the item sessions.', 'failed');
       const servers = mcpServersOf(mcp, items);
       if (!servers.ok) return fail(`No MCP server named ${servers.missing.join(', ')} in ${servers.file}.`, 'invalid');
-      const found = liveOr(holder);
-      const live = 'live' in found ? found.live : undefined;
       if (save !== undefined && gather !== undefined) return fail('Give either gather or save, not both.', 'invalid');
-      const saveTo = save === undefined || live === undefined ? undefined : scratchFile(scratchFor(live.context.installation.paths, live.session.trace), save);
+      const saveTo = save === undefined ? undefined : scratchFile(scratch, save);
       if (save !== undefined && saveTo === undefined) return fail(`${save} is not a file in this session's scratch directory (scratch:<name>).`, 'invalid');
       const left = live === undefined ? undefined : workLeft(live.context, live.session);
       const tools = vaultTools(pi, holder, ITEM_VAULT_TOOLS);
@@ -143,8 +166,8 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
       };
       await Promise.all(Array.from({ length: Math.min(Math.max(1, model?.parallel ?? 1), list.length) }, worker));
       const done = outcomes.filter((o) => o.outcome === 'done');
-      if (done.length === 0) return { ...fail(`No item could be done: ${outcomes.map((o) => `${o.item}: ${o.reason ?? o.outcome}`).join('; ')}`, 'failed'), usage };
-      const notDone = outcomes.filter((o) => o.outcome !== 'done').map((o) => `${o.item}: ${o.outcome} (${o.reason ?? ''})`);
+      if (done.length === 0) return { ...fail(`No item could be done: ${outcomes.map((o) => `${label(o.item)}: ${o.reason ?? o.outcome}`).join('; ')}`, 'failed'), usage };
+      const notDone = outcomes.filter((o) => o.outcome !== 'done').map((o) => `${label(o.item)}: ${o.outcome} (${o.reason ?? ''})`);
       let gathered: string | null = null;
       let text: string;
       if (saveTo !== undefined) {

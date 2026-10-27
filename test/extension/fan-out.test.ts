@@ -5,6 +5,7 @@
 // use the MCP servers the call names, but cannot write; the session that
 // fanned out writes what comes back. A failed item is reported, never
 // gathered; without a gather instruction the outcomes come back as JSON. The
+// items may come from a scratch file (a JSON array of strings a script wrote). The
 // items' tool calls taint the session like its own, and their work counts
 // against the session's budget: a headless run that has used its budget fans
 // out no further. Tested through Pi 1.3.0's SDK.
@@ -228,5 +229,54 @@ test('save names a file in the scratch directory, never a path, and does not go 
     const results = pi.results.filter((r) => r.tool === 'vault_fan_out');
     assert.deepEqual(results.map((r) => r.isError), [true, true]);
     assert.match(results[0]?.text ?? '', /not a file in this session's scratch directory/);
+  });
+}, { running: RUNNING }));
+
+test('items can come from a scratch file a script wrote, a JSON array of strings; a summary names a long item by its start', withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    const long = JSON.stringify({ letter: 'x'.repeat(200) });
+    // The first model step stands in for a script: it writes the items to the session's scratch directory.
+    const scriptThen = (step: ReturnType<typeof fanOut>): FauxResponseStep => () => {
+      const trace = (pi.events.find((e) => e.channel === 'pav:v1:ready')?.data as { trace: string }).trace;
+      const scratch = join(t.context.installation.paths.scratch, trace);
+      mkdirSync(scratch, { recursive: true });
+      writeFileSync(join(scratch, 'items.json'), JSON.stringify(['a', long]));
+      return step;
+    };
+    pi.respond(
+      scriptThen(fanOut({ items: 'scratch:items.json', each: 'Do it.', save: 'scratch:outcomes.json' })),
+      fauxAssistantMessage('A'), fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'overloaded' }),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    assert.deepEqual(structuredOf(pi)?.data.items.map((i) => [i.item, i.outcome]), [['a', 'done'], [long, 'failed']]);
+    assert.equal(toolResults(pi.requests.at(-1), 'vault_fan_out')[0], `Saved 2 outcome(s) to scratch:outcomes.json: 1 done.\nNot done:\n${long.slice(0, 77)}…: failed (overloaded)`);
+  });
+}, { running: RUNNING }));
+
+test('items from scratch name a file there holding a JSON array of strings; anything else is a request the model should fix', withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    const scriptThen = (name: string, content: string, step: ReturnType<typeof fanOut>): FauxResponseStep => () => {
+      const trace = (pi.events.find((e) => e.channel === 'pav:v1:ready')?.data as { trace: string }).trace;
+      const scratch = join(t.context.installation.paths.scratch, trace);
+      mkdirSync(scratch, { recursive: true });
+      writeFileSync(join(scratch, name), content);
+      return step;
+    };
+    pi.respond(
+      fanOut({ items: 'scratch:../items.json', each: 'Do it.' }),
+      fanOut({ items: 'scratch:missing.json', each: 'Do it.' }),
+      scriptThen('numbers.json', '[1, 2]', fanOut({ items: 'scratch:numbers.json', each: 'Do it.' })),
+      fanOut({ items: 'items.json', each: 'Do it.' }),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    const results = pi.results.filter((r) => r.tool === 'vault_fan_out');
+    assert.deepEqual(results.map((r) => r.isError), [true, true, true, true]);
+    assert.match(results[0]?.text ?? '', /not a file in this session's scratch directory/);
+    assert.match(results[1]?.text ?? '', /cannot be read as JSON/);
+    assert.match(results[2]?.text ?? '', /must hold a JSON array of strings/);
+    assert.match(results[3]?.text ?? '', /not a file in this session's scratch directory/);
+    assert.equal(pi.requests.length, 5, 'no item ran');
   });
 }, { running: RUNNING }));
