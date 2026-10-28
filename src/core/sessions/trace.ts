@@ -61,6 +61,18 @@ export function logToolResult(context: OperationContext, session: VaultSession, 
   if (script !== undefined) session.scripts.push(script);
 }
 
+/**
+ * A fan-out item's answer, or why it has none, beside its tool calls: the
+ * evidence a failure is examined by after the scratch directory has gone.
+ */
+export function logItemOutcome(context: OperationContext, session: VaultSession, outcome: { index: number; item: string; outcome: string; text: string; workspace?: string }): void {
+  const truncated = outcome.text.length > MAX_LOGGED_TEXT;
+  logSession(context, session, {
+    kind: 'item', item: outcome.index, label: outcome.item.slice(0, 200), outcome: outcome.outcome, ...(outcome.workspace === undefined ? {} : { workspace: outcome.workspace }),
+    text: truncated ? outcome.text.slice(0, MAX_LOGGED_TEXT) : outcome.text, ...(truncated ? { truncated: true } : {}),
+  });
+}
+
 /** What started the session: a headless run's event and job, or the interactive session itself. */
 function triggerOf(session: VaultSession): TraceTrigger {
   const run = session.run;

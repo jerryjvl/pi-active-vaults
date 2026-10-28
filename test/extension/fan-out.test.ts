@@ -15,6 +15,7 @@ import { fauxAssistantMessage, getCurrentSystemPrompt, getCurrentTools, type Fau
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderRunContext } from '../../src/core/sessions/index.ts';
+import { readFullLog } from '../../src/core/traces/index.ts';
 import { withInstallation } from '../support/installation.ts';
 import { DONE, toolCall, toolResults, withPi } from '../support/pi.ts';
 import { RUNNING, runOf, startedSpawn } from '../support/session.ts';
@@ -278,5 +279,82 @@ test('items from scratch name a file there holding a JSON array of strings; anyt
     assert.match(results[2]?.text ?? '', /must hold a JSON array of strings/);
     assert.match(results[3]?.text ?? '', /not a file in this session's scratch directory/);
     assert.equal(pi.requests.length, 5, 'no item ran');
+  });
+}, { running: RUNNING }));
+
+/** The session's trace, as its ready event gives it. */
+const traceOf = (pi: { events: { channel: string; data: unknown }[] }): string => (pi.events.find((e) => e.channel === 'pav:v1:ready')?.data as { trace: string }).trace;
+
+test('with workspace, each item writes files in a new directory of its own and nowhere else; the outcomes say where, and an empty answer is no failure', { skip: process.platform === 'win32' ? 'paths' : false }, withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    const asked: Asked[] = [];
+    let first = '';
+    const spaceOf = (n: number): string => join(t.context.installation.paths.scratch, traceOf(pi), first, String(n));
+    pi.respond(
+      fanOut({ items: ['apples', 'pears'], each: 'Write the colour to colour.json.', workspace: true, save: 'scratch:outcomes.json' }),
+      // Item 1: a relative path lands in its workspace; then an attempt outside it, and on item 2's directory.
+      (context) => {
+        asked.push({ prompt: JSON.stringify((context.messages.at(-1) as { content: unknown }).content), tools: getCurrentTools(context.messages).map((x) => x.name).sort(), system: getCurrentSystemPrompt(context.messages) });
+        return toolCall('workspace_write', { path: 'colour.json', content: '{"colour": "red"}' });
+      },
+      () => toolCall('workspace_write', { path: join(t.repo.path, 'escape.md'), content: 'x' }),
+      recording(asked, toolCall('workspace_write', { path: '../2/colour.json', content: '{"colour": "blue"}' })),
+      recording(asked, fauxAssistantMessage('')),
+      // Item 2: JSON that does not parse is refused and told, then written again, corrected.
+      () => toolCall('workspace_write', { path: 'colour.json', content: '{"colour": green}' }),
+      recording(asked, toolCall('workspace_write', { path: 'colour.json', content: '{"colour": "green"}' })),
+      fauxAssistantMessage('wrote colour.json'),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    const items = structuredOf(pi)?.data.items as { item: string; outcome: string; result?: string; workspace?: string }[];
+    first = (items[0]?.workspace ?? '').split('/')[0] ?? '';
+    assert.match(first, /^fanout-[0-9A-Z]{26}$/, 'named by the package, from the trace IDs');
+    assert.deepEqual(items.map((i) => [i.item, i.outcome, i.result, i.workspace]), [['apples', 'done', '', `${first}/1`], ['pears', 'done', 'wrote colour.json', `${first}/2`]]);
+    assert.match(asked[0]?.prompt ?? '', new RegExp(`Your workspace, the one directory you can write in: ${spaceOf(1).replaceAll('/', '\\/')}`));
+    assert.deepEqual(asked[0]?.tools, ['find', 'grep', 'ls', 'read', 'vault_read', 'vault_search', 'workspace_edit', 'workspace_write']);
+    assert.match(asked[0]?.system ?? '', /write only in your workspace/);
+    assert.match(asked[1]?.prompt ?? '', /outside your workspace/, 'a path outside is refused and told');
+    assert.match(asked[2]?.prompt ?? '', /outside your workspace/, 'so is another item\'s directory');
+    assert.match(asked[3]?.prompt ?? '', /would not be valid JSON/);
+    assert.equal(readFileSync(join(spaceOf(1), 'colour.json'), 'utf8'), '{"colour": "red"}');
+    assert.equal(readFileSync(join(spaceOf(2), 'colour.json'), 'utf8'), '{"colour": "green"}');
+    assert.equal(existsSync(join(t.repo.path, 'escape.md')), false);
+    assert.match(toolResults(pi.requests.at(-1), 'vault_fan_out')[0] ?? '', new RegExp(`The items' files are in scratch:${first}/<n>\\.`));
+    // Every item's answer is in the session's log, beside its tool calls.
+    const log = readFullLog(t.context.installation.paths.logs, traceOf(pi)).find((l) => l.name === 'session')?.text ?? '';
+    const answers = log.trim().split('\n').map((l) => JSON.parse(l) as { kind: string; item?: number; outcome?: string; text?: string; workspace?: string }).filter((l) => l.kind === 'item');
+    assert.deepEqual(answers.map((a) => [a.item, a.outcome, a.text, a.workspace]), [[1, 'done', '', `${first}/1`], [2, 'done', 'wrote colour.json', `${first}/2`]]);
+  });
+}, { running: RUNNING }));
+
+test('a workspace is seeded from a directory a script prepared, a copy per item; each fan-out gets a new one', { skip: process.platform === 'win32' ? 'paths' : false }, withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    const asked: Asked[] = [];
+    const scriptThen = (step: ReturnType<typeof fanOut>): FauxResponseStep => () => {
+      const seed = join(t.context.installation.paths.scratch, traceOf(pi), 'seed');
+      mkdirSync(join(seed, '1'), { recursive: true });
+      writeFileSync(join(seed, '1', 'facts.md'), '# Apples\nRed.');
+      return step;
+    };
+    pi.respond(
+      scriptThen(fanOut({ items: ['apples'], each: 'Edit facts.md.', workspace: 'scratch:seed' })),
+      () => toolCall('workspace_edit', { path: 'facts.md', edits: [{ oldText: 'Red.', newText: 'Red or green.' }] }),
+      recording(asked, fauxAssistantMessage('edited')),
+      fanOut({ items: ['apples'], each: 'Edit facts.md.', workspace: 'scratch:seed' }),
+      fauxAssistantMessage('again'),
+      fanOut({ items: ['apples'], each: 'Do it.', workspace: 'scratch:../seed' }),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    const results = pi.results.filter((r) => r.tool === 'vault_fan_out');
+    const spaces = results.slice(0, 2).map((r) => ((r.structured as { data: { items: { workspace: string }[] } }).data.items[0]?.workspace ?? ''));
+    assert.notEqual(spaces[0], spaces[1], 'never the same workspace twice');
+    const scratch = join(t.context.installation.paths.scratch, traceOf(pi));
+    assert.equal(readFileSync(join(scratch, spaces[0] ?? '', 'facts.md'), 'utf8'), '# Apples\nRed or green.');
+    assert.equal(readFileSync(join(scratch, spaces[1] ?? '', 'facts.md'), 'utf8'), '# Apples\nRed.', 'a fresh copy of the seed');
+    assert.equal(readFileSync(join(scratch, 'seed', '1', 'facts.md'), 'utf8'), '# Apples\nRed.', 'the seed is never written');
+    assert.equal(results[2]?.isError, true);
+    assert.match(results[2]?.text ?? '', /not a directory in this session's scratch directory/);
   });
 }, { running: RUNNING }));

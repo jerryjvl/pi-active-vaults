@@ -9,10 +9,12 @@
 // spawn's budget from the daemon's run file (api.md "Flags") and runs only
 // with all of them (gates fail closed) — including the `agent` model it was
 // started on, which must be one the policy allows for its vault and the model
-// the session actually runs on.
+// the session actually runs on. Every session claims a scratch directory of
+// its own when it opens (concepts.md "Script"), made then and never shared: a
+// run whose directory is already there does not start.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { actorHold, takeActorHold } from '../../../src/core/actors/index.ts';
 import { budgetState } from '../../../src/core/budgets/index.ts';
@@ -132,6 +134,30 @@ test('a headless session without its spawn\'s budget, or whose actor is held, do
   assert.deepEqual(!busy.ok && busy.error.reason, 'actor-busy');
   const unknown = await openSession(t.context, start(t, { run: { ...run, trace: entry.trace, vault: 'nowhere' } }));
   assert.deepEqual(!unknown.ok && unknown.error.reason, 'unknown-vault');
+}, { running: RUNNING }));
+
+test('a session claims a private scratch directory of its own when it opens, and closing removes it', withInstallation(async (t) => {
+  const opened = await openSession(t.context, start(t));
+  assert.ok(opened.ok);
+  const dir = join(t.context.installation.paths.scratch, opened.value.session.trace);
+  assert.equal(statSync(dir).mode & 0o777, 0o700);
+  closeSession(t.context, opened.value.session);
+  assert.equal(existsSync(dir), false);
+}, { running: RUNNING }));
+
+test('a headless run whose scratch directory is already there does not start, and leaves it alone; a refused run leaves none', withInstallation(async (t) => {
+  const entry = startedSpawn(t);
+  const dir = join(t.context.installation.paths.scratch, entry.trace);
+  mkdirSync(dir, { recursive: true });
+  const refused = await openSession(t.context, start(t, { run: runOf(entry) }));
+  assert.deepEqual(!refused.ok && refused.error, { reason: 'scratch-exists', trace: entry.trace });
+  assert.equal(existsSync(dir), true, 'not someone else\'s to remove');
+  assert.equal(await actorHold(t.context.state, t.context.alive, 'home', 'gardener'), undefined, 'holds nothing');
+  const other = startedSpawn(t, 'jobs/weekly.md');
+  assert.ok((await takeActorHold(t.context.state, t.context.alive, t.clock, { vault: 'home', actor: 'gardener', holder: OTHER_HOLDER })).ok);
+  const busy = await openSession(t.context, start(t, { run: runOf(other) }));
+  assert.deepEqual(!busy.ok && busy.error.reason, 'actor-busy');
+  assert.equal(existsSync(join(t.context.installation.paths.scratch, other.trace)), false);
 }, { running: RUNNING }));
 
 test('a headless run is briefed with its job as on the accepted main and the triggering event as data', withInstallation(async (t) => {

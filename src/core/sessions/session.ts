@@ -26,7 +26,7 @@
 import { takeActorHold, type Holder, type HoldError, type WorktreeError } from '../actors/index.ts';
 import { allot, budgetState, finishSession, type Budget } from '../budgets/index.ts';
 import { eventJson } from '../conditions/index.ts';
-import { removeScratch } from '../config/index.ts';
+import { claimScratch, removeScratch } from '../config/index.ts';
 import { acceptedDocument, acceptedMain } from '../integrity/index.ts';
 import { locate, unacceptedNotices, type Caller, type OperationContext } from '../operations/index.ts';
 import { resolveModel } from '../models/index.ts';
@@ -92,6 +92,7 @@ export type SessionRefusal =
   | { readonly reason: 'no-actor' }
   | { readonly reason: 'not-its-vault'; readonly vault: string }
   | { readonly reason: 'cannot-hold' }
+  | { readonly reason: 'scratch-exists'; readonly trace: string }
   | HoldError
   | WorktreeError;
 
@@ -152,16 +153,22 @@ async function openHeadless(context: OperationContext, start: SessionStart, run:
   if (!writer.ok) return writer;
   const holder = await holderOf(context, start);
   if (holder === undefined) return err({ reason: 'cannot-hold' });
+  // The run's own scratch directory, claimed once: a trace whose directory is already there is not run.
+  if (!claimScratch(context.installation.paths, run.trace).ok) return err({ reason: 'scratch-exists', trace: run.trace });
   const hold = await takeActorHold(context.state, context.alive, context.clock, { vault: vault.id, actor: run.actor, holder });
-  if (!hold.ok) return hold;
+  if (!hold.ok) {
+    removeScratch(context.installation.paths, run.trace);
+    return hold;
+  }
   return ok(newSession(context, start, {
     mode: 'headless', trace: run.trace, vault, actor: run.actor, holder, run, brief, worktrees: new Map([[vault.id, writer.value]]), holds: new Set([vault.id]),
   }));
 }
 
-async function openInteractive(context: OperationContext, start: SessionStart, notices: string[]): Promise<VaultSession> {
+async function openInteractive(context: OperationContext, start: SessionStart, notices: string[]): Promise<Result<VaultSession, SessionRefusal>> {
   const { installation } = context;
   const trace = newTraceId(context.ids);
+  if (!claimScratch(installation.paths, trace).ok) return err({ reason: 'scratch-exists', trace });
   const allotted = context.state.transaction((tx) => allot(tx, installation.config.budgets, context.clock, { trace, budget: INTERACTIVE_BUDGET }));
   if (!allotted.ok) notices.push(`This session has no budget today (${allotted.error.reason}); work it spawns cannot run.`);
 
@@ -176,13 +183,13 @@ async function openInteractive(context: OperationContext, start: SessionStart, n
     const held = await holdIn(context, session, here.vault);
     if (!held.ok) notices.push(refusalText(held.error, actor));
   }
-  return session;
+  return ok(session);
 }
 
 /** Opens the session: interactive, or headless when a run is given (refused unless it can run). Notices say what the session should know. */
 export async function openSession(context: OperationContext, start: SessionStart): Promise<Result<{ session: VaultSession; notices: string[] }, SessionRefusal>> {
   const notices = (await unacceptedNotices(context, context.installation.vaults)).map((n) => n.notice);
-  const opened = start.run !== undefined ? await openHeadless(context, start, start.run) : ok(await openInteractive(context, start, notices));
+  const opened = start.run !== undefined ? await openHeadless(context, start, start.run) : await openInteractive(context, start, notices);
   if (!opened.ok) return opened;
   const session = opened.value;
   logSession(context, session, { kind: 'start', mode: session.mode, ...(session.vault === undefined ? {} : { vault: session.vault.id }), ...(session.actor === undefined ? {} : { actor: session.actor }) });

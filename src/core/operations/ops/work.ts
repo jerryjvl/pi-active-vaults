@@ -161,9 +161,9 @@ export const scriptOperation: Operation = {
     const trace = request.caller.trace ?? newTraceId(context.ids);
     const deps = notifyDeps(context, options.env);
     const input = text(request.params, 'input');
-    // A session's scripts share its scratch directory; a lone CLI run has none.
-    const scratch = request.caller.session !== undefined && request.caller.trace !== undefined
-      ? { [SCRATCH_VARIABLE]: scratchFor(context.installation.paths, request.caller.trace) } : {};
+    // A session's scripts share the scratch directory it claimed when it opened; a lone CLI run has none.
+    const dir = request.caller.session !== undefined && request.caller.trace !== undefined ? scratchFor(context.installation.paths, request.caller.trace) : undefined;
+    const scratch = dir === undefined ? {} : { [SCRATCH_VARIABLE]: dir };
     const ran = await runScript({ git: context.git, store: context.state, vault }, text(request.params, 'name') ?? '', texts(request.params, 'args'), {
       ...options, kind: 'script', env: { ...options.env, ...scratch },
       builtins: [

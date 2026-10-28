@@ -20,7 +20,7 @@ export {
   type PlatformDirsError,
   type PlatformKind,
 } from './platform.ts';
-export { removeScratch, scratchFile, scratchFor, sweepScratch, SCRATCH_VARIABLE } from './scratch.ts';
+export { claimScratch, newWorkspace, removeScratch, scratchFile, scratchFor, seedDir, sweepScratch, workspaceWrite, SCRATCH_VARIABLE, WORKSPACE_LIMITS } from './scratch.ts';
 export {
   parseSecretRef,
   resolveSecret,

@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
+import { claimScratch } from '../../../src/core/config/index.ts';
 import { listSpawns } from '../../../src/core/queue/index.ts';
 import { TRACES_REF, renderCompactTrace } from '../../../src/core/traces/index.ts';
 import { scriptSource } from '../../support/vault.ts';
@@ -73,11 +74,13 @@ test('script runs an approved script from the accepted main, in the vault, with 
   assert.equal(failing.status, 'failed');
 }));
 
-test('a session\'s scripts share its scratch directory as VAULT_SCRATCH; a lone run has none', posixOnly, withInstallation(async (t) => {
+test('a session\'s scripts share the scratch directory it claimed as VAULT_SCRATCH; a lone run, or one with none claimed, has none', posixOnly, withInstallation(async (t) => {
   t.repo.write('.vault/scripts/scratch.sh', scriptSource('scratch', 'echo "scratch: ${VAULT_SCRATCH:-none}"; [ -z "$VAULT_SCRATCH" ] || ls -ld "$VAULT_SCRATCH" | cut -c1-10'));
   t.repo.commit('script');
   t.accept();
   const trace = '01JABCDEFGHJKMNPQRSTVWXYZ0';
+  assert.equal((await t.run('script', { name: 'scratch' }, { caller: { session: 'a-session', trace } })).text, 'scratch: none', 'never made on the way');
+  assert.ok(claimScratch(t.context.installation.paths, trace).ok);
   const inSession = await t.run('script', { name: 'scratch' }, { caller: { session: 'a-session', trace } });
   assert.equal(inSession.status, 'ok', inSession.text);
   assert.equal(inSession.text, `scratch: ${join(t.context.installation.paths.scratch, trace)}\ndrwx------`, 'private to the user');

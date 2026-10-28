@@ -17,16 +17,21 @@
 // directory, with only a summary back, for scripts to work on. The items may
 // come from there too (`items: scratch:<name>`, a JSON array of strings a
 // script wrote), so bulky material passes between scripts and items by name,
-// never retyped by the session's model.
+// never retyped by the session's model. With `workspace`, each item also gets
+// a new directory of its own to write files in (item-session.ts), seeded from
+// a directory a script prepared when one is named, so what an item makes goes
+// back as files rather than inside its answer; the package names the
+// workspace, never the caller, so no two fan-outs or retries share one. Every
+// item's answer, or why it has none, goes into the session's log.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { AssistantMessage, Usage } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 import { assumePrefixCache, newPrefixTracker, workTokens, usageOf } from '../core/budgets/index.ts';
-import { scratchFile, scratchFor } from '../core/config/index.ts';
+import { newWorkspace, scratchFile, scratchFor, seedDir } from '../core/config/index.ts';
 import { isRecord } from '../core/result/index.ts';
-import { logToolResult, taints, workLeft } from '../core/sessions/index.ts';
+import { logItemOutcome, logToolResult, taints, workLeft } from '../core/sessions/index.ts';
 import { runItem, mcpServersOf, type ItemSessionOptions } from './item-session.ts';
 import { agentModelOf, liveOr, type Holder, type Live } from './live.ts';
 import { readsOf } from './paths.ts';
@@ -43,11 +48,12 @@ const PARAMETERS = Type.Object({
   gather: Type.Optional(Type.String({ description: 'How to combine the results; without it, each item\'s outcome as JSON' })),
   mcp: Type.Optional(Type.Array(Type.String(), { description: 'MCP servers (from mcp.json) the items may use' })),
   save: Type.Optional(Type.String({ description: 'scratch:<name>: save the outcomes there instead' })),
+  workspace: Type.Optional(Type.Union([Type.Boolean(), Type.String()], { description: 'true, or scratch:<seed>: each item gets a new directory of its own it can write files in, a copy of <seed>/<n>/ for the nth item when a seed is named; each outcome says where its directory is' })),
 });
 
 const OUTPUT = Type.Object({
   status: Type.String({ description: 'ok, failed or invalid' }),
-  data: Type.Unknown({ description: '{ gathered, items: [{ item, outcome, result?, reason? }], assumedPrefix }' }),
+  data: Type.Unknown({ description: '{ gathered, items: [{ item, outcome, result?, reason?, workspace? }], assumedPrefix }' }),
   text: Type.String({ description: 'The result as text' }),
   notices: Type.Array(Type.String(), { description: 'Always empty' }),
 });
@@ -57,6 +63,8 @@ interface ItemOutcome {
   readonly outcome: 'done' | 'failed' | 'skipped';
   readonly result?: string;
   readonly reason?: string;
+  /** The item's directory in the session's scratch directory (`fanout-<id>/<n>`), when the call asked for workspaces. */
+  readonly workspace?: string;
 }
 
 const NO_USAGE: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
@@ -112,18 +120,19 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
   return {
     name: 'vault_fan_out',
     label: 'vault fan-out',
-    description: 'Do one instruction for each item of a list, each in a session of its own that can read but not write, then combine the results.',
+    description: 'Do one instruction for each item of a list, each in a session of its own that can read, and write only in a workspace of its own when asked for, then combine the results.',
     promptSnippet: 'Do one instruction for each item of a list, then combine the results',
-    promptGuidelines: ['Use vault_fan_out when the same work must be done for each of many items; the item sessions cannot write, so write what comes back yourself.'],
+    promptGuidelines: ['Use vault_fan_out when the same work must be done for each of many items; the item sessions cannot write in a vault, so write what comes back yourself.'],
     parameters: PARAMETERS,
     outputSchema: OUTPUT,
     exposure: 'direct',
-    async execute(_id, { items: given, each, gather, mcp = [], save }, signal, _onUpdate, ctx) {
+    async execute(_id, { items: given, each, gather, mcp = [], save, workspace }, signal, _onUpdate, ctx) {
       const fail = (text: string, status: 'failed' | 'invalid') => ({ content: [{ type: 'text' as const, text }], details: undefined, isError: true, structuredContent: { status, data: null, text, notices: [] } });
       const found = liveOr(holder);
       const live = 'live' in found ? found.live : undefined;
-      // The scratch directory, made only when a call names a file in it.
-      const scratch = live !== undefined && (typeof given === 'string' || save !== undefined) ? scratchFor(live.context.installation.paths, live.session.trace) : undefined;
+      const spaces = workspace !== undefined && workspace !== false;
+      // The scratch directory the session claimed when it opened.
+      const scratch = live === undefined ? undefined : scratchFor(live.context.installation.paths, live.session.trace);
       const list = itemsOf(given, scratch);
       if (typeof list === 'string') return fail(list, 'invalid');
       if (list.length === 0) return fail('Give at least one item.', 'invalid');
@@ -133,6 +142,16 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
       if (save !== undefined && gather !== undefined) return fail('Give either gather or save, not both.', 'invalid');
       const saveTo = save === undefined ? undefined : scratchFile(scratch, save);
       if (save !== undefined && saveTo === undefined) return fail(`${save} is not a file in this session's scratch directory (scratch:<name>).`, 'invalid');
+      const seed = typeof workspace === 'string' ? seedDir(scratch, workspace) : undefined;
+      if (typeof workspace === 'string' && seed === undefined) return fail(`${workspace} is not a directory in this session's scratch directory (scratch:<name>).`, 'invalid');
+      let space: { name: string; dirs: string[] } | undefined;
+      if (spaces) {
+        if (live === undefined || scratch === undefined) return fail('Workspaces need a vault session and its scratch directory.', 'failed');
+        // Always new, and named here: an ID from the same source as traces.
+        const made = newWorkspace(scratch, live.context.ids.next(), list.length, seed);
+        if (!made.ok) return fail(`The workspaces cannot be made: ${made.error}.`, 'failed');
+        space = made.value;
+      }
       const left = live === undefined ? undefined : workLeft(live.context, live.session);
       const tools = vaultTools(pi, holder, ITEM_VAULT_TOOLS);
       const model = agentModelOf(live, ctx.model);
@@ -149,9 +168,12 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
             continue;
           }
           const conversation = newPrefixTracker();
+          const dir = space?.dirs[index];
+          const where = space === undefined ? undefined : `${space.name}/${index + 1}`;
           const result = await runItem({
             cwd: ctx.cwd, model: ctx.model as never, ...(ctx.thinkingLevel === undefined ? {} : { thinkingLevel: ctx.thinkingLevel }),
-            prompt: `${each}\n\nThe item:\n<item>\n${quoted(item)}\n</item>`, tools, mcp: servers.value,
+            prompt: `${each}${dir === undefined ? '' : `\n\nYour workspace, the one directory you can write in: ${dir}`}\n\nThe item:\n<item>\n${quoted(item)}\n</item>`, tools, mcp: servers.value,
+            ...(dir === undefined ? {} : { workspace: dir }),
             ...(signal === undefined ? {} : { signal }),
             onTool: account(live, index, ctx.cwd),
             onUsage: (u) => {
@@ -161,7 +183,9 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
               return !used();
             },
           }, items);
-          outcomes[index] = result.ok ? { item, outcome: 'done', result: result.text } : { item, outcome: 'failed', reason: result.reason };
+          const outcome: ItemOutcome = { item, ...(result.ok ? { outcome: 'done', result: result.text } : { outcome: 'failed', reason: result.reason }), ...(where === undefined ? {} : { workspace: where }) };
+          outcomes[index] = outcome;
+          if (live !== undefined) logItemOutcome(live.context, live.session, { index: index + 1, item, outcome: outcome.outcome, text: result.ok ? result.text : result.reason, ...(where === undefined ? {} : { workspace: where }) });
         }
       };
       await Promise.all(Array.from({ length: Math.min(Math.max(1, model?.parallel ?? 1), list.length) }, worker));
@@ -172,7 +196,7 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
       let text: string;
       if (saveTo !== undefined) {
         writeFileSync(saveTo, `${JSON.stringify(outcomes)}\n`, { mode: 0o600 });
-        text = [`Saved ${outcomes.length} outcome(s) to ${save}: ${done.length} done.`, ...(notDone.length === 0 ? [] : ['Not done:', ...notDone])].join('\n');
+        text = [`Saved ${outcomes.length} outcome(s) to ${save}: ${done.length} done.${space === undefined ? '' : ` The items' files are in scratch:${space.name}/<n>.`}`, ...(notDone.length === 0 ? [] : ['Not done:', ...notDone])].join('\n');
       } else if (gather === undefined) {
         text = JSON.stringify(outcomes);
       } else {

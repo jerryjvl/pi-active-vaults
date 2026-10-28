@@ -81,7 +81,7 @@ accepting. The daemon adds work that must happen while nobody is using Pi.
 | Daemon socket | Unix domain socket in `<state>`; a named pipe on Windows | No |
 | Run files; the refs hook's signals | `<state>/runs/<trace-id>.json` while a run lasts; `<state>/refs/<vault-id>` | No |
 | Editor workspace (`vault workspace`) | `<state>/vaults.code-workspace`, regenerated each time | No |
-| Session scratch | `<state>/scratch/<trace-id>/`, private, while the session lasts (the daemon sweeps leftovers a day old) | No |
+| Session scratch | `<state>/scratch/<trace-id>/`, private, claimed when the session opens and never shared, while the session lasts (the daemon sweeps leftovers a day old); a fan-out's workspaces in `fanout-<id>/<n>/` inside it | No |
 
 `<config>` and `<state>` are the platform's own directories for the
 `pi-active-vaults` application:

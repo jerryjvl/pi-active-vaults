@@ -264,9 +264,18 @@ it is, or, with `save: scratch:<name>`, goes to a file in the session's
 scratch directory with only a summary back, for scripts to work on. The items
 can come from there too: `items: scratch:<name>`, a JSON array of strings a
 script wrote, so bulky material passes by name rather than being retyped by
-the session's model. The items'
+the session's model. With `workspace`, each item also gets a new directory of
+its own in the scratch directory, and can write files there and nowhere else
+(`workspace_write`, `workspace_edit`), so what it makes comes back as files
+rather than inside its answer: a path or link that leads out is refused, and so
+is a `.json` file that does not parse, at the write, so the item can put it
+right. `workspace: scratch:<seed>` starts the nth item with a copy of
+`<seed>/<n>/`, which a script prepared. The package names each workspace,
+never the caller, so no two fan-outs share one; each outcome says where its
+item's directory is. The items'
 work is the session's: their tool calls are in its trace, a tool that taints
-taints the session, and their tokens count against its budget.
+taints the session, and their tokens count against its budget. Each item's
+answer, or why it has none, is in the session's log.
 
 Ordering between jobs comes from events, not priorities: a job that should run
 after another reacts to that job's merged work (`on: merged`, `actor: …`).
@@ -296,7 +305,9 @@ the platform allows it.
 
 A session has a **scratch directory**: private working files that belong in no
 vault and outlive no session, such as a fan-out's saved results or a batch of
-questions for the judgement models. It is made when first used and removed
+questions for the judgement models. It is made when the session opens, under
+the session's trace ID, with a create that fails if it is already there (such
+a session does not open), so no two sessions ever share one; it is removed
 when the session ends. A session's scripts find it as `VAULT_SCRATCH`; tools
 and built-ins name a file in it as `scratch:<name>`, a plain file name, never a
 path. A script run outside a session has none.

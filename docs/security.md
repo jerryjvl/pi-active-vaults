@@ -75,7 +75,7 @@ adopting locally.
 | Protected `main` with required owner approval | Forge | Anything reaching the shared `main` unreviewed — even from a compromised machine |
 | Merge commits or fast-forwards only, and each merge checked for the proposal's commits | Forge | Attestations and trace notes left attached to commits `main` does not contain |
 | Content is data | Both | Text in documents, pages or tool results acting as instructions |
-| Fan-out items can look but not write, reach only the MCP servers named for them from the person's own Pi configuration, and taint the session that fanned out | Both | A page read during research changing the vault directly, or untrusted content entering a proposal unmarked |
+| Fan-out items can look but not write — except, when the fan-out asks for it, files in a new scratch directory of their own, checked at every write — reach only the MCP servers named for them from the person's own Pi configuration, and taint the session that fanned out | Both | A page read during research changing the vault directly, or untrusted content entering a proposal unmarked |
 | Models only as `policy` allows, background jobs included | Both | A vault's content reaching a model its installation has not agreed to |
 
 The Git hooks only speed things up and guard against accidents. Every safeguard
