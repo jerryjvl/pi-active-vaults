@@ -14,8 +14,8 @@ it; no vault logic lives anywhere else.
   commands and scripts all run through it.
 - **HTTP requests are made only through the `http` module.** Model clients and
   forge adapters use it.
-- **Sockets are opened only through the `socket` module.** The daemon's socket
-  and every HTTP endpoint the package serves.
+- **Sockets are opened only through the `socket` module.** The daemon's and the
+  signer's sockets and every HTTP endpoint the package serves.
 - **SQLite is accessed only through the `store` module.** No other module opens
   a database.
 - **Errors are values.** Operations return typed results with a reason; they
@@ -26,10 +26,10 @@ it; no vault logic lives anywhere else.
 ```mermaid
 flowchart BT
   L0[L0 Foundations<br/>result, clock, ids, process, http, socket, config, store, git, documents]
-  L1[L1 Vault model<br/>registry, contracts, conditions, events, attestations, policy, integrity, actors, scripts]
-  L2[L2 Work machinery<br/>traces, budgets, queue, models, search, judgements, notify, templates, forge, backup]
+  L1[L1 Vault model<br/>registry, contracts, conditions, events, attestations, policy, integrity, actors, scripts, signing]
+  L2[L2 Work machinery<br/>traces, budgets, queue, models, search, judgements, notify, templates, forge, backup, grants]
   L3[L3 Operations<br/>operations, sessions, automation]
-  L4[L4 Adapters<br/>CLI, Pi extension, daemon, MCP]
+  L4[L4 Adapters<br/>CLI, Pi extension, daemon, MCP, signer]
   L0 --> L1 --> L2 --> L3 --> L4
 ```
 
@@ -46,7 +46,7 @@ enforces this; a new module must be given a layer.
 | `ids` | Time-sortable unique IDs (trace IDs) from an injected clock and randomness, strictly increasing per source |
 | `process` | Start a process: an argument array or an explicit shell command line, exactly the environment given, standard input closed unless given, bounded output, a time limit past which it is killed (with its process group on POSIX); read a long-lived one line by line; end a recorded process only if its start time matches |
 | `http` | Make a JSON request to a configured endpoint (a model role or a forge): never follows redirects, so a body or credential goes only to the URL given; a time limit; errors carry a status, never the response body |
-| `socket` | The one place the package listens, only for the user: the daemon's socket (Unix domain socket or Windows named pipe) with JSON-lines requests, and local HTTP endpoints with bounded request bodies |
+| `socket` | The one place the package listens, only for the user (or, for the signer when asked, its group too): the daemon's and the signer's sockets (Unix domain sockets or Windows named pipes) with JSON-lines requests, and local HTTP endpoints with bounded request bodies |
 | `config` | Load and validate the installation config and register vaults in it; resolve secrets and the platform's directories; where a path really lands; the `vault` launcher and the daemon's service definitions |
 | `registry` | The vaults on this machine: their paths, root contracts and catalog entries |
 | `git` | Wrapper around the `git` command line: refs, notes, worktrees, diffs, merges, trailers; many blobs read in one process |
@@ -58,20 +58,22 @@ enforces this; a new module must be given a layer.
 | `attestations` | Read and write attestation records in Git notes |
 | `actors` | Actor branches and worktrees; holds (one writer per actor); committing as an actor when every check passes; syncing with the accepted `main`; resetting a lost merge's branch when safe; proposals, review records, SHA-bound accept and adopt |
 | `integrity` | The accepted `main` per vault: record it on accept and adopt, detect unaccepted changes, provide the notice every surface shows; the one cache of what is read from it, with documents' frontmatter kept in the index by blob (see [Architecture](../architecture.md#reads-from-the-accepted-main)) |
+| `signing` | Signed statements between processes that do not share a key: the statement format (a JWS signed with Ed25519, typed per kind), the signing key, the signer's protocol, and the signer's own fetch of a vault's `main` — what each kind states is its owning module's |
 | `scripts` | Resolve built-ins and the vault's scripts and checks from the accepted `main`, parse headers, run them with their declared limits; run the checks against an exact commit and record their verdicts |
 | `templates` | Validate a template's marker, create a vault from it with fresh history and recorded origin — or an empty vault |
 | `judgements` | Run judgement checks: build the state from a document, ask each of the contract's axes of the judgement model it names (else the default), apply `pass-when`, record the attestation (see Judgements) |
 | `notify` | Validate recipients and messages, write to the outbox, deliver through the configured transport, retry |
+| `grants` | Web grants: parse and check a job's `web` block (open entries, wildcard selectivity); web grants as a kind of signed statement — signed from the job's block on `main` as the signer fetches it, one live grant per job; asking the signer for a run's grants and handing them to its scripts and fan-out items' MCP servers |
 | `budgets` | Allot budgets down a session tree; account for tokens; enforce limits |
 | `traces` | Issue trace IDs; write compact records as notes on a run's commits and find them by trailer; provenance; write and rotate full logs |
-| `store` | The only access to `state.sqlite` and `index.sqlite`: connections, pragmas, transactions, loading `sqlite-vec` into the index, and applying the schema migrations each module supplies for its own tables |
+| `store` | The only access to `state.sqlite`, `index.sqlite` and the signer's `signer.sqlite`: connections, pragmas, transactions, loading `sqlite-vec` into the index, and applying the schema migrations each module supplies for its own tables |
 | `queue` | A vault's jobs; matching an event to spawn requests with their identity fixed; the spawn queue, claims and cursors; scheduling; the daemon's record, its runs' processes and start-up recovery |
 | `search` | Index documents per vault; keyword, vector and hybrid search; rerank; check each hit against the current content |
 | `models` | The installation's named models: resolve a request (a name, else the role's default) to a model, check `policy` for the vaults involved, and report what is missing or substituted; clients for `judgement`, `embed` and `rerank` (batches of `batch`, up to `parallel` at once); the `agent` model to pass to Pi. Requests never follow redirects, so content goes only to the configured URL |
 | `forge` | Gitea, GitHub and GitLab adapters: push actor branches and notes, open or update pull requests, publish statuses and `vault/policy`, read approvals and merges, check branch protection and merge methods; record whether merged proposals kept their commits |
 | `backup` | Push a local-mode vault to the Git remote its registration names: `main` and notes fast-forward only, actor branches forced, nothing pruned; a remote the clone lacks is reported with how to add it |
 | `sessions` | What a Pi session — interactive, or a headless run from the daemon's run file — is to the vaults: its actor (which the person may change), its holds, trace and budget; the write guard; taint; injecting contracts and `inject` documents; session events and the spawns they request; per-turn budget records; the vault catalog for its prompt |
-| `operations` | The catalogue of operations — name (also its permission), parameters, implementation and surfaces — from which every surface is generated; for every surface alike: parsing requests, choosing vaults, results and messages, unaccepted-change notices and requesting spawns; permission sets and what an MCP client may see and call; loading the installation; the schemas each local store is opened with |
+| `operations` | The catalogue of operations — name (also its permission), parameters, implementation and surfaces — from which every surface is generated; for every surface alike: parsing requests, choosing vaults, results and messages, unaccepted-change notices and requesting spawns; permission sets and what an MCP client may see and call; loading the installation; the schemas each local store is opened with; the kinds of statement the signer makes |
 | `automation` | The daemon's work, driven by the daemon adapter: hosted and paused vaults, forge sync and merge results, backups, owner notices, Git events and timers, outbox retries, running spawns, the socket protocol, and the link other surfaces use to reach the daemon |
 
 ## Key interfaces

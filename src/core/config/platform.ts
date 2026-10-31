@@ -42,6 +42,12 @@ export interface InstallationPaths {
   readonly workspace: string;
   /** Sessions' scratch directories, one per trace (scratch.ts). */
   readonly scratch: string;
+  /** The signer's default socket, when its config names none: in the state directory, a named pipe on Windows. */
+  readonly signerSocket: string;
+  /** The signer's own store: the grants it has issued (grants module). */
+  readonly signerDb: string;
+  /** The signer's own fetches of the vaults it signs for, one repository each. */
+  readonly signerRepos: string;
 }
 
 export type PlatformDirsError = { reason: 'relative-override'; variable: string };
@@ -133,6 +139,9 @@ export function installationPaths(dirs: PlatformDirs, os: PlatformKind): Install
     logs: p.join(dirs.state, 'logs'),
     worktrees: p.join(dirs.state, 'worktrees'),
     socket: os === 'win32' ? windowsPipe(dirs.state) : p.join(dirs.state, 'daemon.sock'),
+    signerSocket: os === 'win32' ? windowsPipe(dirs.state, 'signer') : p.join(dirs.state, 'signer.sock'),
+    signerDb: p.join(dirs.state, 'signer.sqlite'),
+    signerRepos: p.join(dirs.state, 'signer'),
     runs: p.join(dirs.state, 'runs'),
     refs: p.join(dirs.state, 'refs'),
     workspace: p.join(dirs.state, 'vaults.code-workspace'),
@@ -141,8 +150,8 @@ export function installationPaths(dirs: PlatformDirs, os: PlatformKind): Install
 }
 
 /** Named pipes share one namespace per machine, so the pipe is named after the state directory it belongs to. */
-function windowsPipe(state: string): string {
-  return `\\\\.\\pipe\\${APP_DIR}-${createHash('sha256').update(state.toLowerCase()).digest('hex').slice(0, 16)}`;
+function windowsPipe(state: string, role?: string): string {
+  return `\\\\.\\pipe\\${APP_DIR}-${role === undefined ? '' : `${role}-`}${createHash('sha256').update(state.toLowerCase()).digest('hex').slice(0, 16)}`;
 }
 
 /**

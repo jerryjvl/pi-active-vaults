@@ -55,8 +55,8 @@ the owner before it is made.
 
 ### Structure
 
-- **All vault logic lives in `src/core/`.** The CLI, extension and daemon are
-  thin adapters: they parse input, call the core, and present results. If you
+- **All vault logic lives in `src/core/`.** The CLI, extension, daemon and
+  signer are thin adapters: they parse input, call the core, and present results. If you
   find yourself writing a decision ("is this allowed?", "does this match?")
   outside the core, move it into the core.
 - **One catalogue of operations.** Every user-facing operation is defined once
@@ -75,8 +75,8 @@ the owner before it is made.
   process group.
 - **Sockets are opened only through `src/core/socket`.** It is the only
   module that imports `node:net`, and the only one that serves HTTP: the
-  daemon's socket and its JSON-lines framing, and MCP's endpoints, on every
-  platform.
+  daemon's and the signer's sockets and their JSON-lines framing, and MCP's
+  endpoints, on every platform.
 - **SQLite is touched only through `src/core/store`.** It owns connections,
   pragmas, transactions and migrations. Every multi-step write is one
   `BEGIN IMMEDIATE` transaction. `node:sqlite` is still a release-candidate API
@@ -165,6 +165,13 @@ proposed to the owner first.
   requires a profile with an `owner`. Each of these needs a test.
 - **Forge mode never pushes `main`.** The package pushes only actor branches
   and notes; merges happen in the forge under branch protection.
+- **Only the signer signs, from what it reads itself.** The signing key lives
+  only with the signer, under a user of its own; no other component signs, and
+  no tool, script output, prompt or log carries the key. Every kind of
+  statement derives what it states from the signer's own fetch of a vault's
+  `main` — never from the request — and has a type of its own. Each refusal
+  needs a fail-closed test: a grant from the request, a block not on `main`, a
+  second live grant, a wildcard too open.
 - **Built-ins cannot be shadowed.** A vault script named like a built-in is an
   error, not an override.
 - **No install-time lifecycle scripts** (`preinstall`, `install`, `postinstall`,

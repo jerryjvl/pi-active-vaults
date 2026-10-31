@@ -23,6 +23,7 @@ A Markdown file with optional YAML frontmatter. Standard keys:
 | `budget` | `{ tokens, ttl }` — required on any document that can spawn work; `ttl` in whole seconds, minutes or hours (`90s`, `30m`, `2h`) |
 | `actor` | The actor its spawned work writes as: one of the vault's `actors`, never an owner; else the nearest contract's `actor`. A spawning document without one does not run (`vault jobs` and `vault doctor` report it) |
 | `model` | The `agent` model its spawned work runs on, by name (see [Models](#models)); else the nearest contract's `model`; else the default `agent`. A `model` that is not a name stops the job from running (`vault jobs` and `vault doctor` report it) |
+| `web` | The URLs its spawned runs may fetch beyond the web broker's default rules (see [Web grants](#web-grants)); the document's own, never a contract's. One that is not valid stops the job from running |
 | `provenance` | Written by the runtime: trace ID and a compact causal path |
 
 Any other key is the vault's own.
@@ -161,7 +162,7 @@ its commits carries a `Vault-Tainted` trailer, or was not made by the package
 
 **Control changes always need an owner.** Whatever the contracts say, a change
 to any `_contract.md`, anything under `.vault/`, or the `applies-when`,
-`budget`, `actor` or `model` of any document requires `owner`. Agents may propose such
+`budget`, `actor`, `model` or `web` of any document requires `owner`. Agents may propose such
 changes; review flags them.
 
 ### Judgement axes
@@ -301,7 +302,8 @@ required, `name` is the file name without its extension, and `net` defaults to
 scripts. A script runs with the interpreter in its `#!` line; on Windows the
 package runs it through that interpreter, or through Git for Windows' `sh` for
 shell scripts. A script declaring `net: no` runs without network access where
-the platform allows it.
+the platform allows it. In a run whose job has a web grant, the vault's scripts
+find the run's script grant as `VAULT_WEB_GRANT` (see [Web grants](#web-grants)).
 
 A session has a **scratch directory**: private working files that belong in no
 vault and outlive no session, such as a fan-out's saved results or a batch of
@@ -341,6 +343,72 @@ the commit's history meets the accepted `main`), `actor`, and `changes`
 `fail`; a check that times out, cannot run or is not a valid check is
 `error`. The first line of its output is the evidence. A commit is made only
 when every check passes it; its verdicts are then recorded.
+
+## Web grants
+
+A job may list, in its `web` block, the URLs its runs may fetch beyond the web
+broker's default rules. The broker cannot tell a URL written in reviewed code from
+one a model made up. A **grant** tells it: a [signed statement](components/signer.md#statements)
+of the job's `web` block for one run, which the broker verifies and matches each
+request against.
+
+```yaml
+web:
+  requests: 12                  # requests a run may make under its grant
+  allow:
+    - url: https://api.example.net/v3/entry?typeClass={tc}
+      tc: [W1, X2]              # listed: one of these values
+    - url: https://api.example.net/v3/models/{model}/info
+      model: from-response      # a string value from a JSON body the broker returned under this grant, from this host
+    - url: https://www.example.net/search?q={q}   # open: a placeholder with no rule
+    - url: https://*.example-motors.com.au/*      # open: wildcards
+      to: all
+```
+
+| Part | Matches |
+|---|---|
+| Fixed text | Itself |
+| `{name}` with a list | One of the listed values |
+| `{name}: from-response` | Exactly a string value from a JSON response under the same grant, from the same host |
+| `{name}` with no rule | Anything, within one path segment or query value |
+| `*.` before the host | One or more leading labels |
+| A trailing `/*` | The rest of the path and any query |
+
+- **A pattern has only these parts.** The scheme is `http` or `https`, and the
+  host is lowercase. A pattern has no user information, fragment, or `.` or `..`
+  segments. A query has fixed keys, and a request must have exactly those keys.
+  Any other use of `*` or `{…}` is refused.
+- **An open entry is a trust decision.** An entry with a placeholder that has no
+  rule, or with a wildcard, lets a run send anything to that site. Open entries
+  reach the run's scripts only. Fan-out items get them only when the entry says
+  `to: all`, since a model reading untrusted content is the likeliest sender of
+  something it should not send.
+- **A host wildcard must be selective.** The fixed domain after `*.` needs at
+  least two labels and 20 characters, a setting of the signer
+  (`web-grant.wildcard-min`). So `*.com.au` cannot pass for one site. For a
+  short domain, name the host and open the path: `https://www.example.net/*`.
+  The broker also refuses wildcards over its lists of capture, storage and
+  shared-hosting domains.
+
+Before it starts a run whose job has a `web` block, the daemon asks the
+[signer](components/signer.md) for the run's grants. The signer reads the block
+itself from the vault's `main` and signs two grants:
+
+| Grant | Holds | Reaches |
+|---|---|---|
+| Script | Every entry | The run's scripts in its vault, as `VAULT_WEB_GRANT` |
+| Item | The closed entries and those with `to: all`; none when there are none | Its fan-out items' requests to the MCP servers named in `web-grants.servers` (HTTP servers only), as the header `X-Vault-Grant` |
+
+Each grant records the vault, the job, its blob and the commit of `main` it was
+read from, the run's trace (both grants share it, so the broker counts their
+requests together), the signer's installation, and an expiry. The expiry is
+the job's `ttl` plus a minute.
+
+A job holds at most one unexpired grant. A run that gets none fetches under
+the broker's default rules. That happens when no signer is configured or
+answering, when the block is too open, or when the job already holds a live
+grant. Its log says why. `vault jobs` lists each job's open entries, and
+`vault doctor` warns about a job that would get no grant.
 
 ## Attestation and merge policy
 
@@ -495,6 +563,10 @@ taint:
 logs: { keep-days: 7 }
 daemon: { queue-time: 24h, parallel: 1 }   # see daemon.md "Scheduling"
 notify: { … }                  # see notifications.md
+web-grants:                    # the signer this daemon asks for web grants, and the MCP servers they go to
+  signer: /srv/vault-signer/signer.sock
+  servers: [web]
+signer: { … }                  # only in the config of a signer's own user: see components/signer.md
 templates:                     # short names for template repositories
   research-digests: https://git.example.net/templates/research-digests.git
 ```

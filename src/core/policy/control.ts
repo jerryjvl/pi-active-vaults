@@ -1,7 +1,7 @@
 // Control changes (concepts.md "Merge policy"): a change to any `_contract.md`,
-// anything under `.vault/`, or a document's `applies-when`, `budget`, `actor` or
-// `model` — what decides how the vault instructs, runs and gates, whom a job
-// writes as and which model its content reaches. Whatever the contracts say,
+// anything under `.vault/`, or a document's `applies-when`, `budget`, `actor`,
+// `model` or `web` — what decides how the vault instructs, runs and gates, whom
+// a job writes as, which model its content reaches and what its runs may fetch. Whatever the contracts say,
 // such a change needs an owner.
 //
 // Detection errs towards flagging. Names are compared case-insensitively,
@@ -16,7 +16,7 @@ import type { FileChange, Git, GitError, Sha } from '../git/index.ts';
 import { ok, type Result } from '../result/index.ts';
 
 /** Document keys whose change is a control change. */
-export const CONTROL_KEYS = ['applies-when', 'budget', 'actor', 'model'] as const;
+export const CONTROL_KEYS = ['applies-when', 'budget', 'actor', 'model', 'web'] as const;
 
 export interface ControlChange {
   readonly path: string;

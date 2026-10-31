@@ -50,7 +50,8 @@ its operation's parameters (`vault <command> --help`).
 - each notification spool: missing, not owned by this user, open to others, not writable or listable by its group, a group this user is not in; and messages it rejected or that have waited more than an hour;
 - search that is keyword-only because no `policy` entry names the vault;
 - where each vault's jobs run, as far as this installation can tell: here, or on the executor its contract names; a warning when it has jobs but names no executor and `host` is not true here, since they then run only where some other installation hosts it, if any;
-- jobs that cannot run (no budget, no permitted actor, or no `agent` model it may use), and an unset `budgets.daily-tokens`;
+- jobs that cannot run (no budget, no permitted actor, no `agent` model it may use, or a `web` block that is not valid), and an unset `budgets.daily-tokens`;
+- web grants: the key of a signer this installation runs; whether the signer in `web-grants` answers; and each job here whose runs would get no grant (no `web-grants`, or a wildcard too open for the signer's minimum);
 - models: requested names that are not configured (and the default that answers instead), names with the wrong role, defaults that documents need but are missing, models `policy` does not allow where they are asked for, and `policy` names that match no configured model.
 
 ### Knowledge
@@ -78,7 +79,7 @@ its operation's parameters (`vault <command> --help`).
 
 | Command | Does |
 |---|---|
-| `vault jobs` | Jobs with their conditions, the model each asks for, last run, next run and pending items, and which cannot run |
+| `vault jobs` | Jobs with their conditions, the model each asks for, its `web` block's requests and open entries, last run, next run and pending items, and which cannot run |
 | `vault run <document>` | Run a job now, outside its conditions |
 | `vault trigger <name> [--payload <file>]` | Emit an external event |
 | `vault script <name> [args]` | Run an approved script; its arguments, options included, pass through |
@@ -95,6 +96,16 @@ its operation's parameters (`vault <command> --help`).
 | `vault daemon print-unit` | Print the service definition, for declarative setups |
 | `vault daemon … --headless` | macOS: the launchd daemon for a Mac nobody logs in to; `print-unit` prints it, and `install`, `start` and `stop` say what to run with `sudo`, since it is the system's |
 | `vault mcp --profile <name>` | Serve one MCP profile over standard input/output, for local MCP clients |
+
+### Signer
+
+Run as the [signer's](signer.md) own user.
+
+| Command | Does |
+|---|---|
+| `vault signer key <file>` | Make a new signing key in a new file that only the user can read, never writing over one; print its public key as a JWK for verifiers |
+| `vault signer run` | Run the signer in the foreground until signalled; it does not start without a `signer` section and a key it can use |
+| `vault signer status` | Ask the signer whether it answers, and with which key: the one in `web-grants.signer`, else this user's own; exit `1` when none answers |
 
 ## Installation of the command
 

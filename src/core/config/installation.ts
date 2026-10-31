@@ -8,6 +8,14 @@
 // error values never contain file content, because content may include a
 // secret pasted by mistake. The `mcp` and `notify` sections are validated by
 // the modules that own them and are passed through here as plain data.
+//
+// `web-grants` is the daemon's side of web grants (concepts.md "Web grants"):
+// where the signer listens and which MCP servers carry a grant. `signer` is
+// the signer's own configuration (signer.md), in the config of the user it
+// runs as: its key, the vaults it reads with where it fetches each one's
+// `main` itself, and the settings of each kind of statement it makes. A vault fetched from a local path is not protected by a forge, so it
+// is signed for only when marked `local: true` — the owner's explicit choice
+// (security.md "What is not guaranteed").
 
 import { readFileSync } from 'node:fs';
 import { parseDocument } from 'yaml';
@@ -78,6 +86,38 @@ export interface ForgeEntry {
   readonly autoMerge: boolean;
 }
 
+/** The daemon's side of web grants: where the signer listens, and the MCP servers (from Pi's mcp.json) whose requests carry a grant. */
+export interface WebGrantsConfig {
+  readonly signer: string;
+  readonly servers: readonly string[];
+}
+
+/** A vault the signer signs for: where it fetches `main` from, and whether that is a local path no forge protects. */
+export interface SignerVault {
+  readonly id: string;
+  readonly url: string;
+  readonly local: boolean;
+}
+
+export const SOCKET_ACCESS = ['user', 'group'] as const;
+
+/** The signer's own configuration (signing module), with that of each kind of statement it makes. */
+export interface SignerConfig {
+  /** The private signing key, PEM, as a secret reference. */
+  readonly key: SecretRef;
+  /** Where it listens, when not the default in its state directory. */
+  readonly socket?: string;
+  /** `group`: the socket is also its group's, so a daemon running as another user in that group can reach it. */
+  readonly socketAccess: (typeof SOCKET_ACCESS)[number];
+  /** The vaults whose `main` it reads, fetched itself; what it states about them is each kind's. */
+  readonly vaults: readonly SignerVault[];
+  /** Web grants: the fewest characters a host wildcard's fixed domain may have. */
+  readonly webGrant: { readonly wildcardMin: number };
+}
+
+/** The fewest characters a host wildcard's fixed domain may have, unless the signer's config says otherwise. */
+export const DEFAULT_WILDCARD_MIN = 20;
+
 export interface InstallationConfig {
   /** Explicit, or `<user>@<hostname>`; the value a vault's `executor` names. */
   readonly name: string;
@@ -103,6 +143,8 @@ export interface InstallationConfig {
   readonly templates: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, unknown>>;
   readonly notify?: Readonly<Record<string, unknown>>;
+  readonly webGrants?: WebGrantsConfig;
+  readonly signer?: SignerConfig;
 }
 
 export type ConfigError =
@@ -122,14 +164,14 @@ const NO_WHITESPACE = /^\S+$/;
 
 const TOP_LEVEL_KEYS = [
   'installation', 'vaults', 'models', 'forges', 'mcp', 'labels', 'subscriptions',
-  'policy', 'budgets', 'taint', 'logs', 'daemon', 'notify', 'templates',
+  'policy', 'budgets', 'taint', 'logs', 'daemon', 'notify', 'templates', 'web-grants', 'signer',
 ] as const;
 
 type PlainObject = Record<string, unknown>;
 
 /** The shared data reader, plus the two readings only the config has: host paths and secrets. */
 class Reader extends DataReader {
-  private readonly host: Host;
+  readonly host: Host;
 
   constructor(host: Host) {
     super();
@@ -331,6 +373,49 @@ function readDaemon(r: Reader, value: unknown): InstallationConfig['daemon'] {
   return { queueTimeMs: queueTimeMs ?? DEFAULT_QUEUE_TIME_MS, parallel: r.integer(d, 'parallel', 'daemon', 1) };
 }
 
+/** A remote the signer fetches from: an https or ssh URL, or `user@host:path`; a local path is told apart by `local`. */
+const REMOTE_URL = /^(?:https|ssh):\/\/\S+$|^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:\S+$/;
+
+function readWebGrants(r: Reader, value: unknown): WebGrantsConfig | undefined {
+  if (value === undefined) return undefined;
+  const w = r.record(value, 'web-grants', ['signer', 'servers']);
+  const signer = r.host.os === 'win32' && typeof w['signer'] === 'string' && w['signer'].startsWith('\\\\.\\pipe\\')
+    ? w['signer'] : r.absolutePath(w['signer'], 'web-grants.signer');
+  const servers = r.stringList(w['servers'] ?? [], 'web-grants.servers');
+  if (servers.length === 0) r.add('web-grants.servers', 'must name at least one MCP server');
+  return { signer, servers };
+}
+
+function readSigner(r: Reader, value: unknown): SignerConfig | undefined {
+  if (value === undefined) return undefined;
+  const s = r.record(value, 'signer', ['key', 'socket', 'socket-access', 'vaults', 'web-grant']);
+  const socket = s['socket'] === undefined ? undefined : r.absolutePath(s['socket'], 'signer.socket');
+  const socketAccess = s['socket-access'] === undefined ? 'user' : r.oneOf(s['socket-access'], 'signer.socket-access', SOCKET_ACCESS) ?? 'user';
+  // A named pipe's access is its ACL, which Node cannot set: another user could not be let in, so it is refused rather than half-done.
+  if (socketAccess === 'group' && r.host.os === 'win32') r.add('signer.socket-access', 'group is not supported on Windows');
+  const seen = new Set<string>();
+  const vaults = r.list(s['vaults'] ?? [], 'signer.vaults').map((item, i): SignerVault => {
+    const path = `signer.vaults[${i}]`;
+    const v = r.record(item, path, ['id', 'url', 'local']);
+    const id = r.string(v['id'], join(path, 'id'), VAULT_ID);
+    if (id !== '' && seen.has(id)) r.add(join(path, 'id'), 'duplicate vault id');
+    seen.add(id);
+    const local = r.boolean(v, 'local', path, false);
+    // Only the owner's explicit `local: true` trusts a main no forge protects; a remote is never taken for one.
+    const url = local ? r.absolutePath(v['url'], join(path, 'url')) : r.string(v['url'], join(path, 'url'));
+    if (!local && url !== '' && !REMOTE_URL.test(url)) r.add(join(path, 'url'), 'must be an https or ssh URL of the forge, or a local path with local: true');
+    return { id, url, local };
+  });
+  const webGrant = r.record(s['web-grant'] ?? {}, 'signer.web-grant', ['wildcard-min']);
+  return {
+    key: r.secret(s['key'], 'signer.key'),
+    ...(socket === undefined ? {} : { socket }),
+    socketAccess,
+    vaults,
+    webGrant: { wildcardMin: r.integer(webGrant, 'wildcard-min', 'signer.web-grant', DEFAULT_WILDCARD_MIN) },
+  };
+}
+
 function readOpaqueSection(r: Reader, raw: PlainObject, key: 'mcp' | 'notify'): PlainObject | undefined {
   return raw[key] === undefined ? undefined : r.record(raw[key], key);
 }
@@ -372,6 +457,8 @@ export function parseInstallationConfig(text: string, host: Host): Result<Instal
   const taint = r.record(raw['taint'] ?? {}, 'taint', ['trusted-tools']);
   const mcp = readOpaqueSection(r, raw, 'mcp');
   const notify = readOpaqueSection(r, raw, 'notify');
+  const webGrants = readWebGrants(r, raw['web-grants']);
+  const signer = readSigner(r, raw['signer']);
 
   const config: InstallationConfig = {
     name: name ?? `${host.user}@${host.hostname}`,
@@ -389,6 +476,8 @@ export function parseInstallationConfig(text: string, host: Host): Result<Instal
     templates: readTemplates(r, raw['templates']),
     ...(mcp === undefined ? {} : { mcp }),
     ...(notify === undefined ? {} : { notify }),
+    ...(webGrants === undefined ? {} : { webGrants }),
+    ...(signer === undefined ? {} : { signer }),
   };
   const checked = r.result(config);
   return checked.ok ? checked : err({ reason: 'invalid', issues: checked.error });

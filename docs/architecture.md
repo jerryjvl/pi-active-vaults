@@ -1,6 +1,6 @@
 # Architecture
 
-One npm package, installed with `pi install`, containing four parts that share a
+One npm package, installed with `pi install`, containing five parts that share a
 core library.
 
 ```mermaid
@@ -14,6 +14,7 @@ flowchart TB
     cli[vault CLI]
     ext[Pi extension]
     dmn[Daemon]
+    sgn[Signer]
     core[Core library]
   end
 
@@ -34,10 +35,13 @@ flowchart TB
   core --> idx
   core --> models
   dmn -- runs --> headless
+  dmn -. socket .-> sgn
+  sgn --> core
 ```
 
 The daemon runs headless sessions as `pi --mode rpc`; the socket between the
-extension and the daemon is optional.
+extension and the daemon is optional. The signer runs as a user of its own and
+is needed only for web grants.
 
 ## Components
 
@@ -47,6 +51,7 @@ extension and the daemon is optional.
 | [CLI](components/cli.md) | `vault` on the command line | Human and script access to every operation |
 | [Pi extension](components/extension.md) | Inside each Pi session | Tools, injected context, write guarding, session events, commit trailers |
 | [Daemon](components/daemon.md) | A user service | Timers, Git-event monitoring, the spawn queue and scheduler, trace logs, forge sync, the MCP server |
+| [Signer](components/signer.md) | A service of a user of its own | Holding the signing key; signed statements — web grants — made from what it reads itself |
 
 The extension and CLI never need the daemon for reading, searching, reviewing or
 accepting. The daemon adds work that must happen while nobody is using Pi.
@@ -81,6 +86,7 @@ accepting. The daemon adds work that must happen while nobody is using Pi.
 | Daemon socket | Unix domain socket in `<state>`; a named pipe on Windows | No |
 | Run files; the refs hook's signals | `<state>/runs/<trace-id>.json` while a run lasts; `<state>/refs/<vault-id>` | No |
 | Editor workspace (`vault workspace`) | `<state>/vaults.code-workspace`, regenerated each time | No |
+| Signer's key, store, fetches and socket | Its own user's: the key where its config names it; `<state>/signer.sqlite`, `<state>/signer/<vault-id>`, `<state>/signer.sock` (a named pipe on Windows) | No |
 | Session scratch | `<state>/scratch/<trace-id>/`, private, claimed when the session opens and never shared, while the session lasts (the daemon sweeps leftovers a day old); a fan-out's workspaces in `fanout-<id>/<n>/` inside it | No |
 
 `<config>` and `<state>` are the platform's own directories for the
@@ -98,12 +104,14 @@ the socket are accessible only to the user.
 ## Local storage
 
 Everything a vault shares lives in Git. Everything local to a machine lives in
-**SQLite**, in two files of the same engine, separated by lifecycle:
+**SQLite**, in two files of the same engine, separated by lifecycle — and, for a
+signer, a third of its own user's:
 
 | File | Holds | Lifecycle |
 |---|---|---|
 | `state.sqlite` | Accepted `main` per vault, spawn queue and claims, job cursors, run state, actor holds, budget ledger, review records, notification outbox, merge results | Durable; never deleted by the package |
 | `index.sqlite` | Chunks, keyword index (FTS5), vectors (`sqlite-vec`), content hashes, the embedding model it was built with; documents' parsed frontmatter by blob | Derived from Git; safe to delete and rebuild |
+| `signer.sqlite` | The web grants issued and when each expires | Durable; never deleted by the package |
 
 - **One access path.** Only the core's `store` module opens these files.
 - **Atomic.** Every multi-step change is a single transaction started with
@@ -173,7 +181,7 @@ for the session (see [Pi conventions](pi-conventions.md#prompt-cache-stability))
    `main` has an unaccepted change, the vault's automation pauses instead.
 3. The scheduler runs the spawn under its budget once its actor is free —
    forking from the originating session when it is available and the job allows
-   it.
+   it, and with the run's web grants when its job has a `web` block.
 4. The session commits to its actor branch, or ends without changes; the cursor
    advances; the trace is recorded.
 
@@ -240,6 +248,7 @@ src/
   cli/         vault entry point and commands
   extension/   Pi extension entry point
   daemon/      the daemon process: time, sockets, processes
+  signer/      the signer process: its key and socket
   mcp/         MCP servers and endpoints
 test/          unit and integration tests, mirroring src/
   e2e/         end-to-end scenarios across components

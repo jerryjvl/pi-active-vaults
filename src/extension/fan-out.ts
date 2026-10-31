@@ -5,7 +5,9 @@
 //
 // Each item is a session of its own (item-session.ts) that can look but not
 // write: Pi's read-only file tools, `vault_read` and `vault_search`, and the
-// tools of the MCP servers the call names. The session that fanned out writes
+// tools of the MCP servers the call names — those the installation names for
+// web grants carrying a headless run's item grant, if it has one (concepts.md
+// "Web grants"). The session that fanned out writes
 // what comes back. Items run as many at a time as the agent model's `parallel`
 // allows. Their work is the session's: every tool call is in its trace, a tool
 // that taints taints the session, and their usage — with each item's prefix
@@ -30,6 +32,7 @@ import type { AssistantMessage, Usage } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 import { assumePrefixCache, newPrefixTracker, workTokens, usageOf } from '../core/budgets/index.ts';
 import { newWorkspace, scratchFile, scratchFor, seedDir } from '../core/config/index.ts';
+import { withGrantHeader } from '../core/grants/index.ts';
 import { isRecord } from '../core/result/index.ts';
 import { logItemOutcome, logToolResult, taints, workLeft } from '../core/sessions/index.ts';
 import { runItem, mcpServersOf, type ItemSessionOptions } from './item-session.ts';
@@ -139,6 +142,9 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
       if (ctx.model === undefined) return fail('No model is selected for the item sessions.', 'failed');
       const servers = mcpServersOf(mcp, items);
       if (!servers.ok) return fail(`No MCP server named ${servers.missing.join(', ')} in ${servers.file}.`, 'invalid');
+      // A headless run's item grant goes to the servers the installation names for grants, and no others.
+      const webGrants = live?.context.installation.config.webGrants;
+      const itemServers = withGrantHeader(servers.value, webGrants?.servers ?? [], webGrants === undefined ? undefined : live?.session.run?.grants?.item);
       if (save !== undefined && gather !== undefined) return fail('Give either gather or save, not both.', 'invalid');
       const saveTo = save === undefined ? undefined : scratchFile(scratch, save);
       if (save !== undefined && saveTo === undefined) return fail(`${save} is not a file in this session's scratch directory (scratch:<name>).`, 'invalid');
@@ -172,7 +178,7 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
           const where = space === undefined ? undefined : `${space.name}/${index + 1}`;
           const result = await runItem({
             cwd: ctx.cwd, model: ctx.model as never, ...(ctx.thinkingLevel === undefined ? {} : { thinkingLevel: ctx.thinkingLevel }),
-            prompt: `${each}${dir === undefined ? '' : `\n\nYour workspace, the one directory you can write in: ${dir}`}\n\nThe item:\n<item>\n${quoted(item)}\n</item>`, tools, mcp: servers.value,
+            prompt: `${each}${dir === undefined ? '' : `\n\nYour workspace, the one directory you can write in: ${dir}`}\n\nThe item:\n<item>\n${quoted(item)}\n</item>`, tools, mcp: itemServers,
             ...(dir === undefined ? {} : { workspace: dir }),
             ...(signal === undefined ? {} : { signal }),
             onTool: account(live, index, ctx.cwd),

@@ -102,6 +102,12 @@ brought up to date (a conflict, uncommitted changes) is stopped `out-of-date`
 and Pi is not started; for a conflict, its log says which files and how an
 owner resolves it.
 
+When the job has a `web` block, it then asks the signer named in
+`web-grants.signer` for the run's grants, naming the vault, the job and the
+trace, and puts them in the run file ([Web grants](../concepts.md#web-grants)).
+It never signs grants itself. A run the signer refuses, or cannot be asked
+about, starts without grants, and its log says why.
+
 It forks the originating session when that session subscribed here (giving
 its file) and the condition's `context` is not `bare`. The daemon records the
 process (ID and start time) first, starts the session, waits for Pi to settle

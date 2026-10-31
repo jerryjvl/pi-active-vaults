@@ -35,6 +35,8 @@ export interface DocumentConditions {
   readonly actor?: Inherited;
   /** The `model` it asks for, likewise. */
   readonly model?: Inherited;
+  /** The document's own `web` block as written, for whoever spawns it to read; never inherited from a contract. */
+  readonly web?: unknown;
   readonly issues: readonly Issue[];
 }
 
@@ -84,6 +86,7 @@ async function readConditions(git: Git, repo: string, accepted: AcceptedMain, re
       ...(frontmatter['budget'] === undefined ? {} : { budget: frontmatter['budget'] }),
       ...(actor === undefined ? {} : { actor }),
       ...(model === undefined ? {} : { model }),
+      ...(frontmatter['web'] === undefined ? {} : { web: frontmatter['web'] }),
     });
   }
   return ok(found);

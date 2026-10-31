@@ -82,6 +82,9 @@ test('the installation files live at the documented places under those directori
     logs: '/s/logs',
     worktrees: '/s/worktrees',
     socket: '/s/daemon.sock',
+    signerSocket: '/s/signer.sock',
+    signerDb: '/s/signer.sqlite',
+    signerRepos: '/s/signer',
     runs: '/s/runs',
     refs: '/s/refs',
     workspace: '/s/vaults.code-workspace',
@@ -92,6 +95,8 @@ test('the installation files live at the documented places under those directori
   const pipe = installationPaths({ config: 'C:\\c', state: 'C:\\s' }, 'win32').socket;
   assert.match(pipe, /^\\\\\.\\pipe\\pi-active-vaults-[0-9a-f]{16}$/);
   assert.notEqual(installationPaths({ config: 'C:\\c', state: 'C:\\t' }, 'win32').socket, pipe);
+  // The signer's pipe is its own, beside the daemon's.
+  assert.match(installationPaths({ config: 'C:\\c', state: 'C:\\s' }, 'win32').signerSocket, /^\\\\\.\\pipe\\pi-active-vaults-signer-[0-9a-f]{16}$/);
   assert.equal(installationPaths({ config: 'C:\\c', state: 'C:\\s' }, 'win32').worktrees, 'C:\\s\\worktrees');
 });
 

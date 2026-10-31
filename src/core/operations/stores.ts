@@ -1,4 +1,5 @@
-// The package's two local stores, each opened with every module that keeps
+// The package's local stores — the state and the index, and the signer's own
+// for an installation that runs one — each opened with every module that keeps
 // tables in it. Modules own their migrations; this is the one place that lists
 // them, so every surface (CLI, extension, daemon) opens a file with the same
 // complete set — store refuses a file holding a module it was not given.
@@ -10,6 +11,7 @@ import { actorsSchema } from '../actors/index.ts';
 import { budgetsSchema } from '../budgets/index.ts';
 import type { InstallationPaths } from '../config/index.ts';
 import { forgeSchema } from '../forge/index.ts';
+import { grantsSchema } from '../grants/index.ts';
 import { integritySchema, readsSchema } from '../integrity/index.ts';
 import { notifySchema } from '../notify/index.ts';
 import { queueSchema } from '../queue/index.ts';
@@ -29,8 +31,14 @@ export const STATE_MODULES: readonly ModuleSchema[] = [integritySchema, actorsSc
 
 export const INDEX_MODULES: readonly ModuleSchema[] = [searchSchema, readsSchema];
 
+export const SIGNER_MODULES: readonly ModuleSchema[] = [grantsSchema];
+
 export function openStateStore(paths: Pick<InstallationPaths, 'stateDb'>, options?: StoreOptions): Result<Store, StoreError> {
   return openStore(paths.stateDb, STATE_FILE, STATE_MODULES, options);
+}
+
+export function openSignerStore(paths: Pick<InstallationPaths, 'signerDb'>, options?: StoreOptions): Result<Store, StoreError> {
+  return openStore(paths.signerDb, STATE_FILE, SIGNER_MODULES, options);
 }
 
 export function openIndexStore(paths: Pick<InstallationPaths, 'indexDb'>, options?: StoreOptions): Result<Store, StoreError> {

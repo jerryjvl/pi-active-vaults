@@ -1,8 +1,9 @@
 // The run file (api.md "Flags", extension.md "Headless sessions"): what the
 // daemon tells a headless session it starts — the vault and job document, the
 // actor to write as, the `agent` model it was started on (by configured name),
-// the run's trace (whose spawn holds its budget), and the event that triggered
-// it, which the job receives as structured data.
+// the run's trace (whose spawn holds its budget), the event that triggered
+// it, which the job receives as structured data, and the run's web grants
+// when the signer issued any (concepts.md "Web grants").
 //
 // Read strictly: a headless session runs unattended, so a run file that is not
 // exactly right means the run does not happen, rather than running on a guess.
@@ -10,6 +11,7 @@
 import { EVENT_KINDS } from '../conditions/index.ts';
 import { MODEL_NAME } from '../config/index.ts';
 import { isTraceId } from '../ids/index.ts';
+import { parseRunGrants, type RunGrants } from '../grants/index.ts';
 import type { SpawnEvent } from '../queue/index.ts';
 import { DataReader, issuePath, type Issue, type Result } from '../result/index.ts';
 
@@ -21,9 +23,11 @@ export interface RunContext {
   readonly model: string;
   readonly trace: string;
   readonly event: SpawnEvent;
+  /** Its web grants: the script grant its scripts get, and the item grant its fan-out items' MCP servers get. */
+  readonly grants?: RunGrants;
 }
 
-const KEYS = ['vault', 'document', 'actor', 'model', 'trace', 'event'] as const;
+const KEYS = ['vault', 'document', 'actor', 'model', 'trace', 'event', 'grants'] as const;
 /** Every event a spawn can answer: the conditions' events, and a manual run. */
 const SPAWN_EVENT_KINDS = [...EVENT_KINDS, 'manual'] as const;
 
@@ -49,5 +53,7 @@ export function parseRunContext(text: string): Result<RunContext, Issue[]> {
   if (trace !== '' && !isTraceId(trace)) r.add('trace', 'is not a trace ID');
   const event = r.record(run['event'], 'event');
   r.oneOf(event['kind'], issuePath('event', 'kind'), SPAWN_EVENT_KINDS);
-  return r.result({ vault, document, actor, model, trace, event: event as unknown as SpawnEvent });
+  const grants = run['grants'] === undefined ? undefined : parseRunGrants(run['grants']);
+  if (grants?.ok === false) r.issues.push(...grants.error);
+  return r.result({ vault, document, actor, model, trace, event: event as unknown as SpawnEvent, ...(grants?.ok === true ? { grants: grants.value } : {}) });
 }

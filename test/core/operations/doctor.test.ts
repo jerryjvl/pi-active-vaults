@@ -337,3 +337,28 @@ test('doctor: a spool that is missing is a problem; 2730 is right; others\' acce
     rmSync(box, { recursive: true, force: true });
   }
 });
+
+/** The web-grant findings of `vault doctor`, as [level, message]. */
+async function grantFindings(t: TestInstallation): Promise<[string, string][]> {
+  const outcome = await t.run('doctor');
+  const findings = (outcome.data as { findings: { level: string; check: string; message: string }[] }).findings;
+  return findings.filter((f) => f.check === 'web-grants' || f.check === 'signer').map((f) => [f.level, f.message]);
+}
+
+const WEB_JOB = (url: string): string => `---\napplies-when: [{ on: external, name: go, effect: spawn }]\nbudget: { tokens: 100, ttl: 1m }\nactor: gardener\nweb:\n  requests: 2\n  allow:\n    - url: ${url}\n---\n`;
+
+test('doctor says when a web job here would go without grants: no web-grants configured', withInstallation(async (t) => {
+  t.repo.write('jobs/watch.md', WEB_JOB('https://api.example.net/*'));
+  t.accept(t.repo.commit('job'));
+  assert.deepEqual(await grantFindings(t), [['warning', 'jobs/watch.md has a web block, but this installation has no web-grants: its runs fetch under the web broker\'s default rules.']]);
+}, { host: true }));
+
+test('doctor says when no signer answers, and when a wildcard is too open for the minimum; a signer\'s unusable key is a problem', withInstallation(async (t) => {
+  t.repo.write('jobs/watch.md', WEB_JOB('https://*.example-motors.com/*'));
+  t.accept(t.repo.commit('job'));
+  const found = await grantFindings(t);
+  assert.equal(found[0]?.[0], 'problem');
+  assert.match(found[0]?.[1] ?? '', /The signer's key cannot be used \(signer\.key: env-unset\)/);
+  assert.match(found[1]?.[1] ?? '', /^No signer answers at \/nonexistent\/signer\.sock .*go without grants/);
+  assert.deepEqual(found[2], ['warning', 'jobs/watch.md\'s runs get no grant: web.allow[0].url: a wildcard\'s fixed domain needs at least two labels and 20 characters; name the host and open the path instead']);
+}, { host: true, config: 'web-grants: { signer: /nonexistent/signer.sock, servers: [web] }\nsigner: { key: "${NO_SUCH_KEY}" }' }));

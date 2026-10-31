@@ -1,13 +1,14 @@
 // The one place the package listens or connects: the daemon's local socket
-// (daemon.md "Single instance", "Socket protocol") — a Unix domain socket in
-// the state directory, a named pipe on Windows — speaking JSON lines, and
-// HTTP endpoints for local clients (http.ts).
+// (daemon.md "Single instance", "Socket protocol") and the signer's
+// (signer.md) — each a Unix domain socket, a named pipe on Windows — speaking
+// JSON lines, and HTTP endpoints for local clients (http.ts).
 //
 // Invariants:
 //  - a path is bound under one set of rules (bind.ts): one listener holds
 //    it, a stale socket is taken over, nothing that is not a socket is
-//    removed, and the file is the user's only. Only the holder of the
-//    daemon's record (queue) may listen on the daemon's socket;
+//    removed, and the file is the user's only unless the listener asks for its
+//    group too. Only the holder of the daemon's record (queue) may listen on
+//    the daemon's socket;
 //  - messages are JSON values, one per line (`lineSplitter`), with bounded
 //    lines; a line that is not JSON is dropped; a request is answered by its
 //    `id`, and anything else on the connection (notices) is left to listeners.
@@ -126,7 +127,9 @@ export async function requestOverSocket(path: string, method: string, params: un
  * so the caller must be the only one that may (the daemon holds its record
  * in the state database first).
  */
-export async function listenSocket(path: string, onChannel: (channel: Channel) => void): Promise<Result<SocketServer, ListenError>> {
+export async function listenSocket(
+  path: string, onChannel: (channel: Channel) => void, access: 'user' | 'group' = 'user',
+): Promise<Result<SocketServer, ListenError>> {
   const open = new Set<Socket>();
   const server = createServer((socket) => {
     open.add(socket);
@@ -134,7 +137,7 @@ export async function listenSocket(path: string, onChannel: (channel: Channel) =
     onChannel(channelOf(socket));
   });
 
-  const failed = await bindPath(server, path);
+  const failed = await bindPath(server, path, access);
   if (failed !== undefined) return err(failed);
 
   return ok({

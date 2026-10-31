@@ -32,7 +32,9 @@ never from the current tip of `main`, a branch or a working tree:
 - vault scripts, checks and job documents;
 - contracts and `applies-when` conditions;
 - Git events for triggers (derived up to the accepted `main`);
-- the search index (built up to the accepted `main`).
+- the search index (built up to the accepted `main`);
+- the `web` blocks web grants are signed from, which the signer reads itself
+  from the forge's `main` — or, marked `local: true`, a local clone's.
 
 A commit on `main` that the owner has not accepted runs nothing and triggers
 nothing.
@@ -77,6 +79,7 @@ adopting locally.
 | Content is data | Both | Text in documents, pages or tool results acting as instructions |
 | Fan-out items can look but not write — except, when the fan-out asks for it, files in a new scratch directory of their own, checked at every write — reach only the MCP servers named for them from the person's own Pi configuration, and taint the session that fanned out | Both | A page read during research changing the vault directly, or untrusted content entering a proposal unmarked |
 | Models only as `policy` allows, background jobs included | Both | A vault's content reaching a model its installation has not agreed to |
+| Web access beyond the broker's default rules only as a reviewed job's `web` block allows, in a grant signed per run by a [signer](components/signer.md) whose key the daemon's user cannot read | Forge; local with `local: true` | A model or script sending vault content to a site the owner never named |
 
 The Git hooks only speed things up and guard against accidents. Every safeguard
 is checked by the action itself, and the daemon also polls each minute. A
@@ -100,6 +103,16 @@ to a minute later and loses the pre-push guard; `vault doctor` reports it.
 - **The forge enforces what it is configured to.** A protection left out of
   the forge's settings is not supplied by the package (see [Security
   setup](security-setup.md)).
+- **An open web entry lets anything reach its destination.** That includes
+  whoever runs the subdomains a wildcard covers, the sites its redirects lead to
+  unless the broker checks each hop, and the DNS provider that sees
+  caller-chosen host labels. An open entry is the owner's decision to trust a
+  site.
+- **A signer reaches only as far as its user is kept apart.** Any process of the
+  daemon's user can ask the signer for a reviewed job's grant, and so can use up
+  a run's one live grant; it can never widen one. For a vault marked
+  `local: true`, the signer trusts a `main` that a process of that clone's
+  user can change.
 - **Local data can be destroyed.** The forge, or another backup, is the recovery
   path.
 
@@ -110,4 +123,8 @@ to a minute later and loses the pre-push guard; `vault doctor` reports it.
 - Every propagating action — trigger, spawn, script run, index update, push —
   checks for an unaccepted change first, and refuses if there is one.
 - Every user-facing surface (CLI, Pi, MCP) shows the unaccepted-change notice.
+- Only the signer holds a signing key, and it runs as a user of its own. Each
+  kind of statement it makes derives what it states from the signer's own
+  fetch of a vault's `main`, never from the request. No key or secret command
+  output appears in a log, trace, prompt or error.
 - Each safeguard has a test demonstrating that its bypass is noticed or refused.

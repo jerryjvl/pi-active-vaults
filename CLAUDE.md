@@ -8,7 +8,7 @@
 - [Security model](docs/security.md) — guarantees every component preserves
 - [Concepts](docs/concepts.md) — the model and file formats
 - [Architecture](docs/architecture.md) — how the parts fit
-- [Components](docs/components/) — core, CLI, extension, daemon
+- [Components](docs/components/) — core, CLI, extension, daemon, signer
 - [Pi API surface](docs/api.md) and [Pi conventions](docs/pi-conventions.md)
 - [MCP](docs/mcp.md) and [Notifications](docs/notifications.md)
 

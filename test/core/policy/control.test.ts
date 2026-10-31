@@ -1,6 +1,6 @@
 // Documented behaviour: concepts.md "Merge policy" — a change to any
 // `_contract.md`, anything under `.vault/`, or the `applies-when`, `budget`,
-// `actor` or `model` or `model` of any document is a control change. Detection errs towards flagging: a
+// `actor`, `model` or `web` of any document is a control change. Detection errs towards flagging: a
 // spelling a case-insensitive file system treats as the same name counts, and
 // so does frontmatter that cannot be read.
 import { test } from 'node:test';
@@ -101,4 +101,15 @@ test('a contract\'s model changes only through a contract, which is a control ch
   repo.write('jobs/_contract.md', '---\nmodel: quick\n---\n');
   const head = repo.commit('model');
   assert.deepEqual(await flagged(repo, base, head), ['jobs/_contract.md (contract)']);
+}));
+
+test('changing, adding or removing a document\'s web block is a control change', withTempRepo(async (repo) => {
+  repo.write('jobs/watch.md', job('budget: { tokens: 1000, ttl: 10m }\nweb: { requests: 3, allow: [{ url: "https://api.example.net/v3/*" }] }'));
+  repo.write('jobs/plain.md', job('budget: { tokens: 1000, ttl: 10m }'));
+  const base = repo.commit('base');
+  repo.write('jobs/watch.md', job('budget: { tokens: 1000, ttl: 10m }\nweb: { requests: 30, allow: [{ url: "https://api.example.net/v3/*" }] }'));
+  repo.write('jobs/plain.md', job('budget: { tokens: 1000, ttl: 10m }\nweb: { requests: 1, allow: [{ url: "https://capture.example/*" }] }'));
+  repo.write('notes/new.md', job('web: { requests: 1, allow: [{ url: "https://capture.example/*" }] }'));
+  const head = repo.commit('widen');
+  assert.deepEqual(await flagged(repo, base, head), ['jobs/plain.md (control-keys)', 'jobs/watch.md (control-keys)', 'notes/new.md (control-keys)']);
 }));

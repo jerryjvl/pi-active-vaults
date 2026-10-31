@@ -305,3 +305,41 @@ test('a forge entry\'s auto-merge is on unless set to false; anything but true o
   assert.ok(!bad.ok && bad.error.reason === 'invalid');
   assert.deepEqual(bad.error.issues, [{ path: 'forges[0].auto-merge', message: 'must be true or false' }]);
 });
+
+test('web-grants names the signer\'s socket and at least one MCP server to carry grants', () => {
+  const read = parseInstallationConfig('web-grants: { signer: /srv/signer/signer.sock, servers: [web] }', testHost());
+  assert.ok(read.ok);
+  assert.deepEqual(read.value.webGrants, { signer: '/srv/signer/signer.sock', servers: ['web'] });
+  const bad = parseInstallationConfig('web-grants: { signer: relative.sock, servers: [] }', testHost());
+  assert.ok(!bad.ok && bad.error.reason === 'invalid');
+  assert.deepEqual(!bad.ok && bad.error.reason === 'invalid' ? bad.error.issues.map((i) => i.path) : [], ['web-grants.signer', 'web-grants.servers']);
+});
+
+test('the signer\'s key is a secret reference; a vault fetched from a local path must say local: true, a forge URL must not need it', () => {
+  const read = parseInstallationConfig([
+    'signer:',
+    '  key: "!cat /etc/vault-signer/key.pem"',
+    '  socket-access: group',
+    '  vaults:',
+    '    - { id: digests, url: "ssh://git@git.example.net/home/vault-digests.git" }',
+    '    - { id: notes, url: ~/vaults/notes, local: true }',
+    '  web-grant: { wildcard-min: 15 }',
+  ].join('\n'), testHost());
+  assert.ok(read.ok, JSON.stringify(read));
+  assert.deepEqual(read.value.signer, {
+    key: { kind: 'command', command: 'cat /etc/vault-signer/key.pem', where: 'signer.key' }, socketAccess: 'group',
+    vaults: [{ id: 'digests', url: 'ssh://git@git.example.net/home/vault-digests.git', local: false }, { id: 'notes', url: '/home/alice/vaults/notes', local: true }],
+    webGrant: { wildcardMin: 15 },
+  });
+  const defaults = parseInstallationConfig('signer: { key: "${KEY}" }', testHost());
+  assert.ok(defaults.ok);
+  assert.deepEqual([defaults.value.signer?.socketAccess, defaults.value.signer?.webGrant.wildcardMin], ['user', 20]);
+  const issues = (text: string, host = testHost()): string[] => {
+    const parsed = parseInstallationConfig(text, host);
+    return !parsed.ok && parsed.error.reason === 'invalid' ? parsed.error.issues.map((i) => `${i.path}: ${i.message}`) : [];
+  };
+  assert.match(issues('signer: { key: "-----BEGIN PRIVATE KEY-----" }')[0] ?? '', /signer\.key: must be a \$\{ENV\} reference/);
+  assert.match(issues('signer: { key: "${KEY}", vaults: [{ id: notes, url: /srv/vaults/notes }] }')[0] ?? '', /a local path with local: true/,
+    'a main no forge protects is trusted only by the owner\'s explicit choice');
+  assert.match(issues('signer: { key: "${KEY}", socket-access: group }', testHost({ os: 'win32', home: 'C:\\Users\\alice' }))[0] ?? '', /group is not supported on Windows/);
+});
