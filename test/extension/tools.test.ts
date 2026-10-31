@@ -105,3 +105,16 @@ test('vault_commit commits the session\'s worktree as its actor, with its trace 
     assert.doesNotMatch(message, /Vault-Tainted/);
   });
 }, { running: RUNNING }));
+
+test('a tool called under code mode\'s or the function-calling prefix reaches the tool it means', withInstallation(async (t) => {
+  writeFileSync(join(t.repo.path, 'notes.md'), '# A note\n');
+  t.accept(t.repo.commit('a note'));
+  await withPi(t, {}, async (pi) => {
+    pi.respond(toolCall('tools.vault_read', { path: 'home:notes.md' }), toolCall('functions.read', { path: 'notes.md' }), DONE);
+    await pi.prompt('Read the note twice.');
+    const last = pi.requests.at(-1);
+    assert.match(toolResults(last, 'vault_read')[0] ?? '', /A note/);
+    assert.match(toolResults(last, 'read')[0] ?? '', /A note/);
+    assert.equal(pi.results.some((r) => r.isError), false);
+  });
+}, { running: RUNNING }));

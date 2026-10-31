@@ -97,6 +97,20 @@ test('an item can use its tools before it answers', withInstallation(async (t) =
   });
 }, { running: RUNNING }));
 
+test('an item\'s tool called under a prefix reaches the tool it means', withInstallation(async (t) => {
+  writeFileSync(join(t.repo.path, 'notes.md'), 'Pears are green.');
+  await withPi(t, {}, async (pi) => {
+    const asked: Asked[] = [];
+    pi.respond(
+      fanOut({ items: ['pears'], each: 'Look up the colour of the item in notes.md.' }),
+      toolCall('tools.read', { path: 'notes.md' }), recording(asked, fauxAssistantMessage('green')),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    assert.match(asked[0]?.prompt ?? '', /Pears are green/, 'the item saw its tool result, not "not found"');
+  });
+}, { running: RUNNING }));
+
 test("an item gets the installation's own instructions after its item prompt — never a project's", withInstallation(async (t) => {
   // A vault's content could supply a project .pi/APPEND_SYSTEM.md; only the installation's own counts.
   const cwd = t.vault.path;
