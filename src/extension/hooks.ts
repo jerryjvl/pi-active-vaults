@@ -27,7 +27,7 @@ import {
   callVaultPaths, createContext, describeError, loadInstallation, locate, operationNamed, type ContextOptions,
 } from '../core/operations/index.ts';
 import {
-  catalogText, closeSession, describeWriting, guardToolCall, logToolResult, openSession, parseRunContext, recordTurn, renderInjections, sessionEvent, taints,
+  catalogText, closeSession, describeWriting, guardToolCall, logSession, logToolResult, openSession, parseRunContext, recordTurn, renderInjections, sessionEvent, taints,
   type GuardedCall, type SessionEvent, type VaultSession,
 } from '../core/sessions/index.ts';
 import type { OperationContext } from '../core/operations/index.ts';
@@ -36,6 +36,7 @@ import { BUS_METHODS, subscribeRequests } from './bus.ts';
 import { agentModelOf, workOf, type Holder, type Live } from './live.ts';
 import { publishSpawns, CHANNEL_PREFIX } from './operate.ts';
 import { readsOf, shellOf, writesOf } from './paths.ts';
+import { renameIntendedToolCalls } from './tool-names.ts';
 
 export interface HookOptions {
   readonly host: () => Host;
@@ -173,6 +174,12 @@ function stopIfOver(pi: ExtensionAPI, session: VaultSession, ctx: ExtensionConte
 
 export function registerHooks(pi: ExtensionAPI, holder: Holder, options: HookOptions): void {
   pi.on('session_start', async (_event, ctx) => start(pi, holder, options, ctx));
+
+  // A prefixed tool call reaches the tool it means; the trace says it was renamed.
+  renameIntendedToolCalls(pi, (renamed) => {
+    const live = holder.live;
+    if (live !== undefined) logSession(live.context, live.session, { kind: 'renamed-tool-calls', renamed });
+  });
 
   pi.on('before_agent_start', async (event) => {
     const live = holder.live;

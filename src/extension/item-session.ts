@@ -29,6 +29,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type { AssistantMessage, Model, Usage } from '@earendil-works/pi-ai';
 import { landsWithin, workspaceWrite } from '../core/config/index.ts';
+import { renameIntendedToolCalls } from './tool-names.ts';
 import { isRecord } from '../core/result/index.ts';
 
 /** Pi's file tools that only read. */
@@ -127,13 +128,14 @@ export async function runItem(request: ItemRequest, options: ItemSessionOptions 
     cwd: request.cwd, agentDir,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
     appendSystemPrompt: [request.workspace === undefined ? ITEM_SYSTEM : WORKSPACE_SYSTEM, ...installationRules(agentDir)],
-    extensionFactories: servers.length === 0 ? [] : [createMcpExtension({
+    // A prefixed tool call reaches the tool it means here too (tool-names.ts).
+    extensionFactories: [(pi) => renameIntendedToolCalls(pi), ...(servers.length === 0 ? [] : [createMcpExtension({
       // Only the named servers, with their tools declared to the model directly.
       loadConfig: () => ({
         servers: servers.map((name) => ({ name, config: { ...request.mcp[name], exposure: 'direct' } as McpServerConfig, source: join(agentDir, 'mcp.json'), scope: 'global' as const })),
         autoEnableCodemode: false, errors: [],
       }),
-    })],
+    })])],
   });
   await resourceLoader.reload();
   const own = request.workspace === undefined ? [] : workspaceTools(request.workspace);

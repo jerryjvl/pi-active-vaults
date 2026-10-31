@@ -99,6 +99,15 @@ file tools. Unknown tools taint, so the check fails closed. Commits from a
 tainted session carry a `Vault-Tainted` trailer, so merge rules with
 `when-tainted` apply.
 
+### Tool names
+
+Some models call a tool by the name code mode's declarations show it under
+(`tools.vault_script`), or as `functions.<name>`. As each of the model's
+messages ends, such a call is renamed to the tool it means, before Pi runs it.
+This happens in vault sessions and fan-out items alike, and the session's log
+records it. A call is renamed only when its name belongs to no tool and the name
+after the prefix does. A renamed call passes the same guards as any other.
+
 ## Headless sessions
 
 The daemon runs jobs as `pi --mode rpc` sessions that load this same extension.
