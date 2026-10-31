@@ -1,6 +1,7 @@
 // The `vault` command (cli.md): every operation the catalogue offers on the
 // CLI, generated from it — this file knows no command by name except
-// `daemon …` (daemon.ts) and `mcp` (mcp.ts), which run as processes. It parses,
+// `daemon …` (daemon.ts), `signer …` (signer.ts) and `mcp` (mcp.ts), which
+// run as processes. It parses,
 // asks the core, and presents:
 //
 //  - every command first reports each vault with an unaccepted change, on
@@ -25,8 +26,10 @@ import {
 } from '../core/operations/index.ts';
 import { linkDaemon } from '../core/automation/index.ts';
 import type { DaemonOptions } from '../daemon/daemon.ts';
+import type { SignerOptions } from '../signer/signer.ts';
 import { runDaemonCommand } from './daemon.ts';
 import { runMcpCommand } from './mcp.ts';
+import { runSignerCommand } from './signer.ts';
 
 export interface CliIo {
   write(stream: 'stdout' | 'stderr', text: string): void;
@@ -46,6 +49,8 @@ export interface CliIo {
   readonly stdio?: { readonly input: Readable; readonly output: Writable };
   /** What `vault daemon run` is started with besides the machine (tests). */
   readonly daemon?: Pick<DaemonOptions, 'pid' | 'pi' | 'env' | 'timeZone'>;
+  /** What `vault signer run` is started with besides the machine (tests). */
+  readonly signer?: Partial<Omit<SignerOptions, 'host'>>;
 }
 
 const EXIT = { ok: 0, failed: 1, invalid: 2, refused: 3 } as const;
@@ -59,6 +64,7 @@ function overview(): string {
     '',
     ...lines,
     `  ${'daemon …'.padEnd(16)} Install, control or run the daemon`,
+    `  ${'signer …'.padEnd(16)} Run the web-grant signer, make its key, or ask whether it answers`,
     `  ${'mcp'.padEnd(16)} Serve an MCP profile over standard input/output`,
     '',
     'Every command takes --json (machine-readable output) and --vault <id>.',
@@ -86,6 +92,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     return EXIT.ok;
   }
   if (command === 'daemon') return runDaemonCommand(argv, io);
+  if (command === 'signer') return runSignerCommand(argv, io);
   if (command === 'mcp') return runMcpCommand(argv, io);
   const found = findOperation(argv);
   if (found === undefined) {

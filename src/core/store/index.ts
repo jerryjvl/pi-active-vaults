@@ -1,4 +1,4 @@
-// The only access to the package's SQLite files (`state.sqlite`, `index.sqlite`).
+// The only access to the package's SQLite files (`state.sqlite`, `index.sqlite`, and a signer's `signer.sqlite`).
 // `node:sqlite` is a release-candidate API, so it is imported nowhere else: a
 // change of driver touches this module only. The same holds for `sqlite-vec`,
 // the extension that gives the index its vector functions.

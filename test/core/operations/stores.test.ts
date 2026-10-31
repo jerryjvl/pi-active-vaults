@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { INDEX_MODULES, STATE_MODULES, openIndexStore, openStateStore } from '../../../src/core/operations/index.ts';
+import { INDEX_MODULES, SIGNER_MODULES, STATE_MODULES, openIndexStore, openSignerStore, openStateStore } from '../../../src/core/operations/index.ts';
 import type { ModuleSchema } from '../../../src/core/store/index.ts';
 import { withTempDir } from '../../support/temp-dir.ts';
 
@@ -31,7 +31,7 @@ async function exportedSchemas(): Promise<{ from: string; schema: ModuleSchema }
 
 test('every module schema a core module exports is assembled into exactly one store file', async () => {
   for (const { from, schema } of await exportedSchemas()) {
-    const places = [STATE_MODULES, INDEX_MODULES].filter((list) => list.includes(schema)).length;
+    const places = [STATE_MODULES, INDEX_MODULES, SIGNER_MODULES].filter((list) => list.includes(schema)).length;
     assert.equal(places, 1, `${from} exports schema "${schema.module}"`);
   }
 });
@@ -47,5 +47,12 @@ test('the index store opens at the installation paths with every index module\'s
   const store = openIndexStore({ indexDb: dir.file('index.sqlite') });
   if (!store.ok) assert.fail(JSON.stringify(store.error));
   assert.deepEqual(Object.keys(store.value.versions).sort(), INDEX_MODULES.map((m) => m.module).sort());
+  store.value.close();
+}));
+
+test('the signer\'s store opens at the installation paths with every signer module\'s tables, apart from the state', withTempDir((dir) => {
+  const store = openSignerStore({ signerDb: dir.file('signer.sqlite') });
+  if (!store.ok) assert.fail(JSON.stringify(store.error));
+  assert.deepEqual(Object.keys(store.value.versions).sort(), SIGNER_MODULES.map((m) => m.module).sort());
   store.value.close();
 }));

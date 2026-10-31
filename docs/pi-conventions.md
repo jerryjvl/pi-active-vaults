@@ -79,3 +79,6 @@ shipped with the installed Pi (`pi --version`) when an API is in doubt.
   `--vault-run`.
 - Sessions that branch from an interactive session use `pi --mode rpc --fork
   <session>`; Pi forks from user messages.
+- A fan-out item's MCP servers are the user's own `mcp.json` entries. An HTTP
+  server's `headers` (Pi 1.3) carry a run's web grant to the servers named for
+  it, and only to those.

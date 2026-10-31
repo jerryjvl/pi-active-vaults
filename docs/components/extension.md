@@ -106,7 +106,10 @@ In headless mode the extension takes its actor, budget and trace context from
 the daemon instead of from configuration: the run file given with `--vault-run`
 is JSON with `vault`, `document`, `actor`, `model` (the name of the `agent` model
 the daemon started it with), `trace` (the spawn's, whose allotment is its budget)
-and `event`. The run is briefed with its job document
+and `event`, and `grants` when the signer issued any ([Web grants](../concepts.md#web-grants)):
+the script grant reaches its scripts in its vault as `VAULT_WEB_GRANT`, and the
+item grant reaches its fan-out items' requests to the MCP servers named in
+`web-grants.servers` as the header `X-Vault-Grant`. The run is briefed with its job document
 as on the accepted `main` and the triggering event as structured data (see
 [Concepts](../concepts.md#applies-when)). A run does not start without a
 readable run file, an allotment, its job on the accepted `main`, a permitted

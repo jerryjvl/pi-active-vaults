@@ -7,13 +7,15 @@
 // running, runs its start-up recovery. A problem makes the
 // command fail; warnings do not.
 //
-// Checks: the config file, Git, Pi, each model's token and the policy's names; per vault, its
+// Checks: the config file, Git, Pi, each model's token and the policy's names, the signer
+// this installation asks for web grants and the key of one it runs; per vault, its
 // identity, a `core.hooksPath` that bypasses the package's hooks, the
 // pre-push guard, a remote on a `local` vault, locks left in main's worktree,
 // forge protection and merge methods in `forge` mode, merged proposals whose
 // commits did not reach main, hosting conflicts, where its jobs run, search falling back to
 // keywords because no policy entry names the vault, jobs that cannot run
-// (for lack of an `agent` model too), and the models its jobs and axes ask for;
+// (for lack of an `agent` model too), jobs here whose runs would get no web grant
+// (no signer configured, or a wildcard too open), and the models its jobs and axes ask for;
 // then sessions holding
 // actors (and those whose holder cannot be told apart from a reused process),
 // undelivered notifications, notify not being configured, and no daily token
@@ -23,7 +25,9 @@
 import { chmodSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { listActorHolds } from '../../actors/index.ts';
-import { resolveSecret, staleServiceTools } from '../../config/index.ts';
+import { DEFAULT_WILDCARD_MIN, resolveSecret, staleServiceTools } from '../../config/index.ts';
+import { pingSigner, selectivityIssues } from '../../grants/index.ts';
+import { signingKeyOf } from '../../signing/index.ts';
 import { missingRemoteNotes } from '../../backup/index.ts';
 import { forgeAdapter, forgeProject, lostMergeReport, lostMerges, protectionProblems, remoteOf } from '../../forge/index.ts';
 import {
@@ -95,6 +99,36 @@ async function installationFindings(context: OperationContext): Promise<Finding[
 }
 
 /**
+ * Web grants (concepts.md "Web grants"): whether the key of a signer this installation runs can be used, and
+ * whether the signer it asks answers — with the wildcard minimum that signer applies, which the job checks use.
+ */
+async function grantFindings(context: OperationContext): Promise<{ findings: Finding[]; wildcardMin: number }> {
+  const { signer, webGrants } = context.installation.config;
+  const findings: Finding[] = [];
+  let wildcardMin = signer?.webGrant.wildcardMin ?? DEFAULT_WILDCARD_MIN;
+  if (signer !== undefined) {
+    const key = await signingKeyOf(signer.key, context.secrets);
+    findings.push(key.ok
+      ? { level: 'ok', check: 'signer', message: `This installation's signer signs with key ${key.value.kid}, for ${signer.vaults.map((v) => (v.local ? `${v.id} (local)` : v.id)).join(', ') || 'no vault'}.` }
+      : { level: 'problem', check: 'signer', message: `The signer's key cannot be used (${key.error}); "vault signer run" does not start.` });
+  }
+  if (webGrants !== undefined) {
+    const status = await pingSigner(webGrants.signer);
+    if (status.ok) {
+      if (status.value.wildcardMin === undefined) {
+        findings.push({ level: 'warning', check: 'web-grants', message: `The signer at ${webGrants.signer} answers, but makes no web grants: runs whose jobs have a web block go without.` });
+      } else {
+        wildcardMin = status.value.wildcardMin;
+        findings.push({ level: 'ok', check: 'web-grants', message: `The signer at ${webGrants.signer} answers (key ${status.value.kid}); grants go to ${webGrants.servers.join(', ')}.` });
+      }
+    } else {
+      findings.push({ level: 'warning', check: 'web-grants', message: `No signer answers at ${webGrants.signer} (${status.error.reason}): runs whose jobs have a web block go without grants, their fetches under the web broker's default rules.` });
+    }
+  }
+  return { findings, wildcardMin };
+}
+
+/**
  * Whether a file or directory is private enough for an installation's config or state: the user's
  * alone, or managed for a service user — root owns it, its group may read but not write it, and
  * nobody else may touch it (security-setup.md).
@@ -117,7 +151,7 @@ function privateMode(context: OperationContext, path: string, mode: number, fix:
   return { level: 'problem', check: 'permissions', message: `${path} is accessible to other users (mode ${current.toString(8)}); "vault doctor --fix" makes it private.` };
 }
 
-async function vaultFindings(context: OperationContext, vault: RegisteredVault, fix: boolean): Promise<Finding[]> {
+async function vaultFindings(context: OperationContext, vault: RegisteredVault, fix: boolean, wildcardMin: number): Promise<Finding[]> {
   const { git, installation } = context;
   const at = (level: Finding['level'], check: string, message: string): Finding => ({ level, check, vault: vault.id, message });
   const accepted = readingFrom(context, vault);
@@ -170,7 +204,7 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
     }
   }
   if (accepted.ok) {
-    findings.push(...(await jobFindings(context, vault, accepted.value, identity.value)));
+    findings.push(...(await jobFindings(context, vault, accepted.value, identity.value, wildcardMin)));
     for (const message of await modelMessages(installation.config, git, vault.path, vault.id, accepted.value, context.reads)) findings.push(at('warning', 'models', message));
   }
   return findings;
@@ -179,9 +213,10 @@ async function vaultFindings(context: OperationContext, vault: RegisteredVault, 
 /**
  * Where the vault's jobs run, as far as this installation can tell — here, on the executor its contract names, or,
  * with neither, nowhere from here — then each job on the accepted main that cannot run (no readable budget, no actor
- * that may write, no `agent` model it may use), with why.
+ * that may write, no `agent` model it may use, a web block that is not valid), with why; and each job that runs here
+ * whose runs would get no web grant: no signer is configured, or a wildcard is too open for the signer's minimum.
  */
-async function jobFindings(context: OperationContext, vault: RegisteredVault, accepted: AcceptedMain, identity: VaultIdentity): Promise<Finding[]> {
+async function jobFindings(context: OperationContext, vault: RegisteredVault, accepted: AcceptedMain, identity: VaultIdentity, wildcardMin: number): Promise<Finding[]> {
   const jobs = await vaultJobs(context.git, vault.path, accepted, context.reads);
   if (!jobs.ok) return [{ level: 'problem', check: 'jobs', vault: vault.id, message: `Its jobs cannot be read (${jobs.error.reason}).` }];
   const unmodelled = new Map(jobsWithoutModel(context.installation.config, vault.id, jobs.value).map(({ job, why }) => [job.path, why]));
@@ -201,10 +236,18 @@ async function jobFindings(context: OperationContext, vault: RegisteredVault, ac
       where.push({ level: 'warning', check: 'jobs', vault: vault.id, message: `${these}, but ${one ? 'it does' : 'they do'} not run here: the vault names no executor and host is not true in this installation. ${one ? 'It runs' : 'They run'} only where an installation hosts the vault; name one with executor: in the contract, or set host: true where they should run.` });
     }
   }
+  const runsHere = hosting(vault, identity, context.installation.config.name).runsHere;
+  const ungranted = (job: (typeof jobs.value)[number]): Finding[] => {
+    if (job.web === undefined || !runsHere) return [];
+    const at = (message: string): Finding => ({ level: 'warning', check: 'web-grants', vault: vault.id, message });
+    if (context.installation.config.webGrants === undefined) return [at(`${job.path} has a web block, but this installation has no web-grants: its runs fetch under the web broker's default rules.`)];
+    const open = selectivityIssues(job.web, wildcardMin);
+    return open.length === 0 ? [] : [at(`${job.path}'s runs get no grant: ${open.map((i) => `${i.path}: ${i.message}`).join('; ')}`)];
+  };
   return [...where, ...jobs.value.flatMap((job) => {
     const why = unmodelled.get(job.path);
     const reasons = [...job.issues.map((i) => `${i.path}: ${i.message}`), ...(why === undefined ? [] : [`no agent model it may use (${unavailableText(why)})`])];
-    return reasons.length === 0 ? [] : [{ level: 'warning' as const, check: 'jobs', vault: vault.id, message: `${job.path} cannot run: ${reasons.join('; ')}` }];
+    return [...(reasons.length === 0 ? [] : [{ level: 'warning' as const, check: 'jobs', vault: vault.id, message: `${job.path} cannot run: ${reasons.join('; ')}` }]), ...ungranted(job)];
   })];
 }
 
@@ -311,11 +354,13 @@ export const doctorOperation: Operation = {
 async function doctorFindings(context: OperationContext, fix: boolean): Promise<Finding[]> {
   const { paths } = context.installation;
   const findings = await installationFindings(context);
+  const grants = await grantFindings(context);
+  findings.push(...grants.findings);
   for (const [path, mode] of [[dirname(paths.stateDb), 0o700], [dirname(paths.configFile), 0o700], [paths.configFile, 0o600], [paths.stateDb, 0o600]] as const) {
     const found = privateMode(context, path, mode, fix);
     if (found !== undefined) findings.push(found);
   }
-  for (const vault of context.installation.vaults) findings.push(...await vaultFindings(context, vault, fix));
+  for (const vault of context.installation.vaults) findings.push(...await vaultFindings(context, vault, fix, grants.wildcardMin));
   if (fix) findings.push(...await recoveryFindings(context));
   findings.push(...await machineFindings(context));
   return findings;

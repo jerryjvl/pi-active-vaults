@@ -12,7 +12,9 @@
 // else its nearest contract's. The name is only a request: which model answers
 // it, and whether policy allows it, is the models module's to say at the
 // claim. A `model` that is not a name is an issue and the job cannot spawn:
-// a malformed request is not guessed at.
+// a malformed request is not guessed at. Likewise a `web` block (the URLs its
+// runs may fetch beyond the web broker's default rules) that is not exactly
+// right stops the job: it is never run on a guess at what the owner allowed.
 
 import { parseBudget, type Budget } from '../budgets/index.ts';
 import { documentConditions, type DocumentConditions } from '../conditions/index.ts';
@@ -20,6 +22,7 @@ import { MODEL_NAME } from '../config/index.ts';
 import type { Git, GitError } from '../git/index.ts';
 import { UNCACHED_READS, acceptedIdentity, type AcceptedMain, type AcceptedReads } from '../integrity/index.ts';
 import { isVaultActor, type VaultIdentity } from '../registry/index.ts';
+import { parseWebBlock, type WebAllowance } from '../grants/index.ts';
 import { DataReader, ok, type Issue, type Result } from '../result/index.ts';
 
 /** What a spawn of a job is made of: its budget, whom it writes as and the model it asks for. */
@@ -39,7 +42,9 @@ export interface Job {
   readonly actor?: string;
   /** The model it asks for, by name; absent: the default `agent`. */
   readonly model?: string;
-  /** Present exactly when the job can spawn: budget, actor and model all readable. */
+  /** What its runs may fetch beyond the web broker's default rules; absent: nothing more. */
+  readonly web?: WebAllowance;
+  /** Present exactly when the job can spawn: budget, actor, model and any web block all readable. */
   readonly terms?: SpawnTerms;
   readonly issues: readonly Issue[];
 }
@@ -87,7 +92,8 @@ async function readJobs(git: Git, repo: string, accepted: AcceptedMain, reads: A
     const budget = spawns ? parseBudget(document.budget) : undefined;
     const actor = spawns ? jobActor(document.path, document.actor, identity.ok ? identity.value : undefined) : undefined;
     const model = spawns ? jobModel(document.path, document.model) : undefined;
-    const terms = budget?.ok === true && actor?.ok === true && model?.ok === true
+    const web = spawns && document.web !== undefined ? parseWebBlock(document.web) : undefined;
+    const terms = budget?.ok === true && actor?.ok === true && model?.ok === true && web?.ok !== false
       ? { budget: budget.value, actor: actor.value, ...(model.value === undefined ? {} : { model: model.value }) }
       : undefined;
     jobs.push({
@@ -96,8 +102,12 @@ async function readJobs(git: Git, repo: string, accepted: AcceptedMain, reads: A
       ...(budget?.ok === true ? { budget: budget.value } : {}),
       ...(actor?.ok === true ? { actor: actor.value } : {}),
       ...(model?.ok === true && model.value !== undefined ? { model: model.value } : {}),
+      ...(web?.ok === true ? { web: web.value } : {}),
       ...(terms === undefined ? {} : { terms }),
-      issues: [...document.issues, ...(budget?.ok === false ? budget.error : []), ...(actor?.ok === false ? actor.error : []), ...(model?.ok === false ? model.error : [])],
+      issues: [
+        ...document.issues, ...(budget?.ok === false ? budget.error : []), ...(actor?.ok === false ? actor.error : []),
+        ...(model?.ok === false ? model.error : []), ...(web?.ok === false ? web.error : []),
+      ],
     });
   }
   return ok(jobs);

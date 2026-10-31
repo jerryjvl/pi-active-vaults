@@ -221,6 +221,7 @@ export function callerOf(context: OperationContext, session: VaultSession, cwd: 
     // Holds are per vault, so the holder goes with every call: a write is refused only where another session holds the actor.
     ...(session.holder === undefined ? {} : { holder: session.holder }),
     traceOf: (vault) => traceRecord(context, session, vault),
+    ...(session.run?.grants === undefined ? {} : { webGrant: { vault: session.run.vault, token: session.run.grants.script } }),
   };
 }
 

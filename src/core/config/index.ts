@@ -33,8 +33,10 @@ export {
   type SecretRef,
 } from './secrets.ts';
 export {
+  DEFAULT_WILDCARD_MIN,
   FORGE_TYPES,
   MODEL_NAME,
+  SOCKET_ACCESS,
   MODEL_ROLES,
   VAULT_ID,
   loadInstallationConfig,
@@ -47,7 +49,10 @@ export {
   type ModelEndpoint,
   type ModelEntry,
   type ModelRole,
+  type SignerConfig,
+  type SignerVault,
   type VaultEntry,
+  type WebGrantsConfig,
 } from './installation.ts';
 export { checkPerson, registerVault, type NewVaultEntry, type PersonError, type RegisterError } from './register.ts';
 export { describeLauncher, launcherFor, vaultsOnPath, writeLauncher, type Launcher, type LauncherError } from './launcher.ts';

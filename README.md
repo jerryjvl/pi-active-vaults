@@ -16,7 +16,8 @@ on their own branches; owners decide what reaches `main`.
 | **Pi extension** | Vault tools and guards inside interactive Pi sessions |
 | **`vault` CLI** | Every vault operation from the command line |
 | **Daemon** | Timers, change monitoring, background jobs, forge sync and an MCP server, without Pi open |
-| **Core library** | The shared implementation behind all three |
+| **Signer** | Optional: signs web grants, so jobs can fetch the URLs their owners reviewed, under a user of its own |
+| **Core library** | The shared implementation behind them all |
 
 ## Requirements
 
@@ -114,6 +115,7 @@ can). Before relying on it, also:
 | [CLI](docs/components/cli.md) | Commands |
 | [Pi extension](docs/components/extension.md) | Session behaviour |
 | [Daemon](docs/components/daemon.md) | Background operation |
+| [Signer](docs/components/signer.md) | Signed statements: web grants |
 | [Notifications](docs/notifications.md) | The built-in email notification script |
 | [MCP](docs/mcp.md) | The daemon's MCP server and its exposure limits |
 | [Pi API surface](docs/api.md) | Tools, commands, hooks and events registered with Pi |

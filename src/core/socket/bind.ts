@@ -6,7 +6,9 @@
 //    taken over; nothing that is not a socket is ever removed. Two listeners
 //    taking over one stale file at once could both bind, so a caller must be
 //    the only one that may listen there;
-//  - the socket file is the user's only (0600); a named pipe has the user's
+//  - the socket file is the user's only (0600) — or, when the listener asks
+//    for `group` access (the signer, reached by a daemon running as another
+//    user), the user's and its group's (0660); a named pipe has the user's
 //    default ACL.
 
 import { chmodSync, lstatSync, unlinkSync } from 'node:fs';
@@ -54,7 +56,7 @@ function answers(path: string): Promise<boolean> {
 }
 
 /** Binds `server` to the local `path` under the rules above. */
-export async function bindPath(server: Server, path: string): Promise<ListenError | undefined> {
+export async function bindPath(server: Server, path: string, access: 'user' | 'group' = 'user'): Promise<ListenError | undefined> {
   const pipe = isPipe(path);
   if (!pipe && Buffer.byteLength(path) > MAX_UNIX_PATH_BYTES) return { reason: 'path-too-long' };
   const bind = (): Promise<NodeJS.ErrnoException | undefined> => bindWith(server, (done) => server.listen(path, done));
@@ -77,6 +79,6 @@ export async function bindPath(server: Server, path: string): Promise<ListenErro
     failed = await bind();
   }
   if (failed !== undefined) return failed.code === 'EADDRINUSE' ? { reason: 'in-use' } : { reason: 'cannot-listen', code: failed.code ?? 'UNKNOWN' };
-  if (!pipe) chmodSync(path, 0o600);
+  if (!pipe) chmodSync(path, access === 'group' ? 0o660 : 0o600);
   return undefined;
 }

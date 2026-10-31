@@ -71,6 +71,8 @@ export interface Caller {
   readonly traceOf?: (vault: string) => RunRecord;
   /** The MCP profile the call came through. */
   readonly via?: string;
+  /** A headless run's script grant, for the scripts it runs in its own vault (concepts.md "Web grants"). */
+  readonly webGrant?: { readonly vault: string; readonly token: string };
   /** Where the caller is (the CLI's current directory), for paths and scripts. */
   readonly cwd?: string;
 }

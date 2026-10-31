@@ -28,6 +28,10 @@
 //    `stopReason: error`) stop it; a run that settled normally and committed
 //    nothing is `no-change`. A model error after commits leaves the run
 //    `committed`, and is recorded with its end in the full log;
+//  - a run whose job has a `web` block gets the grants the signer issues for
+//    it, in its run file (concepts.md "Web grants"). The daemon never signs:
+//    it only asks, and a run the signer refuses — or cannot be asked about —
+//    runs without grants, its fetches under the web broker's default rules;
 //  - each step is in the run's full log (`daemon`; Pi's events in `pi`, its
 //    streaming deltas left out), and the run file is removed at the end.
 
@@ -37,6 +41,7 @@ import { TRAILER, conflictNotice, ensureActorWorktree, syncActorBranch, trailerV
 import { budgetState } from '../budgets/index.ts';
 import { ensurePrivateDir } from '../config/index.ts';
 import { commitsBetween, resolveRevision } from '../git/index.ts';
+import { requestGrants, type RunGrants } from '../grants/index.ts';
 import { acceptedIdentity, requireNoUnacceptedChange } from '../integrity/index.ts';
 import { resolveModel } from '../models/index.ts';
 import { packageIdentity, type OperationContext } from '../operations/index.ts';
@@ -87,6 +92,27 @@ function originSession(spawn: SpawnEntry): string | undefined {
   return undefined;
 }
 
+/**
+ * The run's web grants, when the installation has a signer and it issues
+ * them; otherwise none, with why in the run's log.
+ */
+async function runGrants(context: OperationContext, vault: string, spawn: SpawnEntry): Promise<RunGrants | undefined> {
+  const signer = context.installation.config.webGrants?.signer;
+  if (signer === undefined) {
+    log(context, spawn.trace, 'daemon', { event: 'no-grants', reason: 'web-grants is not configured' });
+    return undefined;
+  }
+  const asked = await requestGrants(signer, { vault, job: spawn.document, trace: spawn.trace });
+  if (!asked.ok) {
+    const { error } = asked;
+    const reason = error.reason === 'refused' ? error.refusal : error.reason === 'unreachable' ? `the signer did not answer (${error.detail})` : 'the signer\'s answer is not grants';
+    log(context, spawn.trace, 'daemon', { event: 'no-grants', reason });
+    return undefined;
+  }
+  log(context, spawn.trace, 'daemon', { event: 'grants', item: asked.value.item !== undefined });
+  return asked.value;
+}
+
 /** A spawn that never ran: stopped with `reason` and recorded, with why in its log, and told. */
 function never(context: OperationContext, spawn: SpawnEntry, reason: StopReason, detail: string, finished: (spawn: SpawnEntry) => void): RunHandle {
   const stopped = stopSpawn(context.state, context.clock, spawn.id, reason);
@@ -113,7 +139,8 @@ export async function startRun(
   const accepted = await requireNoUnacceptedChange(context.git, context.state, vault);
   if (!accepted.ok) return undefined;
   const jobs = await vaultJobs(context.git, vault.path, accepted.value, context.reads);
-  const condition = spawn.condition === undefined || !jobs.ok ? undefined : jobs.value.find((j) => j.path === spawn.document)?.conditions[spawn.condition];
+  const job = jobs.ok ? jobs.value.find((j) => j.path === spawn.document) : undefined;
+  const condition = spawn.condition === undefined ? undefined : job?.conditions[spawn.condition];
   const mode = condition?.context ?? 'session-preferred';
   const session = mode === 'bare' ? undefined : originSession(spawn);
   const fork = session === undefined ? undefined : options.sessionFile(session);
@@ -147,10 +174,14 @@ export async function startRun(
 
   const running = startSpawn(context.state, context.clock, spawn.id);
   if (!running.ok) return undefined; // started or stopped meanwhile: not this pass's to run
+  const grants = job?.web === undefined ? undefined : await runGrants(context, vault.id, spawn);
   const { runs } = context.installation.paths;
   ensurePrivateDir(runs);
   const runFile = join(runs, `${spawn.trace}.json`);
-  writeFileSync(runFile, renderRunContext({ vault: vault.id, document: spawn.document, actor: spawn.actor, model: model.value.name, trace: spawn.trace, event: spawn.event }), { mode: 0o600 });
+  writeFileSync(runFile, renderRunContext({
+    vault: vault.id, document: spawn.document, actor: spawn.actor, model: model.value.name, trace: spawn.trace, event: spawn.event,
+    ...(grants === undefined ? {} : { grants }),
+  }), { mode: 0o600 });
   const args = [...options.pi.args, '--mode', 'rpc', '--model', model.value.entry.model, '--vault-run', runFile, '--session-id', spawn.trace, ...(fork === undefined ? [] : ['--fork', fork])];
   const started = await startChild({ program: { file: options.pi.file, args }, cwd: worktree.value.path, env: options.env });
   if (!started.ok) {

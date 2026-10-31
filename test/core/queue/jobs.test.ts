@@ -96,3 +96,19 @@ test('a job\'s spawn terms are its budget, actor and model together; a job lacki
     ['jobs/ok.md', { budget: { tokens: 100, ttlMs: 90_000 }, actor: 'gardener', model: 'big' }],
   ]);
 }, { actors: ['gardener'] }));
+
+test('a job\'s own web block is read with it; one that is not exactly right is an issue and the job cannot spawn', withTestVault(async (v) => {
+  v.repo.write('jobs/_contract.md', '---\nweb: { requests: 1, allow: [{ url: "https://inherited.example/*" }] }\n---\n');
+  v.repo.write('jobs/fetches.md', job('actor: gardener\nweb:\n  requests: 4\n  allow:\n    - url: https://api.example.net/v3/{x}\n      x: [a, b]\n'));
+  v.repo.write('jobs/inherits.md', job('actor: gardener\n'));
+  v.repo.write('jobs/malformed.md', job('actor: gardener\nweb:\n  requests: 4\n  allow:\n    - url: https://user@example.net/\n'));
+  v.repo.commit('jobs');
+  const jobs = await vaultJobs(v.git, v.vault.path, v.accept());
+  assert.ok(jobs.ok);
+  const [fetches, inherits, malformed] = jobs.value;
+  assert.deepEqual(fetches?.web?.entries.map((e) => [e.url, e.params, e.open]), [['https://api.example.net/v3/{x}', { x: ['a', 'b'] }, false]]);
+  assert.equal(inherits?.web, undefined, 'a web block is the document\'s own, never a contract\'s');
+  assert.ok(inherits?.terms !== undefined);
+  assert.equal(malformed?.terms, undefined, 'it cannot spawn');
+  assert.deepEqual(malformed?.issues.map((i) => i.path), ['web.allow[0].url']);
+}));

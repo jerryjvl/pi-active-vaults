@@ -8,6 +8,7 @@
 
 import type { Candidate, VaultEvent } from '../../conditions/index.ts';
 import { scratchFor, SCRATCH_VARIABLE } from '../../config/index.ts';
+import { GRANT_VARIABLE } from '../../grants/index.ts';
 import { listRefs } from '../../git/index.ts';
 import { isTraceId } from '../../ids/index.ts';
 import { requireNoUnacceptedChange } from '../../integrity/index.ts';
@@ -64,6 +65,7 @@ export const jobsOperation: Operation = {
         const model = hasSpawnCondition(job) ? jobModel(context.installation.config, vault.id, job) : undefined;
         listed.push({
           vault: vault.id, document: job.path, conditions: job.conditions, budget: job.budget, issues: job.issues, last, pending,
+          ...(job.web === undefined ? {} : { web: job.web }),
           ...(model === undefined ? {} : model.ok ? { model: { name: model.value.name, model: model.value.entry.model } } : { noModel: model.error }),
         });
         lines.push(`${vault.id}:${job.path}`);
@@ -72,6 +74,11 @@ export const jobsOperation: Operation = {
         // The default needs no mention; a model the job asks for, or that cannot be had, does.
         if (model?.ok === false) lines.push(`  problem: no agent model it may use (${unavailableText(model.error)})`);
         else if (model !== undefined && job.model !== undefined) lines.push(`  model: ${model.value.name}${model.value.substitutedFor === undefined ? '' : ` (asked for "${model.value.substitutedFor}", which is not configured)`}`);
+        // An open entry is a site the owner trusts with anything a run sends: each is named, so review sees it.
+        if (job.web !== undefined) {
+          lines.push(`  web: up to ${job.web.requests} requests a run, ${job.web.entries.length} entr${job.web.entries.length === 1 ? 'y' : 'ies'}`);
+          for (const entry of job.web.entries.filter((e) => e.open)) lines.push(`    open${entry.toAll ? ' (fan-out items too)' : ''}: ${entry.url}`);
+        }
         lines.push(`  last run: ${last === undefined ? 'never' : `${last.state} (claimed ${last.claimed}, trace ${last.trace})`}; pending: ${pending}`);
       }
     }
@@ -164,8 +171,10 @@ export const scriptOperation: Operation = {
     // A session's scripts share the scratch directory it claimed when it opened; a lone CLI run has none.
     const dir = request.caller.session !== undefined && request.caller.trace !== undefined ? scratchFor(context.installation.paths, request.caller.trace) : undefined;
     const scratch = dir === undefined ? {} : { [SCRATCH_VARIABLE]: dir };
+    // A run's grant is for its own vault's scripts: what its job's web block allows, signed for this run.
+    const grant = request.caller.webGrant?.vault === vault.id ? { [GRANT_VARIABLE]: request.caller.webGrant.token } : {};
     const ran = await runScript({ git: context.git, store: context.state, vault }, text(request.params, 'name') ?? '', texts(request.params, 'args'), {
-      ...options, kind: 'script', env: { ...options.env, ...scratch },
+      ...options, kind: 'script', env: { ...options.env, ...scratch, ...grant },
       builtins: [
         ...(deps === undefined ? [] : [notifyBuiltin(deps, { trace })]),
         judgeBuiltin({ config: context.installation.config, client: { ...context.http, secrets: context.secrets } }, { vault: vault.id }),

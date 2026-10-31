@@ -11,15 +11,15 @@ export const LAYERS: Readonly<Record<string, number>> = {
   result: 0, clock: 0, ids: 0, process: 0, http: 0, socket: 0, config: 0, store: 0, git: 0, documents: 0,
   // L1 Vault model
   registry: 1, contracts: 1, conditions: 1, events: 1, attestations: 1,
-  policy: 1, integrity: 1, actors: 1, scripts: 1,
+  policy: 1, integrity: 1, actors: 1, scripts: 1, signing: 1,
   // L2 Work machinery
   traces: 2, budgets: 2, queue: 2, models: 2, search: 2, judgements: 2,
-  notify: 2, templates: 2, forge: 2, backup: 2,
+  notify: 2, templates: 2, forge: 2, backup: 2, grants: 2,
   // L3 Operations
   operations: 3, sessions: 3, automation: 3,
 };
 
-export const ADAPTERS = ['cli', 'extension', 'daemon', 'mcp'] as const;
+export const ADAPTERS = ['cli', 'extension', 'daemon', 'mcp', 'signer'] as const;
 
 /** Packages the core must never import (it knows nothing of its caller). */
 const FORBIDDEN_PACKAGE_PREFIXES = ['@earendil-works/'];

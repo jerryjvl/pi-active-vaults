@@ -5,7 +5,8 @@
 // requesting spawns, and the assembly of the local stores from each module's
 // schema.
 
-export { INDEX_MODULES, STATE_MODULES, openIndexStore, openStateStore } from './stores.ts';
+export { INDEX_MODULES, SIGNER_MODULES, STATE_MODULES, openIndexStore, openSignerStore, openStateStore } from './stores.ts';
+export { signerKinds } from './signer.ts';
 export { loadInstallation, type Installation, type InstallationError } from './installation.ts';
 export { CATALOGUE, callRequest, callVaultPaths, checkParams, chooseVaults, isRequired, operationNamed, paramsOn, placeVaultPaths, runOperation, type VaultChoiceError } from './catalogue.ts';
 export { SCRIPT_TIMEOUT_MS, createContext, packageIdentity, scriptEnvironment, type ContextOptions, type OperationContext } from './context.ts';
