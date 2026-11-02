@@ -7,7 +7,7 @@
 // confirmation first. The commands are generated from the catalogue.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { CATALOGUE } from '../../src/core/operations/index.ts';
 import { runProcess } from '../../src/core/process/index.ts';
@@ -23,6 +23,18 @@ test('help lists every command the catalogue offers on the CLI; a command\'s hel
   const commit = await vault('commit', '--help');
   assert.match(commit.stdout, /^vault commit \[vault\] \[paths\.\.\.\]\n/);
   assert.match(commit.stdout, /-m, --message <message> +The commit message/);
+}));
+
+test('a help text names where the commands are documented, and a path it names is a file that is there', withInstallation(async (t) => {
+  // cli.md "What this document is": help is what a person or a session reads
+  // first, so it has to lead on to the manual rather than end with a summary.
+  const vault = cliFor(t);
+  for (const out of [(await vault('--help')).stdout, (await vault('commit', '--help')).stdout, (await vault('frobnicate')).stderr]) {
+    const line = out.trimEnd().split('\n').at(-1) ?? '';
+    assert.match(line, /^What each command does, who may run it, and what its output means: .+/);
+    const place = line.slice(line.indexOf(': ') + 2);
+    if (!place.endsWith(' package')) assert.ok(existsSync(place), `${place}, named by help, is not a file`);
+  }
 }));
 
 test('a usage error is exit status 2; a command needing the daemon says so and exits 1', withInstallation(async (t) => {

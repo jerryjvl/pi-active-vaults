@@ -5,6 +5,11 @@ the system. Commands are generated from the core's catalogue of operations, so
 they mirror the Pi extension's tools and commands; each command's options are
 its operation's parameters (`vault <command> --help`).
 
+This document is where what a command *does* is written down. `--help`, and the
+same text as `/vault help` in a session, gives only the signature a command's
+parameters generate, and ends by naming where this file is: a summary cannot say
+who may run a command, what its output means, or who does the next step.
+
 ## Conventions
 
 - `vault <command> [vault] [args]`. The vault may also be given with
@@ -64,6 +69,13 @@ its operation's parameters (`vault <command> --help`).
 | `vault reindex [vault]` | Bring the search index up to the accepted `main` now (the daemon also does so on its next tick after `main` moves). An update that runs longer than a few seconds says how far it has got on standard error — documents read, then chunks embedded — every few seconds and at the end of each phase |
 
 ### Proposals
+
+A proposal is what one machine holds on an actor branch. `vault status` reports
+it whether or not a forge has seen it; what the forge has is `git ls-remote
+<remote> refs/heads/actor/<name>`. An `actor`'s branch is pushed and kept
+current by the daemon whenever its head moves (daemon.md); the installation
+`person`'s own branch is never pushed but from their own command line, by
+`vault propose`.
 
 | Command | Does |
 |---|---|

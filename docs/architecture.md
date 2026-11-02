@@ -213,7 +213,7 @@ sequenceDiagram
   participant F as Forge
   participant O as Owner
   D->>D: commit to actor worktree
-  D->>F: push actor branch, open or update pull request
+  D->>F: push an actor's branch (a person proposes their own), open or update pull request
   D->>F: publish check results and vault/policy as commit statuses
   O->>F: review and approve
   F->>F: merge to main (branch protection satisfied)

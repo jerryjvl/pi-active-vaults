@@ -104,6 +104,11 @@ can). Before relying on it, also:
 
 ## Documentation
 
+`vault --help` lists the commands, and `/vault help` in a session does the
+same; the [CLI](docs/components/cli.md) entry is the manual that says what each
+one does, who may run it, and what its output means. Start there for a question
+about behaviour; the documents below are what the behaviour is built from.
+
 | Document | Covers |
 |---|---|
 | [Principles](docs/principles.md) | The rules every part of the design follows |
@@ -112,7 +117,7 @@ can). Before relying on it, also:
 | [Concepts](docs/concepts.md) | The core concepts and the file formats that express them |
 | [Architecture](docs/architecture.md) | Components, data locations, runtime flows |
 | [Core library](docs/components/core.md) | Modules and responsibilities |
-| [CLI](docs/components/cli.md) | Commands |
+| [CLI](docs/components/cli.md) | Every command: what it does, who may run it, what its output means |
 | [Pi extension](docs/components/extension.md) | Session behaviour |
 | [Daemon](docs/components/daemon.md) | Background operation |
 | [Signer](docs/components/signer.md) | Signed statements: web grants |

@@ -24,6 +24,13 @@ Read in this order before proposing or writing code:
 If a task cannot be done without contradicting one of these documents, stop and
 say so. Do not work around a principle; propose changing it.
 
+A question about how a command, tool or hook behaves has a document that answers
+it, and the code only presents what that document says: `docs/components/cli.md`
+for the CLI, the `/vault` commands and the MCP tools, which are all generated
+from one catalogue of operations; then `extension.md` for what a session does and
+`daemon.md` for what runs without Pi. Read the code to check a document, or where
+one is silent — not instead of one.
+
 ## 2. How changes are made
 
 The documentation on `main` is the agreed design. For each change: write tests
