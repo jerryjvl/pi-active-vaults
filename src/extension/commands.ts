@@ -10,6 +10,7 @@
 // when there is a person to ask.
 
 import { CLI_PROGRAM } from '../cli/program.ts';
+import { MANUAL_HINT } from '../cli/manual.ts';
 import type { ExtensionAPI, ExtensionCommandContext } from '@earendil-works/pi-coding-agent';
 import { describeLauncher, writeLauncher, type Host } from '../core/config/index.ts';
 import {
@@ -32,6 +33,8 @@ function overview(): string {
     '',
     ...COMMANDS.map((o) => `  /vault ${nameOf(o).padEnd(12)} ${o.summary}`),
     ...OWN.map(([name, summary]) => `  /vault ${name.padEnd(12)} ${summary}`),
+    '',
+    MANUAL_HINT,
   ].join('\n');
 }
 
@@ -70,8 +73,8 @@ export function registerCommands(pi: ExtensionAPI, holder: Holder, host: () => H
     const operation = COMMANDS.find((o) => nameOf(o) === command);
     if (operation === undefined) return say(`"${command}" is not a /vault command.\n\n${overview()}`);
     const line = parseLine(operation, rest, 'command');
-    if (line.help) return say(usage(operation, 'command'));
-    if (line.problems.length > 0) return say(`${line.problems.join('\n')}\n\n${usage(operation, 'command')}`);
+    if (line.help) return say(usage(operation, 'command') + `\n\n${MANUAL_HINT}`);
+    if (line.problems.length > 0) return say(`${line.problems.join('\n')}\n\n${usage(operation, 'command')}\n\n${MANUAL_HINT}`);
     const found = liveOr(holder);
     if ('problem' in found) return say(found.problem);
     const { live } = found;

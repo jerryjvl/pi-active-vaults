@@ -14,7 +14,8 @@
     "vault": "./dist/cli/main.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "docs"
   ],
   "pi": {
     "extensions": [

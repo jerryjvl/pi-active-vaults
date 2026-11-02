@@ -14,7 +14,9 @@
 //    status is 0 for success, 1 for a failure, 2 for a usage error and 3 for
 //    a refusal by policy or a guard;
 //  - adopting asks for confirmation when there is someone to ask; otherwise
-//    it shows the delta and how to confirm it.
+//    it shows the delta and how to confirm it;
+//  - every help text ends by naming where the commands are documented, so that
+//    reading the help does not end the search (manual.ts).
 
 import { readFileSync } from 'node:fs';
 import type { Readable, Writable } from 'node:stream';
@@ -28,6 +30,7 @@ import { linkDaemon } from '../core/automation/index.ts';
 import type { DaemonOptions } from '../daemon/daemon.ts';
 import type { SignerOptions } from '../signer/signer.ts';
 import { runDaemonCommand } from './daemon.ts';
+import { MANUAL_HINT } from './manual.ts';
 import { runMcpCommand } from './mcp.ts';
 import { runSignerCommand } from './signer.ts';
 
@@ -68,6 +71,7 @@ function overview(): string {
     `  ${'mcp'.padEnd(16)} Serve an MCP profile over standard input/output`,
     '',
     'Every command takes --json (machine-readable output) and --vault <id>.',
+    MANUAL_HINT,
   ].join('\n');
 }
 
@@ -102,11 +106,11 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
   const { operation } = found;
   const line = parseLine(operation, found.rest);
   if (line.help) {
-    io.write('stdout', `${usage(operation)}\n`);
+    io.write('stdout', `${usage(operation)}\n\n${MANUAL_HINT}\n`);
     return EXIT.ok;
   }
   if (line.problems.length > 0) {
-    io.write('stderr', `${line.problems.join('\n')}\n\n${usage(operation)}\n`);
+    io.write('stderr', `${line.problems.join('\n')}\n\n${usage(operation)}\n\n${MANUAL_HINT}\n`);
     return EXIT.invalid;
   }
 
