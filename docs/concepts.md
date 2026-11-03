@@ -259,8 +259,9 @@ from the person's own Pi configuration (a web search, say). Each item also gets
 the person's own standing instructions from Pi's `APPEND_SYSTEM.md` (what may
 leave the machine, say), never a project's. Items run as many
 at a time as the agent model's `parallel` allows. The session that fanned out
-writes what comes back. An item that fails is reported as failed, never handed
-to the gather; without a gather instruction each item's outcome comes back as
+writes what comes back. An item that fails — its last answer an error, or cut
+off at the model's output limit, whatever files it wrote — is reported as
+failed, never handed to the gather, and so is a gather cut off; without a gather instruction each item's outcome comes back as
 it is, or, with `save: scratch:<name>`, goes to a file in the session's
 scratch directory with only a summary back, for scripts to work on. The items
 can come from there too: `items: scratch:<name>`, a JSON array of strings a

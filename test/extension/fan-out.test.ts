@@ -34,6 +34,7 @@ function recording(asked: Asked[], reply: ReturnType<typeof fauxAssistantMessage
   };
 }
 
+const traceOf = (pi: { events: { channel: string; data: unknown }[] }): string => (pi.events.find((e) => e.channel === 'pav:v1:ready')?.data as { trace: string }).trace;
 const structuredOf = (pi: { results: { tool: string; structured: unknown }[] }) =>
   pi.results.find((r) => r.tool === 'vault_fan_out')?.structured as { status: string; data: { gathered: string | null; items: { item: string; outcome: string; result?: string; reason?: string }[] } } | undefined;
 
@@ -138,6 +139,30 @@ test('an item that fails is reported as failed and not gathered; the others stil
     assert.deepEqual(structuredOf(pi)?.data.items.map((i) => [i.item, i.outcome, i.reason]), [['a', 'failed', 'overloaded'], ['b', 'done', undefined]]);
     assert.doesNotMatch(asked[0]?.prompt ?? '', /item="a"/, 'the failed item is not gathered');
     assert.match(toolResults(pi.requests.at(-1), 'vault_fan_out')[0] ?? '', /Not done:\na: failed \(overloaded\)/);
+  });
+}, { running: RUNNING }));
+
+test('an item cut off at the model\'s output limit failed, even with a workspace it wrote in; so is a gather cut off', { skip: process.platform === 'win32' ? 'paths' : false }, withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    pi.respond(
+      fanOut({ items: ['apples', 'pears'], each: 'Write the colour to colour.json.', workspace: true, save: 'scratch:outcomes.json' }),
+      // Item 1 writes a file, then spends the rest of its turn and is cut off: its file is not its result.
+      () => toolCall('workspace_write', { path: 'colour.json', content: '{"colour": "red"}' }),
+      fauxAssistantMessage('', { stopReason: 'length' }),
+      fauxAssistantMessage(''),
+      fanOut({ items: ['a'], each: 'Do it.', gather: 'Combine.' }),
+      fauxAssistantMessage('A'), fauxAssistantMessage('A and', { stopReason: 'length' }),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    const [saved, gathered] = pi.results.filter((r) => r.tool === 'vault_fan_out').map((r) => r.structured as { status: string; data: { items: { outcome: string; reason?: string }[] } | null; text: string });
+    assert.deepEqual(saved?.data?.items.map((i) => [i.outcome, i.reason]), [['failed', 'the model reached its output limit before it finished'], ['done', undefined]]);
+    assert.match(saved?.text ?? '', /Not done:\napples: failed \(the model reached its output limit before it finished\)/);
+    const log = readFullLog(t.context.installation.paths.logs, traceOf(pi)).find((l) => l.name === 'session')?.text ?? '';
+    const items = log.trim().split('\n').map((l) => JSON.parse(l) as { kind: string; item?: number; outcome?: string; text?: string }).filter((l) => l.kind === 'item');
+    assert.deepEqual(items.map((i) => [i.item, i.outcome, i.text]).slice(0, 2), [[1, 'failed', 'the model reached its output limit before it finished'], [2, 'done', '']], 'why, in the session\'s log');
+    assert.equal(gathered?.status, 'failed');
+    assert.match(gathered?.text ?? '', /could not be gathered: the model reached its output limit/);
   });
 }, { running: RUNNING }));
 
@@ -297,7 +322,6 @@ test('items from scratch name a file there holding a JSON array of strings; anyt
 }, { running: RUNNING }));
 
 /** The session's trace, as its ready event gives it. */
-const traceOf = (pi: { events: { channel: string; data: unknown }[] }): string => (pi.events.find((e) => e.channel === 'pav:v1:ready')?.data as { trace: string }).trace;
 
 test('with workspace, each item writes files in a new directory of its own and nowhere else; the outcomes say where, and an empty answer is no failure', { skip: process.platform === 'win32' ? 'paths' : false }, withInstallation(async (t) => {
   await withPi(t, {}, async (pi) => {

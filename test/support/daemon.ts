@@ -12,7 +12,7 @@ import { startDaemon, type DaemonOptions, type RunningDaemon } from '../../src/d
 import { ME } from './session.ts';
 import type { TestInstallation } from './installation.ts';
 
-export type FakePiAction = 'nothing' | 'commit' | 'hang' | 'crash' | 'refuse' | 'spend' | 'fail' | 'commit-then-fail' | 'recover';
+export type FakePiAction = 'nothing' | 'commit' | 'hang' | 'crash' | 'refuse' | 'spend' | 'fail' | 'commit-then-fail' | 'recover' | 'cut-off';
 
 export interface FakePi {
   readonly options: Pick<AutomationOptions, 'pi' | 'env'>;

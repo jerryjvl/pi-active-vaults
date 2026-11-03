@@ -24,10 +24,11 @@
 //    model says: commits on the actor's branch carrying the run's trace make
 //    it `committed`; otherwise its budget record (used up, past its run
 //    time), a kill, a stop on request, a failed process, or a last model
-//    request that ended in an error (Pi's last assistant `message_end` says
-//    `stopReason: error`) stop it; a run that settled normally and committed
-//    nothing is `no-change`. A model error after commits leaves the run
-//    `committed`, and is recorded with its end in the full log;
+//    request that did not finish — an error, or cut off at the model's output
+//    limit (Pi's last assistant `message_end`; models `unfinishedAnswer`) —
+//    stop it; a run that settled normally and committed nothing is
+//    `no-change`. A model error after commits leaves the run `committed`,
+//    and is recorded with its end in the full log;
 //  - a run whose job has a `web` block gets the grants the signer issues for
 //    it, in its run file (concepts.md "Web grants"). The daemon never signs:
 //    it only asks, and a run the signer refuses — or cannot be asked about —
@@ -43,7 +44,7 @@ import { ensurePrivateDir } from '../config/index.ts';
 import { commitsBetween, resolveRevision } from '../git/index.ts';
 import { requestGrants, type RunGrants } from '../grants/index.ts';
 import { acceptedIdentity, requireNoUnacceptedChange } from '../integrity/index.ts';
-import { resolveModel } from '../models/index.ts';
+import { resolveModel, unfinishedAnswer } from '../models/index.ts';
 import { packageIdentity, type OperationContext } from '../operations/index.ts';
 import { processStartTime, startChild } from '../process/index.ts';
 import {
@@ -197,7 +198,7 @@ export async function startRun(
 
   let stoppedFor: StopReason | undefined;
   let settled = false;
-  // The last model request's error, if it ended in one: a later answer clears it.
+  // Why the last model request did not finish, if it did not: a later answer clears it.
   let modelError: string | undefined;
   child.onLine((line) => {
     let record: unknown;
@@ -210,7 +211,7 @@ export async function startRun(
     if (typeof type === 'string' && LOGGED_EVENT_SKIPPED.has(type)) return;
     log(context, spawn.trace, 'pi', { record });
     const answer = type === 'message_end' ? assistantMessage(record) : undefined;
-    if (answer !== undefined) modelError = modelErrorOf(answer);
+    if (answer !== undefined) modelError = unfinishedAnswer(answer);
     if (type === 'agent_settled' && !settled) {
       settled = true;
       child.endInput();
@@ -256,11 +257,5 @@ export async function startRun(
 function assistantMessage(record: unknown): { stopReason?: unknown; errorMessage?: unknown } | undefined {
   const message = typeof record === 'object' && record !== null ? (record as { message?: unknown }).message : undefined;
   return typeof message === 'object' && message !== null && (message as { role?: unknown }).role === 'assistant' ? message : undefined;
-}
-
-/** Why the model request behind `answer` failed, or undefined when it ended normally. */
-function modelErrorOf(answer: { stopReason?: unknown; errorMessage?: unknown }): string | undefined {
-  if (answer.stopReason !== 'error') return undefined;
-  return typeof answer.errorMessage === 'string' && answer.errorMessage !== '' ? answer.errorMessage : 'the model request failed';
 }
 

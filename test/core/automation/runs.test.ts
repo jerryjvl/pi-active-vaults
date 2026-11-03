@@ -91,6 +91,20 @@ test('a run that commits nothing after a failed model request is stopped with er
   assert.deepEqual([spawns['jobs/c.md']?.reason, ended('jobs/c.md')?.['outcome'], ended('jobs/c.md')?.['modelError']], [undefined, 'no-change', undefined], 'its last request ended normally');
 }, { contract: { actors: ['gardener', 'librarian', 'curator'] }, config: 'daemon: { parallel: 3 }' }));
 
+test('a run whose last answer was cut off at the model\'s output limit is stopped with error, not no-change', withInstallation(async (t) => {
+  jobs(t, { 'jobs/a.md': jobDocument(MANUAL) });
+  await t.run('trigger', { name: 'go' });
+  const automation = automationFor(t, fakePi(t, { 'jobs/a.md': 'cut-off' }));
+  await automation.schedule();
+  await automation.idle();
+  const spawn = listSpawns(t.context.state)[0];
+  const ended = readFullLog(t.installation.paths.logs, spawn?.trace ?? '')
+    .filter((l) => l.name === 'daemon').flatMap((l) => l.text.trim().split('\n')).map((line) => JSON.parse(line) as Record<string, unknown>)
+    .find((record) => record['event'] === 'ended');
+  assert.deepEqual([spawn?.reason, ended?.['outcome']], ['error', 'stopped']);
+  assert.match(String(ended?.['modelError']), /output limit/);
+}));
+
 test('a run past its run time is killed and stopped with ttl; one past its budget is stopped with budget', withInstallation(async (t) => {
   jobs(t, { 'jobs/slow.md': jobDocument(MANUAL, { ttl: '1s' }), 'jobs/costly.md': jobDocument(MANUAL, { actor: 'librarian' }) });
   await t.run('trigger', { name: 'go' });

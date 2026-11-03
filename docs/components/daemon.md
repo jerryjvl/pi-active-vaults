@@ -43,7 +43,7 @@ state change is one transaction.
 | Stop reason | When |
 |---|---|
 | `budget`, `ttl` | Its budget or run time is used up |
-| `error` | Its process failed, or its last model request ended in an error |
+| `error` | Its process failed, or its last model request did not finish: an error, or cut off at the model's output limit |
 | `restart` | The daemon restarted while it ran |
 | `queue-time` | Queued longer than `daemon.queue-time` |
 | `requested` | Stopped through the socket |

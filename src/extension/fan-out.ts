@@ -13,7 +13,9 @@
 // that taints taints the session, and their usage — with each item's prefix
 // read assumed when the model is set to — is reported with the result and
 // counted against a headless run's budget, which stops further items. An
-// item that fails is reported as failed, never handed to the gather. Without a
+// item that fails — its last answer unfinished (models `unfinishedAnswer`),
+// cut off at the output limit included, whatever files it wrote — is
+// reported as failed, never handed to the gather; so is a gather. Without a
 // `gather` instruction the items' outcomes come back as they are, as JSON — or,
 // with `save: scratch:<name>`, go to that file in the session's scratch
 // directory, with only a summary back, for scripts to work on. The items may
@@ -33,6 +35,7 @@ import { Type } from 'typebox';
 import { assumePrefixCache, newPrefixTracker, workTokens, usageOf } from '../core/budgets/index.ts';
 import { newWorkspace, scratchFile, scratchFor, seedDir } from '../core/config/index.ts';
 import { withGrantHeader } from '../core/grants/index.ts';
+import { unfinishedAnswer } from '../core/models/index.ts';
 import { isRecord } from '../core/result/index.ts';
 import { logItemOutcome, logToolResult, taints, workLeft } from '../core/sessions/index.ts';
 import { runItem, mcpServersOf, type ItemSessionOptions } from './item-session.ts';
@@ -103,7 +106,7 @@ async function ask(ctx: ExtensionContext, system: string, prompt: string, signal
   if (ctx.model === undefined) return 'no model is selected';
   try {
     const message = await ctx.modelRegistry.complete(ctx.model, { systemPrompt: system, messages: [{ role: 'user', content: prompt, timestamp: Date.now() }] }, signal === undefined ? {} : { signal });
-    return message.stopReason === 'error' || message.stopReason === 'aborted' ? message.errorMessage ?? message.stopReason : message;
+    return unfinishedAnswer(message) ?? message;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }

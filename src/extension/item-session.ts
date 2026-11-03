@@ -1,7 +1,8 @@
 // A fan-out item's session (concepts.md "Session tree"): a Pi agent session of
 // its own, in-process, that can look but not write — Pi's read-only file tools,
 // the vault tools it is given, and the tools of the MCP servers named for the
-// fan-out — and that answers with its result as text. Given a workspace (a new
+// fan-out — and that answers with its result as text, unless its last answer
+// is unfinished (models `unfinishedAnswer`). Given a workspace (a new
 // directory of its own in the session's scratch directory), it can also write
 // files there and nowhere else: Pi's own write and edit tools, as
 // `workspace_write` and `workspace_edit`, with every file operation passed
@@ -30,6 +31,7 @@ import {
 import type { AssistantMessage, Model, Usage } from '@earendil-works/pi-ai';
 import { landsWithin, workspaceWrite } from '../core/config/index.ts';
 import { renameIntendedToolCalls } from './tool-names.ts';
+import { unfinishedAnswer } from '../core/models/index.ts';
 import { isRecord } from '../core/result/index.ts';
 
 /** Pi's file tools that only read. */
@@ -175,9 +177,11 @@ export async function runItem(request: ItemRequest, options: ItemSessionOptions 
     if (absent.length > 0) return { ok: false, reason: `the MCP server${absent.length === 1 ? '' : 's'} ${absent.join(', ')} did not connect` };
     const last = session.messages.filter((m): m is AssistantMessage => m.role === 'assistant').at(-1);
     if (last === undefined) return { ok: false, reason: 'the model did not answer' };
-    if (last.stopReason === 'error' || last.stopReason === 'aborted') return { ok: false, reason: last.errorMessage ?? last.stopReason };
+    // A turn cut off at the output limit is unfinished too, even with files written: they are not its result.
+    const unfinished = unfinishedAnswer(last);
+    if (unfinished !== undefined) return { ok: false, reason: unfinished };
     const text = textOf(last);
-    // With a workspace, the files are the result: an empty answer is no failure.
+    // With a workspace, the files are the result: an empty answer that finished is no failure.
     return text === '' && request.workspace === undefined ? { ok: false, reason: 'the model answered with no text' } : { ok: true, text };
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : String(error) };
