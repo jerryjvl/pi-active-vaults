@@ -119,6 +119,17 @@ reason above applies; a run that settled normally without committing is
 `no-change`. The run's full log holds the daemon's steps and Pi's events
 (without streaming deltas).
 
+As a run ends, whatever it left uncommitted in its worktree is saved to its
+full log (`uncommitted`, kept as long as the logs) and discarded, so a run
+stopped half-way never stops the next one `out-of-date`. A worktree not on its
+actor's branch, or whose changes cannot be saved, is left as it is.
+
+A spawn stopped for any reason but `requested` or `restart` is told to the
+vault's owners, as are changes that could not be set aside: the reason, what
+the daemon knows of why, and the trace. A sync conflict is told by the
+integrity check instead. The notice's key is the job and the reason, so a job
+that keeps failing is told once per outbox cooldown.
+
 ## Start-up recovery
 
 Only one daemon runs, so nothing it started can still legitimately be running
