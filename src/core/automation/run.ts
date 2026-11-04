@@ -38,8 +38,8 @@
 //  - a run leaves its worktree clean: whatever it did not commit is saved to
 //    its full log (`uncommitted`) and discarded as it ends, so a run stopped
 //    half-way never stops the next one (queue `setAsideUncommitted`);
-//  - a run stopped for anything but a person's request or a daemon restart is
-//    told to the vault's owners — once per job and reason within the
+//  - a run stopped for its budget, its run time, an error, or before it could
+//    start (no session, no model, out of date) is told to the vault's owners — once per job and reason within the
 //    outbox's cooldown — so a failing job is never silent. A sync conflict is
 //    not: the daemon tells owners of those itself (`tellConflicts`).
 
@@ -93,9 +93,13 @@ const LOGGED_EVENT_SKIPPED = new Set(['message_update', 'tool_execution_update']
 /** The full log that keeps what a run left uncommitted. */
 const UNCOMMITTED_LOG = 'uncommitted';
 
-/** Why a run stopped, as its owners are told; `requested` and `restart` are not told (a person asked, or recovery reports it). */
+/**
+ * Why a run stopped, as its owners are told. Not told: `requested` (a person
+ * asked), `restart` (recovery reports it) and `queue-time` (the queue expires
+ * those, never a run).
+ */
 const STOPPED: Partial<Record<StopReason, string>> = {
-  'budget': 'it used its token budget', 'ttl': 'it ran out of time', 'error': 'it failed', 'queue-time': 'it waited too long to start',
+  'budget': 'it used its token budget', 'ttl': 'it ran out of time', 'error': 'it failed',
   'no-session': 'the session it needs is not known here', 'no-model': 'it has no model it may use', 'out-of-date': 'its branch could not be brought up to date',
 };
 
