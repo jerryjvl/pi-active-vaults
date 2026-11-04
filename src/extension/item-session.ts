@@ -123,7 +123,16 @@ function workspaceTools(dir: string): ToolDefinition[] {
   return [there(write as ToolDefinition, 'workspace_write', 'workspace write'), there(edit as ToolDefinition, 'workspace_edit', 'workspace edit')];
 }
 
+/** Runs one item; it never throws, so one item that cannot even start fails alone, not the whole fan-out. */
 export async function runItem(request: ItemRequest, options: ItemSessionOptions = {}): Promise<ItemResult> {
+  try {
+    return await runSession(request, options);
+  } catch (error) {
+    return { ok: false, reason: `the item's session could not start (${error instanceof Error ? error.message : String(error)})` };
+  }
+}
+
+async function runSession(request: ItemRequest, options: ItemSessionOptions): Promise<ItemResult> {
   const agentDir = options.agentDir ?? getAgentDir();
   const servers = Object.keys(request.mcp);
   const resourceLoader = new DefaultResourceLoader({

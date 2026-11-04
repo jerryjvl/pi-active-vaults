@@ -262,6 +262,25 @@ test('with save, the outcomes go to the session\'s scratch directory and only a 
   assert.equal(existsSync(scratch), false, 'removed when the session closed');
 }, { running: RUNNING }));
 
+test('with save, the outcomes are saved even when no item was done, so a script learns why', withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    pi.respond(
+      fanOut({ items: ['a', 'b'], each: 'Do it.', save: 'scratch:outcomes.json' }),
+      fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'overloaded' }), fauxAssistantMessage('', { stopReason: 'length' }),
+      () => {
+        // The session's next step stands in for the script that reads the outcomes.
+        const saved = JSON.parse(readFileSync(join(t.context.installation.paths.scratch, traceOf(pi), 'outcomes.json'), 'utf8')) as unknown;
+        assert.deepEqual(saved, [{ item: 'a', outcome: 'failed', reason: 'overloaded' }, { item: 'b', outcome: 'failed', reason: 'the model reached its output limit before it finished' }]);
+        return DONE;
+      },
+    );
+    await pi.prompt('Fan out.');
+    const result = pi.results.find((r) => r.tool === 'vault_fan_out');
+    assert.equal(result?.isError, true);
+    assert.match(result?.text ?? '', /^No item could be done \(the outcomes are saved to scratch:outcomes\.json\): a: overloaded; b: the model reached/);
+  });
+}, { running: RUNNING }));
+
 test('save names a file in the scratch directory, never a path, and does not go with gather', withInstallation(async (t) => {
   await withPi(t, {}, async (pi) => {
     pi.respond(fanOut({ items: ['a'], each: 'Do it.', save: 'scratch:../x.json' }), fanOut({ items: ['a'], each: 'Do it.', save: 'scratch:x.json', gather: 'Combine.' }), DONE);

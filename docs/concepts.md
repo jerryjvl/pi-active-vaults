@@ -263,7 +263,8 @@ writes what comes back. An item that fails — its last answer an error, or cut
 off at the model's output limit, whatever files it wrote — is reported as
 failed, never handed to the gather, and so is a gather cut off; without a gather instruction each item's outcome comes back as
 it is, or, with `save: scratch:<name>`, goes to a file in the session's
-scratch directory with only a summary back, for scripts to work on. The items
+scratch directory with only a summary back, for scripts to work on — written
+even when no item was done, so a script learns why. The items
 can come from there too: `items: scratch:<name>`, a JSON array of strings a
 script wrote, so bulky material passes by name rather than being retyped by
 the session's model. With `workspace`, each item also gets a new directory of

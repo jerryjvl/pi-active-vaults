@@ -18,7 +18,8 @@
 // reported as failed, never handed to the gather; so is a gather. Without a
 // `gather` instruction the items' outcomes come back as they are, as JSON — or,
 // with `save: scratch:<name>`, go to that file in the session's scratch
-// directory, with only a summary back, for scripts to work on. The items may
+// directory — even when no item was done — with only a summary back, for
+// scripts to work on. The items may
 // come from there too (`items: scratch:<name>`, a JSON array of strings a
 // script wrote), so bulky material passes between scripts and items by name,
 // never retyped by the session's model. With `workspace`, each item also gets
@@ -199,12 +200,13 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
       };
       await Promise.all(Array.from({ length: Math.min(Math.max(1, model?.parallel ?? 1), list.length) }, worker));
       const done = outcomes.filter((o) => o.outcome === 'done');
-      if (done.length === 0) return { ...fail(`No item could be done: ${outcomes.map((o) => `${label(o.item)}: ${o.reason ?? o.outcome}`).join('; ')}`, 'failed'), usage };
+      // Saved whatever happened, so the script that reads it learns why nothing was done rather than finding nothing.
+      if (saveTo !== undefined) writeFileSync(saveTo, `${JSON.stringify(outcomes)}\n`, { mode: 0o600 });
+      if (done.length === 0) return { ...fail(`No item could be done${saveTo === undefined ? '' : ` (the outcomes are saved to ${save})`}: ${outcomes.map((o) => `${label(o.item)}: ${o.reason ?? o.outcome}`).join('; ')}`, 'failed'), usage };
       const notDone = outcomes.filter((o) => o.outcome !== 'done').map((o) => `${label(o.item)}: ${o.outcome} (${o.reason ?? ''})`);
       let gathered: string | null = null;
       let text: string;
       if (saveTo !== undefined) {
-        writeFileSync(saveTo, `${JSON.stringify(outcomes)}\n`, { mode: 0o600 });
         text = [`Saved ${outcomes.length} outcome(s) to ${save}: ${done.length} done.${space === undefined ? '' : ` The items' files are in scratch:${space.name}/<n>.`}`, ...(notDone.length === 0 ? [] : ['Not done:', ...notDone])].join('\n');
       } else if (gather === undefined) {
         text = JSON.stringify(outcomes);
