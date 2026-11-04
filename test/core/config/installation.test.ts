@@ -94,7 +94,7 @@ test('the documented example loads, with kebab-case keys exposed in camelCase', 
   assert.deepEqual(config.labels.equivalent, [['private:geopolitics', 'digests:geopolitics']]);
   assert.deepEqual(config.subscriptions, [{ from: 'digests', to: 'private' }]);
   assert.deepEqual(config.policy, [{ vaults: ['home-knowledge'], allowModels: ['embed', 'rerank', 'judgement'] }]);
-  assert.deepEqual(config.budgets, { dailyTokens: 2000000, cascadePool: 300000, depthDecay: 0.25, maxDepth: 3 });
+  assert.deepEqual(config.budgets, { dailyTokens: 2000000, cascadePool: 300000, depthDecay: 0.25, maxDepth: 3, reserve: 0.1 });
   assert.deepEqual(config.taint, { trustedTools: ['read', 'edit', 'write'] });
   assert.deepEqual(config.logs, { keepDays: 14 });
   assert.deepEqual(config.templates, { 'research-digests': 'https://git.example.net/templates/research-digests.git' });
@@ -113,7 +113,7 @@ test('an empty config is valid and applies the documented defaults', () => {
   assert.equal(config.person, undefined);
   assert.deepEqual(config.vaults, []);
   assert.deepEqual(config.models, {});
-  assert.deepEqual(config.budgets, { depthDecay: 0.5, maxDepth: 4 });
+  assert.deepEqual(config.budgets, { depthDecay: 0.5, maxDepth: 4, reserve: 0.1 });
   assert.deepEqual(config.logs, { keepDays: 7 });
   assert.deepEqual(config.taint, { trustedTools: [] }, 'with no trusted tools every tool taints');
   assert.deepEqual(config.labels, { equivalent: [] });
@@ -146,14 +146,14 @@ models:
   embed: { url: "not a url", token: "sk-literal-secret-123", model: "", batch: 0 }
   mystery: { url: "https://x", token: "\${T}", model: m }
   other: { role: telepathy, model: m }
-budgets: { depth-decay: 1.5, max-depth: 0 }
+budgets: { depth-decay: 1.5, max-depth: 0, reserve: 1 }
 logs: { keep-days: 0 }
 unknown-section: 1
 `);
   const text = found.join('\n');
   for (const expected of [
     'vaults[0].id', 'vaults[1].host', 'vaults[2].id', 'models.embed.url', 'models.embed.token',
-    'models.embed.model', 'models.embed.batch', 'models.mystery', 'models.other.role', 'budgets.depth-decay',
+    'models.embed.model', 'models.embed.batch', 'models.mystery', 'models.other.role', 'budgets.depth-decay', 'budgets.reserve',
     'budgets.max-depth', 'logs.keep-days', 'unknown-section',
   ]) {
     assert.ok(text.includes(expected), `${expected} missing from:\n${text}`);

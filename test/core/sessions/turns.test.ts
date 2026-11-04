@@ -45,13 +45,17 @@ test('the daily ceiling stops a headless run but not an interactive session', wi
   assert.equal(recordTurn(t.context, run, [turn(10, 0)]).stop, 'budget');
 }, { running: RUNNING, config: 'budgets: { daily-tokens: 1000 }' }));
 
-test('a headless run knows how much work it has left; an interactive session is not bounded by it', withInstallation(async (t) => {
+test('a headless run knows how much work it may still hand out: what is left less the share kept for its last steps; an interactive session is not bounded by it', withInstallation(async (t) => {
   const run = await openTestSession(t, { run: runOf(startedSpawn(t, 'jobs/daily.md', 500)) });
-  assert.equal(workLeft(t.context, run), 500);
+  // The default reserve, a tenth: 50 of its 500 tokens, and the last minute of its ten.
+  const until = new Date(t.clock.now().getTime() + 540_000);
+  assert.deepEqual(workLeft(t.context, run), { tokens: 450, until });
   recordTurn(t.context, run, [turn(100, 50)]);
-  assert.equal(workLeft(t.context, run), 350);
+  assert.deepEqual(workLeft(t.context, run), { tokens: 300, until });
+  recordTurn(t.context, run, [turn(300, 50)]);
+  assert.deepEqual(workLeft(t.context, run), { tokens: 0, until }, 'into the reserve, nothing is left to hand out, though the run itself goes on');
   t.clock.advance(600_001);
-  assert.equal(workLeft(t.context, run), 0, 'past its run time, nothing is left');
+  assert.deepEqual(workLeft(t.context, run), { tokens: 0 }, 'past its run time, nothing is left');
   const person = await openTestSession(t, { session: 'pi-session-2', actor: 'alice' });
   assert.equal(workLeft(t.context, person), undefined);
 }, { running: RUNNING }));

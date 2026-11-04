@@ -241,7 +241,44 @@ test('an item over the budget stops before its next step, and later items are sk
     await pi.prompt('Run the job.');
     const result = pi.results.find((r) => r.tool === 'vault_fan_out');
     assert.equal(result?.isError, true);
-    assert.match(result?.text ?? '', /a: the run's budget is used; b: the run's budget is used/);
+    assert.match(result?.text ?? '', /a: the run's budget is used \(what is left is kept to finish the run\); b: the run's budget is used/);
+  });
+}, { running: RUNNING }));
+
+test('once the time for items is up, the item running stops and the rest are skipped, leaving the run its last steps', withInstallation(async (t) => {
+  const entry = startedSpawn(t, 'jobs/daily.md');
+  const runFile = t.dir.file('run.json');
+  writeFileSync(runFile, renderRunContext(runOf(entry)));
+  await withPi(t, { flags: { 'vault-run': runFile } }, async (pi) => {
+    pi.respond(
+      fanOut({ items: ['a', 'b', 'c'], each: 'Do it.', save: 'scratch:outcomes.json' }),
+      fauxAssistantMessage('A'),
+      // Item b reaches the last minute of the run's ten, which is kept for its last steps.
+      () => { t.clock.advance(541_000); return toolCall('read', { path: 'notes.md' }); },
+      fauxAssistantMessage('B'),
+      DONE,
+    );
+    await pi.prompt('Run the job.');
+    assert.deepEqual(structuredOf(pi)?.data.items.map((i) => [i.item, i.outcome, i.reason]), [
+      ['a', 'done', undefined],
+      ['b', 'skipped', 'the run\'s time is used (what is left is kept to finish the run)'],
+      ['c', 'skipped', 'the run\'s time is used (what is left is kept to finish the run)'],
+    ]);
+  });
+}, { running: RUNNING }));
+
+test('a call may name the items\' thinking level; otherwise they think as the session does', withInstallation(async (t) => {
+  await withPi(t, { reasoning: true }, async (pi) => {
+    const levels: (string | undefined)[] = [];
+    const noting = (reply: string): FauxResponseStep => (_context, options) => { levels.push(options?.reasoning); return fauxAssistantMessage(reply); };
+    pi.respond(
+      fanOut({ items: ['a'], each: 'Do it.', thinking: 'low' }), noting('A'),
+      fanOut({ items: ['b'], each: 'Do it.' }), noting('B'),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    assert.equal(levels[0], 'low');
+    assert.notEqual(levels[1], 'low');
   });
 }, { running: RUNNING }));
 

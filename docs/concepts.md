@@ -241,6 +241,10 @@ Sessions start from a trigger and branch as they spawn work. Budgets flow down:
   including compaction, excluding cached-prefix reads (reported, or assumed for
   a model set to `assume-prefix-cache`; see Models).
 - `ttl` is run time; queue time has its own limit.
+- A fan-out's items may not use the last `budgets.reserve` (default 0.1) of
+  a headless run's tokens or time, so the cheap steps after it — scripts, a
+  commit, an email — still run. An item that reaches it stops, and those not
+  started are not; both are `skipped`.
 - No document fires twice in one tree. `budgets.max-depth` (default 4) backs
   this up.
 - **Work a run commits stays in its tree.** An event from a commit carrying a
@@ -257,7 +261,8 @@ own, on the same model, that can look but not write: Pi's read-only file tools,
 `vault_read`, `vault_search`, and the tools of the MCP servers the fan-out names
 from the person's own Pi configuration (a web search, say). Each item also gets
 the person's own standing instructions from Pi's `APPEND_SYSTEM.md` (what may
-leave the machine, say), never a project's. Items run as many
+leave the machine, say), never a project's. Items think as the session does,
+unless the call names a level (`thinking`; lower for a retry, say). Items run as many
 at a time as the agent model's `parallel` allows. The session that fanned out
 writes what comes back. An item that fails — its last answer an error, or cut
 off at the model's output limit, whatever files it wrote — is reported as
@@ -564,7 +569,7 @@ subscriptions:
   - { from: digests, to: private }
 policy:
   - { vaults: [home-knowledge], allow-models: [embed, rerank, judgement, classify, agent, quick] }
-budgets: { daily-tokens: 2000000, cascade-pool: 300000, depth-decay: 0.5, max-depth: 4 }
+budgets: { daily-tokens: 2000000, cascade-pool: 300000, depth-decay: 0.5, max-depth: 4, reserve: 0.1 }
 taint:
   trusted-tools: [read, edit, write, vault_search, vault_read]   # all other tools taint a session
 logs: { keep-days: 7 }

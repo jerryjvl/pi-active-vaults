@@ -6,6 +6,11 @@
 // A headless run is stopped once its allotment or the day's ceiling is used,
 // or its run time is past. An interactive session is the person's: its work
 // counts towards the day, so it limits what is spawned, but it is not stopped.
+//
+// Work a run hands out (a fan-out's items) may not use the run's last share of
+// tokens and time (`budgets.reserve`): the steps after it — scripts, a
+// commit, an email — cost little but are what make the run's work count, and
+// a run stopped at its limit never reaches them.
 
 import { accountUsage, budgetState, type BudgetState, type RequestUsage } from '../budgets/index.ts';
 import type { OperationContext } from '../operations/index.ts';
@@ -38,10 +43,24 @@ export function recordTurn(context: OperationContext, session: VaultSession, usa
   return state.overTime ? { state, stop: 'ttl' } : { state };
 }
 
-/** The tokens a headless run may still use — none once its budget, the day's ceiling or its run time is spent; undefined for an interactive session, which is not bounded so. */
-export function workLeft(context: OperationContext, session: VaultSession): number | undefined {
+/** What a headless run may still hand out: tokens, and a time to stop by. */
+export interface WorkLeft {
+  readonly tokens: number;
+  /** Absent until the run has started. */
+  readonly until?: Date;
+}
+
+/**
+ * What work a headless run hands out may still use: its tokens and time less
+ * the share kept for its last steps — none once its budget, the day's ceiling
+ * or its run time is spent; undefined for an interactive session, which is not
+ * bounded so.
+ */
+export function workLeft(context: OperationContext, session: VaultSession): WorkLeft | undefined {
   if (session.mode === 'interactive') return undefined;
-  const state = budgetState(context.state, context.installation.config.budgets, context.clock, session.trace);
-  if (state === undefined || state.dailyExhausted || state.overTime) return 0;
-  return state.remaining;
+  const { budgets } = context.installation.config;
+  const state = budgetState(context.state, budgets, context.clock, session.trace);
+  if (state === undefined || state.dailyExhausted || state.overTime) return { tokens: 0 };
+  const tokens = Math.max(0, state.remaining - Math.ceil(state.allotted * budgets.reserve));
+  return state.deadline === undefined ? { tokens } : { tokens, until: new Date(Date.parse(state.deadline) - state.ttlMs * budgets.reserve) };
 }
