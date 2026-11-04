@@ -330,7 +330,12 @@ available to every vault. A vault cannot replace or shadow them:
   is reported without stopping the rest. `--out scratch:<name>` writes the
   answers to the scratch directory and prints only a summary.
   Each question is answered by the model it names, else the default, and only
-  by a model the policy allows for the vault. **The answers are advisory:**
+  by a model the policy allows for the vault. A model that cannot answer is
+  asked once more; if it still cannot, its questions are listed as `unjudged`
+  with why and the other models' answers stand, so an unjudged question never
+  passes. It exits `0` when everything was answered and `1` when a model
+  failed; a batch exits `4` when no entry got any answer. The output is
+  written either way. **The answers are advisory:**
   nothing is recorded, so they never become attestations or satisfy a merge
   requirement — a model still never approves its own work.
 

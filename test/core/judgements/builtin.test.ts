@@ -134,3 +134,47 @@ test('scratch: names files in the session\'s scratch directory; --out writes the
     assert.equal(none.exitCode, 2, 'no scratch directory outside a session');
   });
 }));
+
+/** Answers as `answers` does, except that the classify model fails. */
+const classifyDown = (request: RecordedRequest) => ((JSON.parse(request.body) as { model: string }).model === 'd3-flash' ? { status: 503 } : answers(request));
+
+test('a model that cannot answer is asked once more, then its questions are unjudged, with why; the other models\' answers stand and nothing unjudged passes', () => withStubServer(classifyDown, async (url, requests) => {
+  const ran = await builtinAt(url).run([], { cwd: '/', env: {}, input: JSON.stringify({ state: { item: 'One' }, questions: QUESTIONS }) });
+  assert.equal(ran.exitCode, 1, 'a model failed');
+  assert.match(ran.stderr, /the judgement model classify could not answer \(http-error 503\)/);
+  const out = JSON.parse(ran.stdout) as { answers: Record<string, { passed?: boolean }>; unjudged: Record<string, string> };
+  assert.deepEqual(Object.keys(out.answers), ['injection'], 'the default model\'s answer is kept');
+  assert.deepEqual(Object.keys(out.unjudged).sort(), ['novel', 'relevance']);
+  assert.match(out.unjudged['novel'] ?? '', /could not answer \(http-error 503\)/);
+  assert.equal(out.answers['novel'], undefined, 'an unjudged question has no answer, so it cannot pass');
+  assert.equal(requests.filter((r) => (JSON.parse(r.body) as { model: string }).model === 'd3-flash').length, 2, 'asked twice');
+}));
+
+test('a model that fails once and then answers is a full answer', () => {
+  let failures = 1;
+  return withStubServer((request) => (failures-- > 0 ? { status: 503 } : answers(request)), async (url) => {
+    const ran = await builtinAt(url).run([], { cwd: '/', env: {}, input: JSON.stringify({ state: 'One', questions: { injection: QUESTIONS.injection } }) });
+    assert.equal(ran.exitCode, 0, ran.stderr);
+    assert.deepEqual(Object.keys((JSON.parse(ran.stdout) as { answers: object }).answers), ['injection']);
+  });
+});
+
+test('a batch exits 1 when some entries are not fully judged and 4 when none got any answer; its output is written either way', () => withStubServer(classifyDown, async (url) => {
+  await withScratch(async (scratch) => {
+    const { readFileSync, writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const env = { VAULT_SCRATCH: scratch };
+    writeFileSync(join(scratch, 'some.json'), JSON.stringify({ batch: [{ id: 'a', state: 'One', questions: { injection: QUESTIONS.injection } }, { id: 'b', state: 'Two', questions: { novel: QUESTIONS.novel } }] }));
+    const some = await builtinAt(url).run(['--file', 'scratch:some.json', '--out', 'scratch:some-out.json'], { cwd: '/', env });
+    assert.equal(some.exitCode, 1);
+    assert.equal(some.stdout.trim(), 'judged 1 of 2 (1 not fully) → scratch:some-out.json');
+    const kept = JSON.parse(readFileSync(join(scratch, 'some-out.json'), 'utf8')) as { results: Record<string, { answers: object; unjudged?: object }> };
+    assert.deepEqual(Object.keys(kept.results['a']?.answers ?? {}), ['injection']);
+    assert.deepEqual(Object.keys(kept.results['b']?.unjudged ?? {}), ['novel']);
+    writeFileSync(join(scratch, 'none.json'), JSON.stringify({ questions: { novel: QUESTIONS.novel }, batch: [{ id: 'a', state: 'One' }, { id: 'b', state: 'Two' }] }));
+    const none = await builtinAt(url).run(['--file', 'scratch:none.json', '--out', 'scratch:none-out.json'], { cwd: '/', env });
+    assert.equal(none.exitCode, 4, 'no entry got any answer');
+    assert.match(none.stderr, /2 batch entries could not be fully judged, none at all/);
+    assert.deepEqual(Object.keys((JSON.parse(readFileSync(join(scratch, 'none-out.json'), 'utf8')) as { results: object }).results), ['a', 'b']);
+  });
+}));
