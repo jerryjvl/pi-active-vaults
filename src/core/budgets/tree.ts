@@ -48,7 +48,8 @@ export const budgetsSchema: ModuleSchema = {
   ],
 };
 
-export type BudgetLimits = InstallationConfig['budgets'];
+// The ledger's limits; the reserve is what sessions keep back from work they hand out, not the ledger's.
+export type BudgetLimits = Omit<InstallationConfig['budgets'], 'reserve'>;
 
 export interface AllotRequest {
   /** The session's trace ID. */
@@ -90,6 +91,8 @@ export interface BudgetState {
   readonly dailyExhausted: boolean;
   /** When the run must end (ISO 8601); absent until it starts. */
   readonly deadline?: string;
+  /** How long the run may take, in milliseconds. */
+  readonly ttlMs: number;
   readonly overTime: boolean;
 }
 
@@ -203,6 +206,7 @@ function stateOf(row: SessionRow, limits: BudgetLimits, clock: Clock, today: num
     exhausted: row.used >= row.allotted,
     dailyExhausted: limits.dailyTokens !== undefined && today >= limits.dailyTokens,
     ...(deadline === undefined ? {} : { deadline: deadline.toISOString() }),
+    ttlMs: row.ttl_ms,
     overTime: deadline !== undefined && clock.now().getTime() > deadline.getTime(),
   };
 }

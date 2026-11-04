@@ -1,7 +1,8 @@
 // A fan-out item's session (concepts.md "Session tree"): a Pi agent session of
 // its own, in-process, that can look but not write — Pi's read-only file tools,
 // the vault tools it is given, and the tools of the MCP servers named for the
-// fan-out — and that answers with its result as text. Given a workspace (a new
+// fan-out — and that answers with its result as text, unless its last answer
+// is unfinished (models `unfinishedAnswer`). Given a workspace (a new
 // directory of its own in the session's scratch directory), it can also write
 // files there and nowhere else: Pi's own write and edit tools, as
 // `workspace_write` and `workspace_edit`, with every file operation passed
@@ -15,8 +16,8 @@
 // item instruction and then the installation's own `APPEND_SYSTEM.md` from the
 // agent directory — the rules the person set for every session, such as what
 // may leave the machine — but never a project's, for the same reason. (Passing
-// an append prompt stops Pi finding that file itself, so it is named here.) Its model and thinking
-// level are the parent session's. The parent sees each tool call and each
+// an append prompt stops Pi finding that file itself, so it is named here.) Its model is the
+// parent session's, and so is its thinking level unless the fan-out names one. The parent sees each tool call and each
 // model response as it happens, so it can log, taint and budget the item's
 // work as its own.
 
@@ -30,7 +31,13 @@ import {
 import type { AssistantMessage, Model, Usage } from '@earendil-works/pi-ai';
 import { landsWithin, workspaceWrite } from '../core/config/index.ts';
 import { renameIntendedToolCalls } from './tool-names.ts';
+import { unfinishedAnswer } from '../core/models/index.ts';
 import { isRecord } from '../core/result/index.ts';
+
+/** Why an item stops, or is not started, when what is left of the run's budget is kept for its last steps. */
+export const BUDGET_KEPT = 'the run\'s budget is used (what is left is kept to finish the run)';
+/** The same for the run's time. */
+export const TIME_KEPT = 'the run\'s time is used (what is left is kept to finish the run)';
 
 /** Pi's file tools that only read. */
 export const READ_ONLY_TOOLS = ['read', 'grep', 'find', 'ls'] as const;
@@ -59,11 +66,14 @@ export interface ItemRequest {
   readonly signal?: AbortSignal;
   /** Each tool call's result, as it ends. */
   readonly onTool?: (call: { tool: string; input: unknown; isError: boolean; text: string }) => void;
-  /** Each model response's usage; returning false stops the item before its next step. */
+  /** Each model response's usage; returning false stops the item before its next step, skipped. */
   readonly onUsage?: (usage: Usage) => boolean;
+  /** Aborted when the run's time for items is up: the item stops at once, skipped. */
+  readonly until?: AbortSignal;
 }
 
-export type ItemResult = { readonly ok: true; readonly text: string } | { readonly ok: false; readonly reason: string };
+/** A failure, or an item skipped: stopped for the run's limits, not for anything wrong with it. */
+export type ItemResult = { readonly ok: true; readonly text: string } | { readonly ok: false; readonly reason: string; readonly skipped?: true };
 
 /** Pi's name for an MCP server's tools: every character other than letters, digits and `_` becomes `_`. */
 export const mcpPrefix = (server: string): string => `mcp__${server.replace(/[^A-Za-z0-9_]/g, '_')}__`;
@@ -121,7 +131,16 @@ function workspaceTools(dir: string): ToolDefinition[] {
   return [there(write as ToolDefinition, 'workspace_write', 'workspace write'), there(edit as ToolDefinition, 'workspace_edit', 'workspace edit')];
 }
 
+/** Runs one item; it never throws, so one item that cannot even start fails alone, not the whole fan-out. */
 export async function runItem(request: ItemRequest, options: ItemSessionOptions = {}): Promise<ItemResult> {
+  try {
+    return await runSession(request, options);
+  } catch (error) {
+    return { ok: false, reason: `the item's session could not start (${error instanceof Error ? error.message : String(error)})` };
+  }
+}
+
+async function runSession(request: ItemRequest, options: ItemSessionOptions): Promise<ItemResult> {
   const agentDir = options.agentDir ?? getAgentDir();
   const servers = Object.keys(request.mcp);
   const resourceLoader = new DefaultResourceLoader({
@@ -148,13 +167,19 @@ export async function runItem(request: ItemRequest, options: ItemSessionOptions 
     customTools: [...request.tools, ...own],
   });
   const inputs = new Map<string, unknown>();
-  let stopped: string | undefined;
-  const stop = (why: string): void => {
-    stopped ??= why;
+  let stopped: { why: string; skipped?: true } | undefined;
+  const stop = (why: string, skipped?: true): void => {
+    stopped ??= { why, ...(skipped === undefined ? {} : { skipped }) };
     void session.abort();
   };
   const onAbort = (): void => stop('the session that fanned out was stopped');
+  // Whether the model's last response was its answer rather than a step on the way: an answer given stands.
+  let answered = false;
+  const onTimeUp = (): void => {
+    if (!answered) stop(TIME_KEPT, true);
+  };
   request.signal?.addEventListener('abort', onAbort);
+  request.until?.addEventListener('abort', onTimeUp);
   const unsubscribe = session.subscribe((event) => {
     if (event.type === 'tool_execution_start') inputs.set(event.toolCallId, event.args);
     else if (event.type === 'tool_execution_end') {
@@ -162,27 +187,32 @@ export async function runItem(request: ItemRequest, options: ItemSessionOptions 
       request.onTool?.({ tool: event.toolName, input: inputs.get(event.toolCallId), isError: event.isError === true, text: content.map((c) => c.text ?? `[${c.type}]`).join('') });
     } else if (event.type === 'message_end' && event.message.role === 'assistant') {
       // Over the budget, an item stops before its next step; an answer it has given stands.
-      if (request.onUsage?.(event.message.usage) === false && event.message.stopReason === 'toolUse') stop('the run\'s budget is used');
+      answered = event.message.stopReason !== 'toolUse';
+      if (request.onUsage?.(event.message.usage) === false && !answered) stop(BUDGET_KEPT, true);
     }
   });
   try {
     await session.bindExtensions({});
     if (request.signal?.aborted === true) return { ok: false, reason: 'the session that fanned out was stopped' };
-    await session.prompt(request.prompt);
-    if (stopped !== undefined) return { ok: false, reason: stopped };
+    if (request.until?.aborted === true) onTimeUp();
+    else await session.prompt(request.prompt);
+    if (stopped !== undefined) return { ok: false, reason: stopped.why, ...(stopped.skipped === undefined ? {} : { skipped: stopped.skipped }) };
     const active = session.getActiveToolNames();
     const absent = servers.filter((s) => !active.some((t) => t.startsWith(mcpPrefix(s))));
     if (absent.length > 0) return { ok: false, reason: `the MCP server${absent.length === 1 ? '' : 's'} ${absent.join(', ')} did not connect` };
     const last = session.messages.filter((m): m is AssistantMessage => m.role === 'assistant').at(-1);
     if (last === undefined) return { ok: false, reason: 'the model did not answer' };
-    if (last.stopReason === 'error' || last.stopReason === 'aborted') return { ok: false, reason: last.errorMessage ?? last.stopReason };
+    // A turn cut off at the output limit is unfinished too, even with files written: they are not its result.
+    const unfinished = unfinishedAnswer(last);
+    if (unfinished !== undefined) return { ok: false, reason: unfinished };
     const text = textOf(last);
-    // With a workspace, the files are the result: an empty answer is no failure.
+    // With a workspace, the files are the result: an empty answer that finished is no failure.
     return text === '' && request.workspace === undefined ? { ok: false, reason: 'the model answered with no text' } : { ok: true, text };
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : String(error) };
   } finally {
     request.signal?.removeEventListener('abort', onAbort);
+    request.until?.removeEventListener('abort', onTimeUp);
     unsubscribe();
     session.dispose();
   }

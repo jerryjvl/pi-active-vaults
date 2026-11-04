@@ -32,4 +32,4 @@ export {
   type DaemonRecordError, type RunningProcess,
 } from './runs.ts';
 export { schedulable } from './schedule.ts';
-export { recoverRuns, type RecoveryDeps, type RecoveryReport } from './recovery.ts';
+export { recoverRuns, setAsideUncommitted, type RecoveryDeps, type RecoveryReport, type SetAside, type SetAsideDeps } from './recovery.ts';

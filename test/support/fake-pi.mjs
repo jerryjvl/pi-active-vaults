@@ -4,7 +4,7 @@
 // standard input ends it) and does what the test asks for the run's job:
 //
 //   FAKE_PI_ACTIONS  JSON: job document (or "*") → nothing | commit | hang | crash | refuse | spend
-//                    | fail | commit-then-fail | recover
+//                    | fail | commit-then-fail | recover | cut-off | half-done
 //   FAKE_PI_LOG      a file each start is appended to as a JSON line: argv, cwd, run file, pid
 //
 // `commit` writes `notes/<trace>.md` in its directory and commits it with the
@@ -13,7 +13,9 @@
 // have; `refuse` exits at once, as a run the extension refuses does; `fail`
 // ends its model request with an error (an unreachable endpoint), and
 // `commit-then-fail` does so after committing; `recover` fails one request
-// and then answers normally.
+// and then answers normally; `cut-off` ends its answer at the model's output
+// limit, with no error; `half-done` writes a file and edits the contract
+// without committing, then fails, as a run stopped half-way leaves its worktree.
 
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -63,6 +65,16 @@ function work() {
       return;
     case 'fail':
       answer('error');
+      settle();
+      return;
+    case 'half-done':
+      writeFileSync('half-done.md', 'Half done.\n');
+      appendFileSync('_contract.md', 'Edited, not committed.\n');
+      answer('error');
+      settle();
+      return;
+    case 'cut-off':
+      answer('length');
       settle();
       return;
     case 'recover':

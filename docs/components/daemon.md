@@ -43,7 +43,7 @@ state change is one transaction.
 | Stop reason | When |
 |---|---|
 | `budget`, `ttl` | Its budget or run time is used up |
-| `error` | Its process failed, or its last model request ended in an error |
+| `error` | Its process failed, or its last model request did not finish: an error, or cut off at the model's output limit |
 | `restart` | The daemon restarted while it ran |
 | `queue-time` | Queued longer than `daemon.queue-time` |
 | `requested` | Stopped through the socket |
@@ -118,6 +118,18 @@ make it `committed` (a later model error is noted in its log); otherwise a stop
 reason above applies; a run that settled normally without committing is
 `no-change`. The run's full log holds the daemon's steps and Pi's events
 (without streaming deltas).
+
+As a run ends, whatever it left uncommitted in its worktree is saved to its
+full log (`uncommitted`, kept as long as the logs) and discarded, so a run
+stopped half-way never stops the next one `out-of-date`. A worktree not on its
+actor's branch, or whose changes cannot be saved, is left as it is.
+
+A run stopped `budget`, `ttl`, `error`, `no-session`, `no-model` or
+`out-of-date` is told to the vault's owners, as are changes that could not be
+set aside: the reason, what
+the daemon knows of why, and the trace. A sync conflict is told by the
+integrity check instead. The notice's key is the job and the reason, so a job
+that keeps failing is told once per outbox cooldown.
 
 ## Start-up recovery
 

@@ -91,6 +91,20 @@ test('a run that commits nothing after a failed model request is stopped with er
   assert.deepEqual([spawns['jobs/c.md']?.reason, ended('jobs/c.md')?.['outcome'], ended('jobs/c.md')?.['modelError']], [undefined, 'no-change', undefined], 'its last request ended normally');
 }, { contract: { actors: ['gardener', 'librarian', 'curator'] }, config: 'daemon: { parallel: 3 }' }));
 
+test('a run whose last answer was cut off at the model\'s output limit is stopped with error, not no-change', withInstallation(async (t) => {
+  jobs(t, { 'jobs/a.md': jobDocument(MANUAL) });
+  await t.run('trigger', { name: 'go' });
+  const automation = automationFor(t, fakePi(t, { 'jobs/a.md': 'cut-off' }));
+  await automation.schedule();
+  await automation.idle();
+  const spawn = listSpawns(t.context.state)[0];
+  const ended = readFullLog(t.installation.paths.logs, spawn?.trace ?? '')
+    .filter((l) => l.name === 'daemon').flatMap((l) => l.text.trim().split('\n')).map((line) => JSON.parse(line) as Record<string, unknown>)
+    .find((record) => record['event'] === 'ended');
+  assert.deepEqual([spawn?.reason, ended?.['outcome']], ['error', 'stopped']);
+  assert.match(String(ended?.['modelError']), /output limit/);
+}));
+
 test('a run past its run time is killed and stopped with ttl; one past its budget is stopped with budget', withInstallation(async (t) => {
   jobs(t, { 'jobs/slow.md': jobDocument(MANUAL, { ttl: '1s' }), 'jobs/costly.md': jobDocument(MANUAL, { actor: 'librarian' }) });
   await t.run('trigger', { name: 'go' });
@@ -243,3 +257,35 @@ test('a branch that conflicts with the accepted main stops the run out-of-date, 
   assert.match(why, /actor\/gardener .*conflicts with the accepted main .* in: notes\//, 'the log says what conflicts and how to resolve it');
   assert.match(why, /vault commit/);
 }));
+
+const NOTIFY = 'notify:\n  from: "Vault <vault@example.net>"\n  recipients: { alice: alice@example.net }\n  transport: { type: sendmail, command: /nonexistent/sendmail }';
+const outboxOf = (t: TestInstallation) => t.context.state.all<{ alias: string; subject: string; body: string }>('SELECT alias, subject, body FROM notify_outbox');
+
+test('a run stopped half-way leaves its worktree clean, its changes in its log, so the next run starts; its owners are told, once per job and reason', withInstallation(async (t) => {
+  jobs(t, { 'jobs/a.md': jobDocument(MANUAL) });
+  const worktree = join(t.vault.worktrees, 'gardener');
+  for (let run = 0; run < 2; run++) {
+    await t.run('trigger', { name: 'go' });
+    const automation = automationFor(t, fakePi(t, { 'jobs/a.md': 'half-done' }));
+    await automation.schedule();
+    await automation.idle();
+  }
+  const spawns = listSpawns(t.context.state);
+  assert.deepEqual(spawns.map((s) => s.reason), ['error', 'error'], 'the second ran, rather than stopping out-of-date');
+  assert.equal(existsSync(join(worktree, 'half-done.md')), false);
+  assert.equal(t.repo.git('-C', worktree, 'status', '--porcelain'), '', 'its worktree is clean');
+  const saved = readFullLog(t.installation.paths.logs, spawns[0]?.trace ?? '').filter((l) => l.name === 'uncommitted').map((l) => l.text).join('');
+  assert.match(saved, /half-done\.md/);
+  assert.match(saved, /Half done\./);
+  assert.match(saved, /Edited, not committed\./);
+  const told = outboxOf(t);
+  assert.deepEqual(told.map((m) => m.alias), ['alice'], 'the owner, once: the second stop for the same reason is within the cooldown');
+  assert.match(told[0]?.subject ?? '', /home.*jobs\/a\.md stopped \(error\)/);
+  assert.match(told[0]?.body ?? '', /stopped: it failed\.[\s\S]*Connection error\.[\s\S]*2 files\) is saved in its log, and its worktree was reset[\s\S]*vault trace /);
+
+  await t.run('trigger', { name: 'go' });
+  const fine = automationFor(t, fakePi(t, { 'jobs/a.md': 'commit' }));
+  await fine.schedule();
+  await fine.idle();
+  assert.equal(outboxOf(t).length, 1, 'a run that committed is not told');
+}, { config: NOTIFY }));

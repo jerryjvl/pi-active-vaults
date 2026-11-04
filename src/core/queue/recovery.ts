@@ -15,6 +15,11 @@
 // Interactive Pi sessions are not the daemon's: their holds stay valid while
 // their processes live. A worktree that is not on its actor's branch is left
 // as it is — resetting the wrong checkout would lose someone's work.
+//
+// Setting a worktree's uncommitted changes aside (`setAsideUncommitted`) is
+// also what a run does when it ends (automation `startRun`), so what a run
+// left half-done never blocks the next: the changes go to the run's full log,
+// rotated with it (`logs.keep-days`), and only then is the worktree reset.
 
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -51,6 +56,16 @@ export interface RecoveryReport {
 
 /** The log a recovery writes into the run's full log. */
 const RECOVERY_LOG = 'recovery';
+
+export interface SetAsideDeps {
+  readonly git: Git;
+  readonly clock: Clock;
+  /** The full-log directory. */
+  readonly logs: string;
+}
+
+/** What setting a worktree's changes aside did: nothing to do, the paths saved and discarded, or why it was left as it is. */
+export type SetAside = { readonly outcome: 'clean' } | { readonly outcome: 'reset'; readonly paths: readonly string[] } | { readonly outcome: 'left'; readonly problem: string };
 const MAX_SAVED_FILE = 64 * 1024;
 const MAX_SAVED_TOTAL = 1024 * 1024;
 /** How long an ended process may take to disappear before its worktree is reset anyway. */
@@ -81,33 +96,34 @@ function untrackedText(worktree: string, paths: readonly string[], tracked: stri
   });
 }
 
+/**
+ * Saves the uncommitted changes in `actor`'s worktree to `trace`'s full log
+ * (as `log`), then returns the worktree to its last commit. A worktree not on
+ * the actor's branch, or whose changes cannot be read or saved, is left as it
+ * is: changes are never thrown away unsaved.
+ */
+export async function setAsideUncommitted(deps: SetAsideDeps, worktree: string, actor: string, trace: string, log: string): Promise<SetAside> {
+  const branch = await currentBranch(deps.git, worktree);
+  if (!branch.ok || branch.value !== actorBranch(actor)) return { outcome: 'left', problem: `${worktree} is not on ${actorBranch(actor)}; it was left as it is.` };
+  const paths = await uncommittedPaths(deps.git, worktree);
+  const diff = await uncommittedDiff(deps.git, worktree);
+  if (!paths.ok || !diff.ok) return { outcome: 'left', problem: `The changes in ${worktree} could not be read, so it was left as it is.` };
+  if (paths.value.length === 0) return { outcome: 'clean' };
+  const saved = appendFullLog(deps.logs, deps.clock, trace, log, {
+    at: deps.clock.now().toISOString(), worktree, paths: paths.value, diff: diff.value, untracked: untrackedText(worktree, paths.value, diff.value),
+  });
+  if (!saved.ok) return { outcome: 'left', problem: `The changes in ${worktree} could not be saved to the run's log, so it was left as it is.` };
+  const discarded = await discardUncommitted(deps.git, worktree);
+  return discarded.ok ? { outcome: 'reset', paths: paths.value } : { outcome: 'left', problem: `${worktree} could not be reset (${discarded.error.reason}).` };
+}
+
 async function resetWorktree(deps: RecoveryDeps, spawn: SpawnEntry, report: RecoveryReport): Promise<void> {
   const vault = deps.vaults.find((v) => v.id === spawn.vault);
   if (vault === undefined || spawn.actor === undefined) return;
   const worktree = actorWorktreePath(vault, spawn.actor);
-  const branch = await currentBranch(deps.git, worktree);
-  if (!branch.ok || branch.value !== actorBranch(spawn.actor)) {
-    report.problems.push(`${worktree} is not on ${actorBranch(spawn.actor)}; it was left as it is.`);
-    return;
-  }
-  const paths = await uncommittedPaths(deps.git, worktree);
-  const diff = await uncommittedDiff(deps.git, worktree);
-  if (!paths.ok || !diff.ok) {
-    report.problems.push(`The changes in ${worktree} could not be read, so it was left as it is.`);
-    return;
-  }
-  if (paths.value.length === 0) return;
-  const saved = appendFullLog(deps.logs, deps.clock, spawn.trace, RECOVERY_LOG, {
-    at: deps.clock.now().toISOString(), worktree, paths: paths.value, diff: diff.value, untracked: untrackedText(worktree, paths.value, diff.value),
-  });
-  // Changes that cannot be saved are not thrown away.
-  if (!saved.ok) {
-    report.problems.push(`The changes in ${worktree} could not be saved to the run's log, so it was left as it is.`);
-    return;
-  }
-  const discarded = await discardUncommitted(deps.git, worktree);
-  if (discarded.ok) report.reset.push(worktree);
-  else report.problems.push(`${worktree} could not be reset (${discarded.error.reason}).`);
+  const done = await setAsideUncommitted(deps, worktree, spawn.actor, spawn.trace, RECOVERY_LOG);
+  if (done.outcome === 'reset') report.reset.push(worktree);
+  else if (done.outcome === 'left') report.problems.push(done.problem);
 }
 
 /** Returns the daemon's state to a clean slate; what it did is reported. */

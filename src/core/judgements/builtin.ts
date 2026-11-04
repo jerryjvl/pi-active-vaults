@@ -12,19 +12,25 @@
 //    a model the policy allows for the run's vault — a question no permitted
 //    model can answer is reported unjudged, and the others are still answered;
 //  - content is data: it is sent only as the state, never as instructions;
-//  - a model that cannot answer fails the run; nothing is guessed.
+//  - a model that cannot answer is asked once more; if it still cannot, its
+//    questions are reported unjudged with why, and the other models' answers
+//    stand — nothing is guessed, and a caller treats an unjudged question as
+//    not passed, so keeping the rest never lets anything through.
 //
 // Input (standard input, or `--file <path>` — relative to the run's directory,
 // or `scratch:<name>` in the session's scratch directory):
 //   { "state": <object or text>, "questions": { <name>: <axis> } }
 // Output: { "answers": { <name>: <answer> & { model, passed?, level? } },
 //           "unjudged"?: { <name>: <reason> } }
-// Exit: 0 answered, 1 a model failed, 2 usage, 3 nothing could be answered.
+// Exit: 0 answered, 1 a model failed (the output says which questions), 2 usage,
+// 3 no permitted model for any question.
 //
 // A batch asks many at once: { "questions"?: <shared>, "batch": [{ "id", "state",
 // "questions"? }] } (an entry's own questions replace the shared ones), and
 // answers { "results": { <id>: <output> | { "error": <why> } } }; one entry's
-// failure does not stop the others, and the exit is 1 if any failed.
+// failure does not stop the others. The exit is 0 when every entry was fully
+// answered, 4 when no entry got any answer, and 1 otherwise. The output is
+// written in every case, so a caller can keep what was judged.
 // `--out scratch:<name>` writes the output there and prints only a summary, so
 // a long batch need not pass through the caller's context.
 
@@ -129,8 +135,11 @@ function answerOf(axis: Axis, answer: SystemOneAnswer, model: string, thresholde
 }
 
 type Judged =
-  | { readonly ok: true; readonly body: { answers: Record<string, Record<string, unknown>>; unjudged?: Record<string, string> } }
+  | { readonly ok: true; readonly body: { answers: Record<string, Record<string, unknown>>; unjudged?: Record<string, string> }; readonly failed?: string }
   | { readonly ok: false; readonly exitCode: number; readonly message: string; readonly body?: object };
+
+/** How many times a judgement model is asked before its questions are left unjudged: a second chance for a passing fault. */
+const ATTEMPTS = 2;
 
 /** One request's answers, each question by the model it names (else the default) that the policy allows for `vault`. */
 async function judge(deps: JudgeBuiltinDeps, vault: string, request: Request): Promise<Judged> {
@@ -149,17 +158,30 @@ async function judge(deps: JudgeBuiltinDeps, vault: string, request: Request): P
     group.axes.push(axis);
     byModel.set(model.value.name, group);
   }
+  // Why the first model that failed could not answer, for the summary.
+  let failed: string | undefined;
   for (const [name, { model, axes: asked }] of byModel) {
-    const result = await askSystemOne(deps.client, model, { state: request.state, questions: Object.fromEntries(asked.map((a) => [a.name, a.question])) });
-    if (!result.ok) return { ok: false, exitCode: 1, message: `the judgement model ${name} could not answer (${result.error.reason}${'status' in result.error ? ` ${result.error.status}` : ''})` };
+    const questions = Object.fromEntries(asked.map((a) => [a.name, a.question]));
+    let result = await askSystemOne(deps.client, model, { state: request.state, questions });
+    for (let attempt = 1; !result.ok && attempt < ATTEMPTS; attempt++) result = await askSystemOne(deps.client, model, { state: request.state, questions });
+    if (!result.ok) {
+      const why = `the judgement model ${name} could not answer (${result.error.reason}${'status' in result.error ? ` ${result.error.status}` : ''})`;
+      failed ??= why;
+      for (const axis of asked) unjudged[axis.name] = why;
+      continue;
+    }
     for (const axis of asked) {
       const answer = result.value.answers[axis.name];
-      if (answer === undefined) return { ok: false, exitCode: 1, message: `the judgement model ${name} gave no answer for ${axis.name}` };
-      answers[axis.name] = answerOf(axis, answer, name, request.questions[axis.name]?.['pass-when'] !== undefined);
+      if (answer === undefined) {
+        const why = `the judgement model ${name} gave no answer for ${axis.name}`;
+        failed ??= why;
+        unjudged[axis.name] = why;
+      } else answers[axis.name] = answerOf(axis, answer, name, request.questions[axis.name]?.['pass-when'] !== undefined);
     }
   }
-  if (Object.keys(answers).length === 0) return { ok: false, exitCode: 3, message: 'no permitted judgement model could answer any question', body: { answers, unjudged } };
-  return { ok: true, body: Object.keys(unjudged).length === 0 ? { answers } : { answers, unjudged } };
+  const body = Object.keys(unjudged).length === 0 ? { answers } : { answers, unjudged };
+  if (Object.keys(answers).length === 0 && failed === undefined) return { ok: false, exitCode: 3, message: 'no permitted judgement model could answer any question', body };
+  return { ok: true, body, ...(failed === undefined ? {} : { failed }) };
 }
 
 /** The built-in, answering for content of the run's `vault`. */
@@ -188,22 +210,23 @@ export function judgeBuiltin(deps: JudgeBuiltinDeps, context: { readonly vault: 
       if ('single' in parsed) {
         const judged = await judge(deps, context.vault, parsed.single);
         if (!judged.ok) return output(judged.exitCode, judged.body === undefined ? '' : `${JSON.stringify(judged.body)}\n`, `${judged.message}\n`);
-        return written(judged.body, `answered: ${Object.keys(judged.body.answers).length} question(s) → ${flags.out}`, 0);
+        const unjudged = Object.keys(judged.body.unjudged ?? {}).length;
+        return written(judged.body, `answered: ${Object.keys(judged.body.answers).length} question(s)${unjudged === 0 ? '' : `, ${unjudged} unjudged`} → ${flags.out}`, judged.failed === undefined ? 0 : 1, judged.failed === undefined ? '' : `${judged.failed}\n`);
       }
       const results: Record<string, object> = {};
+      // Entries not fully answered, and those with no answer at all.
       let failed = 0;
+      let unanswered = 0;
       for (const { id, request } of parsed.batch) {
-        if (typeof request === 'string') {
-          results[id] = { error: request };
-          failed += 1;
-          continue;
-        }
-        const judged = await judge(deps, context.vault, request);
+        const judged = typeof request === 'string' ? { ok: false as const, message: request } : await judge(deps, context.vault, request);
         results[id] = judged.ok ? judged.body : { error: judged.message };
-        if (!judged.ok) failed += 1;
+        if (!judged.ok || judged.failed !== undefined) failed += 1;
+        if (!judged.ok || Object.keys(judged.body.answers).length === 0) unanswered += 1;
       }
-      const summary = `judged ${parsed.batch.length - failed} of ${parsed.batch.length}${failed === 0 ? '' : ` (${failed} failed)`} → ${flags.out}`;
-      return written({ results }, summary, failed === 0 ? 0 : 1, failed === 0 ? '' : `${failed} batch entr${failed === 1 ? 'y' : 'ies'} could not be judged\n`);
+      const total = parsed.batch.length;
+      const summary = `judged ${total - failed} of ${total}${failed === 0 ? '' : ` (${failed} not fully)`} → ${flags.out}`;
+      const exitCode = failed === 0 ? 0 : unanswered === total ? 4 : 1;
+      return written({ results }, summary, exitCode, failed === 0 ? '' : `${failed} batch entr${failed === 1 ? 'y' : 'ies'} could not be fully judged${exitCode === 4 ? ', none at all' : ''}\n`);
     },
   };
 }

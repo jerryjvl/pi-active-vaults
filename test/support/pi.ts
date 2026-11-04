@@ -59,6 +59,8 @@ export interface PiOptions {
   readonly mcpServers?: Readonly<Record<string, unknown>>;
   /** The installation's own instructions, in Pi's user-level `APPEND_SYSTEM.md`. */
   readonly appendSystem?: string;
+  /** A faux model that thinks, so a request carries its thinking level. */
+  readonly reasoning?: boolean;
 }
 
 function textOf(content: unknown): string {
@@ -90,7 +92,7 @@ export async function openPi(t: TestInstallation, options: PiOptions = {}): Prom
   const agentDir = mkdtempSync(join(tmpdir(), 'pav-pi-'));
   if (options.mcpServers !== undefined) writeFileSync(join(agentDir, 'mcp.json'), JSON.stringify({ mcpServers: options.mcpServers }));
   if (options.appendSystem !== undefined) writeFileSync(join(agentDir, 'APPEND_SYSTEM.md'), options.appendSystem);
-  const faux = fauxProvider();
+  const faux = fauxProvider(options.reasoning === true ? { models: [{ id: 'faux-thinking', reasoning: true }] } : undefined);
   const requests: PiRequest[] = [];
   const events: PiSession['events'] = [];
   const results: PiSession['results'] = [];

@@ -24,16 +24,24 @@
 //    model says: commits on the actor's branch carrying the run's trace make
 //    it `committed`; otherwise its budget record (used up, past its run
 //    time), a kill, a stop on request, a failed process, or a last model
-//    request that ended in an error (Pi's last assistant `message_end` says
-//    `stopReason: error`) stop it; a run that settled normally and committed
-//    nothing is `no-change`. A model error after commits leaves the run
-//    `committed`, and is recorded with its end in the full log;
+//    request that did not finish — an error, or cut off at the model's output
+//    limit (Pi's last assistant `message_end`; models `unfinishedAnswer`) —
+//    stop it; a run that settled normally and committed nothing is
+//    `no-change`. A model error after commits leaves the run `committed`,
+//    and is recorded with its end in the full log;
 //  - a run whose job has a `web` block gets the grants the signer issues for
 //    it, in its run file (concepts.md "Web grants"). The daemon never signs:
 //    it only asks, and a run the signer refuses — or cannot be asked about —
 //    runs without grants, its fetches under the web broker's default rules;
 //  - each step is in the run's full log (`daemon`; Pi's events in `pi`, its
-//    streaming deltas left out), and the run file is removed at the end.
+//    streaming deltas left out), and the run file is removed at the end;
+//  - a run leaves its worktree clean: whatever it did not commit is saved to
+//    its full log (`uncommitted`) and discarded as it ends, so a run stopped
+//    half-way never stops the next one (queue `setAsideUncommitted`);
+//  - a run stopped for its budget, its run time, an error, or before it could
+//    start (no session, no model, out of date) is told to the vault's owners — once per job and reason within the
+//    outbox's cooldown — so a failing job is never silent. A sync conflict is
+//    not: the daemon tells owners of those itself (`tellConflicts`).
 
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -42,15 +50,18 @@ import { budgetState } from '../budgets/index.ts';
 import { ensurePrivateDir } from '../config/index.ts';
 import { commitsBetween, resolveRevision } from '../git/index.ts';
 import { requestGrants, type RunGrants } from '../grants/index.ts';
-import { acceptedIdentity, requireNoUnacceptedChange } from '../integrity/index.ts';
-import { resolveModel } from '../models/index.ts';
+import { acceptedIdentity, requireNoUnacceptedChange, type AcceptedMain } from '../integrity/index.ts';
+import { resolveModel, unfinishedAnswer } from '../models/index.ts';
 import { packageIdentity, type OperationContext } from '../operations/index.ts';
 import { processStartTime, startChild } from '../process/index.ts';
 import {
-  commitSpawn, forgetRunProcess, noChangeSpawn, recordRunProcess, recordSpawn, startSpawn, stopSpawn, vaultJobs, type SpawnEntry, type StopReason,
+  commitSpawn, forgetRunProcess, noChangeSpawn, recordRunProcess, recordSpawn, setAsideUncommitted, startSpawn, stopSpawn, vaultJobs,
+  type SetAside, type SpawnEntry, type StopReason,
 } from '../queue/index.ts';
+import type { RegisteredVault } from '../registry/index.ts';
 import { renderRunContext } from '../sessions/index.ts';
 import { appendFullLog } from '../traces/index.ts';
+import { notifyOwners } from './vaults.ts';
 
 export interface PiCommand {
   /** The program, and arguments before the package's own (a launcher, or `node <cli.js>`). */
@@ -79,6 +90,42 @@ export interface RunHandle {
 /** What the prompt asks; the job itself is the run's brief, from its accepted main. */
 const BEGIN = 'Begin the job you were briefed with.';
 const LOGGED_EVENT_SKIPPED = new Set(['message_update', 'tool_execution_update']);
+/** The full log that keeps what a run left uncommitted. */
+const UNCOMMITTED_LOG = 'uncommitted';
+
+/**
+ * Why a run stopped, as its owners are told. Not told: `requested` (a person
+ * asked), `restart` (recovery reports it) and `queue-time` (the queue expires
+ * those, never a run).
+ */
+const STOPPED: Partial<Record<StopReason, string>> = {
+  'budget': 'it used its token budget', 'ttl': 'it ran out of time', 'error': 'it failed',
+  'no-session': 'the session it needs is not known here', 'no-model': 'it has no model it may use', 'out-of-date': 'its branch could not be brought up to date',
+};
+
+/**
+ * Tells the vault's owners that a run stopped, or left changes that will stop
+ * the next one; nothing for a reason not worth telling. What it says is the
+ * package's own account, never the model's, and names the trace for the rest.
+ */
+async function tellStopped(
+  context: OperationContext, vault: RegisteredVault, accepted: AcceptedMain, spawn: SpawnEntry,
+  reason: StopReason | undefined, detail: string | undefined, setAside: SetAside = { outcome: 'clean' },
+): Promise<void> {
+  const why = reason === undefined ? undefined : STOPPED[reason];
+  if (why === undefined && setAside.outcome !== 'left') return;
+  const lines = [
+    why === undefined ? `The run of ${spawn.document} in vault "${vault.id}" left changes it did not commit.` : `The run of ${spawn.document} in vault "${vault.id}" stopped: ${why}.`,
+    ...(detail === undefined ? [] : [detail]),
+    ...(setAside.outcome === 'reset' ? [`What it had not committed (${setAside.paths.length} file${setAside.paths.length === 1 ? '' : 's'}) is saved in its log, and its worktree was reset, so the next run starts clean.`] : []),
+    ...(setAside.outcome === 'left' ? [`Its worktree still holds them, so the next run cannot start: ${setAside.problem}`] : []),
+    `Its trace is ${spawn.trace}: "vault trace ${spawn.trace}" shows it while its logs are kept.`,
+  ];
+  const label = why === undefined ? 'left uncommitted changes' : `stopped (${reason})`;
+  await notifyOwners(context, vault, accepted, () => ({
+    subject: `Vault "${vault.id}": ${spawn.document} ${label}`, body: `${lines.join('\n\n')}\n`, key: `stopped:${vault.id}:${spawn.document}:${reason ?? 'left'}`,
+  }));
+}
 
 function log(context: OperationContext, trace: string, name: string, record: Readonly<Record<string, unknown>>): void {
   appendFullLog(context.installation.paths.logs, context.clock, trace, name, { at: context.clock.now().toISOString(), ...record });
@@ -113,14 +160,18 @@ async function runGrants(context: OperationContext, vault: string, spawn: SpawnE
   return asked.value;
 }
 
-/** A spawn that never ran: stopped with `reason` and recorded, with why in its log, and told. */
-function never(context: OperationContext, spawn: SpawnEntry, reason: StopReason, detail: string, finished: (spawn: SpawnEntry) => void): RunHandle {
+/** A spawn that never ran: stopped with `reason` and recorded, with why in its log, and told — to its owners too, given its vault's accepted main. */
+function never(
+  context: OperationContext, spawn: SpawnEntry, reason: StopReason, detail: string, finished: (spawn: SpawnEntry) => void,
+  owners?: { readonly vault: RegisteredVault; readonly accepted: AcceptedMain },
+): RunHandle {
   const stopped = stopSpawn(context.state, context.clock, spawn.id, reason);
   log(context, spawn.trace, 'daemon', { event: 'not-run', reason, detail });
   const recorded = stopped.ok ? recordSpawn(context.state, spawn.id) : stopped;
   const ended = recorded.ok ? recorded.value : spawn;
   finished(ended);
-  return { spawn: ended, stop: () => {}, ended: Promise.resolve(ended) };
+  const told = owners === undefined ? Promise.resolve() : tellStopped(context, owners.vault, owners.accepted, spawn, reason, detail);
+  return { spawn: ended, stop: () => {}, ended: told.then(() => ended) };
 }
 
 /**
@@ -144,7 +195,9 @@ export async function startRun(
   const mode = condition?.context ?? 'session-preferred';
   const session = mode === 'bare' ? undefined : originSession(spawn);
   const fork = session === undefined ? undefined : options.sessionFile(session);
-  const end = (reason: StopReason, detail: string): RunHandle => never(context, spawn, reason, detail, hooks.finished);
+  const actor = spawn.actor;
+  const owners = { vault, accepted: accepted.value };
+  const end = (reason: StopReason, detail: string, told = true): RunHandle => never(context, spawn, reason, detail, hooks.finished, told ? owners : undefined);
   const model = resolveModel(context.installation.config, 'agent', [vault.id], spawn.model);
   if (!model.ok || (spawn.model !== undefined && model.value.name !== spawn.model)) {
     return end('no-model', model.ok ? `its model "${spawn.model ?? ''}" is no longer configured` : `no agent model it may use (${model.error.reason})`);
@@ -163,7 +216,7 @@ export async function startRun(
   if (!synced.ok && synced.error.reason === 'sync-conflict') {
     // Only an owner can resolve it: the log says what conflicts and how (the owners are told by the daemon too).
     const identity = await acceptedIdentity(context.reads, context.git, vault.path, accepted.value);
-    if (identity.ok) return end('out-of-date', conflictNotice(vault, synced.error.conflict, identity.value.review));
+    if (identity.ok) return end('out-of-date', conflictNotice(vault, synced.error.conflict, identity.value.review), false);
   }
   if (synced.ok && synced.value.outcome === 'uncommitted-changes') return end('out-of-date', uncommittedNotice(vault, spawn.actor));
   if (!synced.ok) {
@@ -197,7 +250,7 @@ export async function startRun(
 
   let stoppedFor: StopReason | undefined;
   let settled = false;
-  // The last model request's error, if it ended in one: a later answer clears it.
+  // Why the last model request did not finish, if it did not: a later answer clears it.
   let modelError: string | undefined;
   child.onLine((line) => {
     let record: unknown;
@@ -210,7 +263,7 @@ export async function startRun(
     if (typeof type === 'string' && LOGGED_EVENT_SKIPPED.has(type)) return;
     log(context, spawn.trace, 'pi', { record });
     const answer = type === 'message_end' ? assistantMessage(record) : undefined;
-    if (answer !== undefined) modelError = modelErrorOf(answer);
+    if (answer !== undefined) modelError = unfinishedAnswer(answer);
     if (type === 'agent_settled' && !settled) {
       settled = true;
       child.endInput();
@@ -231,6 +284,8 @@ export async function startRun(
     rmSync(runFile, { force: true });
     const ours = await commitsBetween(context.git, worktree.value.path, before.value, 'HEAD');
     const commit = ours.ok ? ours.value.filter((c) => trailerValue(c, TRAILER.trace) === spawn.trace).at(-1)?.sha : undefined;
+    // Whatever it did not commit is set aside before anything else can start in its worktree.
+    const setAside = await setAsideUncommitted({ git: context.git, clock: context.clock, logs: context.installation.paths.logs }, worktree.value.path, actor, spawn.trace, UNCOMMITTED_LOG);
     const state = budgetState(context.state, context.installation.config.budgets, context.clock, spawn.trace);
     const reason: StopReason | undefined = stoppedFor
       ?? (state?.exhausted === true || state?.dailyExhausted === true ? 'budget' : state?.overTime === true ? 'ttl' : undefined)
@@ -242,11 +297,15 @@ export async function startRun(
     log(context, spawn.trace, 'daemon', {
       event: 'ended', outcome: outcome.ok ? outcome.value.state : 'unrecorded', ...(commit === undefined ? {} : { commit }),
       ...(commit === undefined && reason !== undefined ? { reason } : {}), ...(modelError === undefined ? {} : { modelError }),
+      ...(setAside.outcome === 'reset' ? { setAside: setAside.paths } : setAside.outcome === 'left' ? { setAsideProblem: setAside.problem } : {}),
       exitCode: exit.exitCode, signal: exit.signal, stderr: child.stderr(),
     });
     const recorded = outcome.ok ? recordSpawn(context.state, spawn.id) : outcome;
     const final = recorded.ok ? recorded.value : running.value;
     hooks.finished(final);
+    const stopped = commit === undefined ? reason : undefined;
+    const detail = stopped === 'error' ? modelError ?? `Pi ended with ${exit.exitCode === null ? `signal ${exit.signal ?? 'unknown'}` : `exit code ${exit.exitCode}`}${settled ? '' : ', before it settled'}.` : undefined;
+    await tellStopped(context, vault, accepted.value, spawn, stopped, detail, setAside);
     return final;
   });
   return { spawn: running.value, stop: kill, ended };
@@ -256,11 +315,5 @@ export async function startRun(
 function assistantMessage(record: unknown): { stopReason?: unknown; errorMessage?: unknown } | undefined {
   const message = typeof record === 'object' && record !== null ? (record as { message?: unknown }).message : undefined;
   return typeof message === 'object' && message !== null && (message as { role?: unknown }).role === 'assistant' ? message : undefined;
-}
-
-/** Why the model request behind `answer` failed, or undefined when it ended normally. */
-function modelErrorOf(answer: { stopReason?: unknown; errorMessage?: unknown }): string | undefined {
-  if (answer.stopReason !== 'error') return undefined;
-  return typeof answer.errorMessage === 'string' && answer.errorMessage !== '' ? answer.errorMessage : 'the model request failed';
 }
 

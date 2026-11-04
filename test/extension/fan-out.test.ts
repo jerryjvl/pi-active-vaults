@@ -34,6 +34,7 @@ function recording(asked: Asked[], reply: ReturnType<typeof fauxAssistantMessage
   };
 }
 
+const traceOf = (pi: { events: { channel: string; data: unknown }[] }): string => (pi.events.find((e) => e.channel === 'pav:v1:ready')?.data as { trace: string }).trace;
 const structuredOf = (pi: { results: { tool: string; structured: unknown }[] }) =>
   pi.results.find((r) => r.tool === 'vault_fan_out')?.structured as { status: string; data: { gathered: string | null; items: { item: string; outcome: string; result?: string; reason?: string }[] } } | undefined;
 
@@ -141,6 +142,30 @@ test('an item that fails is reported as failed and not gathered; the others stil
   });
 }, { running: RUNNING }));
 
+test('an item cut off at the model\'s output limit failed, even with a workspace it wrote in; so is a gather cut off', { skip: process.platform === 'win32' ? 'paths' : false }, withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    pi.respond(
+      fanOut({ items: ['apples', 'pears'], each: 'Write the colour to colour.json.', workspace: true, save: 'scratch:outcomes.json' }),
+      // Item 1 writes a file, then spends the rest of its turn and is cut off: its file is not its result.
+      () => toolCall('workspace_write', { path: 'colour.json', content: '{"colour": "red"}' }),
+      fauxAssistantMessage('', { stopReason: 'length' }),
+      fauxAssistantMessage(''),
+      fanOut({ items: ['a'], each: 'Do it.', gather: 'Combine.' }),
+      fauxAssistantMessage('A'), fauxAssistantMessage('A and', { stopReason: 'length' }),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    const [saved, gathered] = pi.results.filter((r) => r.tool === 'vault_fan_out').map((r) => r.structured as { status: string; data: { items: { outcome: string; reason?: string }[] } | null; text: string });
+    assert.deepEqual(saved?.data?.items.map((i) => [i.outcome, i.reason]), [['failed', 'the model reached its output limit before it finished'], ['done', undefined]]);
+    assert.match(saved?.text ?? '', /Not done:\napples: failed \(the model reached its output limit before it finished\)/);
+    const log = readFullLog(t.context.installation.paths.logs, traceOf(pi)).find((l) => l.name === 'session')?.text ?? '';
+    const items = log.trim().split('\n').map((l) => JSON.parse(l) as { kind: string; item?: number; outcome?: string; text?: string }).filter((l) => l.kind === 'item');
+    assert.deepEqual(items.map((i) => [i.item, i.outcome, i.text]).slice(0, 2), [[1, 'failed', 'the model reached its output limit before it finished'], [2, 'done', '']], 'why, in the session\'s log');
+    assert.equal(gathered?.status, 'failed');
+    assert.match(gathered?.text ?? '', /could not be gathered: the model reached its output limit/);
+  });
+}, { running: RUNNING }));
+
 test('without a gather instruction each item\'s outcome comes back as it is, as JSON', withInstallation(async (t) => {
   await withPi(t, {}, async (pi) => {
     pi.respond(
@@ -216,7 +241,44 @@ test('an item over the budget stops before its next step, and later items are sk
     await pi.prompt('Run the job.');
     const result = pi.results.find((r) => r.tool === 'vault_fan_out');
     assert.equal(result?.isError, true);
-    assert.match(result?.text ?? '', /a: the run's budget is used; b: the run's budget is used/);
+    assert.match(result?.text ?? '', /a: the run's budget is used \(what is left is kept to finish the run\); b: the run's budget is used/);
+  });
+}, { running: RUNNING }));
+
+test('once the time for items is up, the item running stops and the rest are skipped, leaving the run its last steps', withInstallation(async (t) => {
+  const entry = startedSpawn(t, 'jobs/daily.md');
+  const runFile = t.dir.file('run.json');
+  writeFileSync(runFile, renderRunContext(runOf(entry)));
+  await withPi(t, { flags: { 'vault-run': runFile } }, async (pi) => {
+    pi.respond(
+      fanOut({ items: ['a', 'b', 'c'], each: 'Do it.', save: 'scratch:outcomes.json' }),
+      fauxAssistantMessage('A'),
+      // Item b reaches the last minute of the run's ten, which is kept for its last steps.
+      () => { t.clock.advance(541_000); return toolCall('read', { path: 'notes.md' }); },
+      fauxAssistantMessage('B'),
+      DONE,
+    );
+    await pi.prompt('Run the job.');
+    assert.deepEqual(structuredOf(pi)?.data.items.map((i) => [i.item, i.outcome, i.reason]), [
+      ['a', 'done', undefined],
+      ['b', 'skipped', 'the run\'s time is used (what is left is kept to finish the run)'],
+      ['c', 'skipped', 'the run\'s time is used (what is left is kept to finish the run)'],
+    ]);
+  });
+}, { running: RUNNING }));
+
+test('a call may name the items\' thinking level; otherwise they think as the session does', withInstallation(async (t) => {
+  await withPi(t, { reasoning: true }, async (pi) => {
+    const levels: (string | undefined)[] = [];
+    const noting = (reply: string): FauxResponseStep => (_context, options) => { levels.push(options?.reasoning); return fauxAssistantMessage(reply); };
+    pi.respond(
+      fanOut({ items: ['a'], each: 'Do it.', thinking: 'low' }), noting('A'),
+      fanOut({ items: ['b'], each: 'Do it.' }), noting('B'),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    assert.equal(levels[0], 'low');
+    assert.notEqual(levels[1], 'low');
   });
 }, { running: RUNNING }));
 
@@ -235,6 +297,25 @@ test('with save, the outcomes go to the session\'s scratch directory and only a 
     assert.equal(toolResults(pi.requests.at(-1), 'vault_fan_out')[0], 'Saved 2 outcome(s) to scratch:outcomes.json: 1 done.\nNot done:\nb: failed (overloaded)');
   });
   assert.equal(existsSync(scratch), false, 'removed when the session closed');
+}, { running: RUNNING }));
+
+test('with save, the outcomes are saved even when no item was done, so a script learns why', withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    pi.respond(
+      fanOut({ items: ['a', 'b'], each: 'Do it.', save: 'scratch:outcomes.json' }),
+      fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'overloaded' }), fauxAssistantMessage('', { stopReason: 'length' }),
+      () => {
+        // The session's next step stands in for the script that reads the outcomes.
+        const saved = JSON.parse(readFileSync(join(t.context.installation.paths.scratch, traceOf(pi), 'outcomes.json'), 'utf8')) as unknown;
+        assert.deepEqual(saved, [{ item: 'a', outcome: 'failed', reason: 'overloaded' }, { item: 'b', outcome: 'failed', reason: 'the model reached its output limit before it finished' }]);
+        return DONE;
+      },
+    );
+    await pi.prompt('Fan out.');
+    const result = pi.results.find((r) => r.tool === 'vault_fan_out');
+    assert.equal(result?.isError, true);
+    assert.match(result?.text ?? '', /^No item could be done \(the outcomes are saved to scratch:outcomes\.json\): a: overloaded; b: the model reached/);
+  });
 }, { running: RUNNING }));
 
 test('save names a file in the scratch directory, never a path, and does not go with gather', withInstallation(async (t) => {
@@ -297,7 +378,6 @@ test('items from scratch name a file there holding a JSON array of strings; anyt
 }, { running: RUNNING }));
 
 /** The session's trace, as its ready event gives it. */
-const traceOf = (pi: { events: { channel: string; data: unknown }[] }): string => (pi.events.find((e) => e.channel === 'pav:v1:ready')?.data as { trace: string }).trace;
 
 test('with workspace, each item writes files in a new directory of its own and nowhere else; the outcomes say where, and an empty answer is no failure', { skip: process.platform === 'win32' ? 'paths' : false }, withInstallation(async (t) => {
   await withPi(t, {}, async (pi) => {

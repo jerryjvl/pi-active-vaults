@@ -134,6 +134,8 @@ export interface InstallationConfig {
     readonly cascadePool?: number;
     readonly depthDecay: number;
     readonly maxDepth: number;
+    /** The share of a headless run's tokens and time a fan-out leaves for the steps after it. */
+    readonly reserve: number;
   };
   /** Tools that do not taint a session; every other tool does. */
   readonly taint: { readonly trustedTools: readonly string[] };
@@ -155,6 +157,7 @@ export type ConfigError =
 
 const DEFAULT_DEPTH_DECAY = 0.5;
 const DEFAULT_MAX_DEPTH = 4;
+const DEFAULT_RESERVE = 0.1;
 const DEFAULT_KEEP_DAYS = 7;
 const DEFAULT_QUEUE_TIME_MS = 24 * 60 * 60 * 1000;
 /** A vault id, as the config and a root contract give it. */
@@ -349,12 +352,18 @@ function readSubscriptionsAndPolicy(r: Reader, raw: PlainObject, vaultIds: Reado
 }
 
 function readBudgets(r: Reader, value: unknown): InstallationConfig['budgets'] {
-  const b = r.record(value ?? {}, 'budgets', ['daily-tokens', 'cascade-pool', 'depth-decay', 'max-depth']);
+  const b = r.record(value ?? {}, 'budgets', ['daily-tokens', 'cascade-pool', 'depth-decay', 'max-depth', 'reserve']);
   let depthDecay = DEFAULT_DEPTH_DECAY;
   if (b['depth-decay'] !== undefined) {
     const decay = b['depth-decay'];
     if (typeof decay === 'number' && decay > 0 && decay <= 1) depthDecay = decay;
     else r.add('budgets.depth-decay', 'must be a number above 0 and at most 1');
+  }
+  let reserve = DEFAULT_RESERVE;
+  if (b['reserve'] !== undefined) {
+    const share = b['reserve'];
+    if (typeof share === 'number' && share >= 0 && share < 1) reserve = share;
+    else r.add('budgets.reserve', 'must be a number from 0 to below 1');
   }
   const dailyTokens = r.integer(b, 'daily-tokens', 'budgets');
   const cascadePool = r.integer(b, 'cascade-pool', 'budgets');
@@ -363,6 +372,7 @@ function readBudgets(r: Reader, value: unknown): InstallationConfig['budgets'] {
     ...(cascadePool === undefined ? {} : { cascadePool }),
     depthDecay,
     maxDepth: r.integer(b, 'max-depth', 'budgets', DEFAULT_MAX_DEPTH),
+    reserve,
   };
 }
 
