@@ -125,3 +125,29 @@ test('an endpoint is a loopback address and port, a socket path, or none (standa
   ]);
   assert.deepEqual(config.profiles[0]?.token, { kind: 'env', name: 'T', where: 'mcp.profiles[0].token' });
 });
+
+test('profiles on one address and port share its endpoint, and at most one is its default; a socket or pipe serves one profile', () => {
+  const config = parsed({ profiles: [
+    { name: 'assistant', listen: '127.0.0.1:8735', token: '${T}', default: true },
+    { name: 'assistant-alice', listen: '127.0.0.1:8735', token: '${T}' },
+    { name: 'other', listen: '127.0.0.1:8736', token: '${T}', default: false },
+  ] });
+  assert.deepEqual(config.profiles.map((p) => [p.name, p.default]), [['assistant', true], ['assistant-alice', false], ['other', false]]);
+
+  assert.deepEqual(issues({ profiles: [
+    { name: 'a', listen: '127.0.0.1:8735', token: '${T}', default: true },
+    { name: 'b', listen: '127.0.0.1:8735', token: '${T}', default: true },
+  ] }), ['mcp.profiles[1].default: another profile is this endpoint\'s default']);
+  assert.deepEqual(issues({ profiles: [
+    { name: 'a', listen: '/run/user/1000/pav.sock' },
+    { name: 'b', listen: '/run/user/1000/pav.sock' },
+  ] }), ['mcp.profiles[1].listen: another profile has this socket or pipe; only an address and port can be shared']);
+  assert.deepEqual(issues({ profiles: [
+    { name: 'a', listen: '/run/user/1000/pav.sock', default: true },
+    { name: 'b', default: true },
+  ] }), [
+    'mcp.profiles[0].default: only a profile on an address and port can be a default',
+    'mcp.profiles[1].default: only a profile on an address and port can be a default',
+  ]);
+  assert.deepEqual(issues(profile({ default: 'yes' })), ['mcp.profiles[0].default: must be true or false']);
+});

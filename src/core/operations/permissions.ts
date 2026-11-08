@@ -16,8 +16,11 @@
 //    have been pasted by mistake);
 //  - `accept` is an owner act: a profile that permits it anywhere must name the
 //    owner whose approvals it records — checked here and again at the call;
-//  - every HTTP endpoint has a token; a socket or pipe path is protected by
-//    being the user's own instead.
+//  - every profile on an address and port has a token; a socket or pipe path
+//    is protected by being the user's own instead;
+//  - profiles on one address and port share its endpoint (mcp.md "Sharing an
+//    endpoint"), at most one of them its default; a socket or pipe serves one
+//    profile, so the path never chooses between profiles that have no token.
 
 import { parseSecretRef, type SecretRef } from '../config/index.ts';
 import { applyListOps } from '../contracts/index.ts';
@@ -54,6 +57,13 @@ export interface McpProfile {
   readonly vaults: ReadonlyMap<string, ReadonlySet<Permission>>;
   /** The owner whose approvals `accept` through this profile records. */
   readonly owner?: string;
+  /** Whether it serves its shared endpoint's `/mcp` and the names the endpoint does not have. */
+  readonly default: boolean;
+}
+
+/** What makes two endpoints the same one: the address and port, or the path. */
+export function endpointKey(endpoint: Endpoint): string {
+  return endpoint.kind === 'tcp' ? `${endpoint.host}:${endpoint.port}` : endpoint.path;
 }
 
 export interface McpConfig {
@@ -118,7 +128,7 @@ function readEndpoint(r: DataReader, value: unknown, path: string): Endpoint | u
 }
 
 function readProfile(r: DataReader, value: unknown, path: string, vaultIds: ReadonlySet<string>, seen: Set<string>): McpProfile {
-  const p = r.record(value, path, ['name', 'listen', 'token', 'permissions', 'vaults', 'owner']);
+  const p = r.record(value, path, ['name', 'listen', 'token', 'permissions', 'vaults', 'owner', 'default']);
   const name = r.string(p['name'], issuePath(path, 'name'), PROFILE_NAME);
   if (name !== '' && seen.has(name)) r.add(issuePath(path, 'name'), 'another profile has this name');
   seen.add(name);
@@ -140,6 +150,8 @@ function readProfile(r: DataReader, value: unknown, path: string, vaultIds: Read
     else vaults.set(vault, readVaultEntry(r, permissions, entry, where));
   }
   const owner = r.optionalString(p, 'owner', path, OWNER);
+  const isDefault = r.boolean(p, 'default', path, false);
+  if (isDefault && listen?.kind !== 'tcp') r.add(issuePath(path, 'default'), 'only a profile on an address and port can be a default');
   const profile: McpProfile = {
     name,
     ...(listen === undefined ? {} : { listen }),
@@ -147,6 +159,7 @@ function readProfile(r: DataReader, value: unknown, path: string, vaultIds: Read
     permissions,
     vaults,
     ...(owner === undefined ? {} : { owner }),
+    default: isDefault,
   };
   const acceptAnywhere = permissions.has('accept') || [...vaults.values()].some((set) => set.has('accept'));
   if (acceptAnywhere && owner === undefined) r.add(path, 'accept is permitted, so the profile must name an owner');
@@ -162,7 +175,28 @@ export function parseMcpConfig(value: unknown, vaultIds: readonly string[]): Res
   const seen = new Set<string>();
   const profiles = r.list(section['profiles'] ?? [], issuePath(WHERE, 'profiles'))
     .map((item, i) => readProfile(r, item, `${issuePath(WHERE, 'profiles')}[${i}]`, known, seen));
+  checkSharing(r, profiles);
   return r.result({ profiles });
+}
+
+/**
+ * Profiles that share an endpoint: only on an address and port, where each
+ * has a token to check, and with at most one default — two would leave which
+ * one an unknown name reaches to the order of the file.
+ */
+function checkSharing(r: DataReader, profiles: readonly McpProfile[]): void {
+  const taken = new Set<string>();
+  const defaults = new Set<string>();
+  profiles.forEach((profile, i) => {
+    if (profile.listen === undefined) return;
+    const path = `${issuePath(WHERE, 'profiles')}[${i}]`;
+    const key = endpointKey(profile.listen);
+    if (taken.has(key) && profile.listen.kind === 'path') r.add(issuePath(path, 'listen'), 'another profile has this socket or pipe; only an address and port can be shared');
+    taken.add(key);
+    if (!profile.default || profile.listen.kind !== 'tcp') return;
+    if (defaults.has(key)) r.add(issuePath(path, 'default'), 'another profile is this endpoint\'s default');
+    defaults.add(key);
+  });
 }
 
 const NOTHING: ReadonlySet<Permission> = new Set();

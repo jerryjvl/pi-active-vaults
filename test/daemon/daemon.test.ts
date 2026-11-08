@@ -113,14 +113,15 @@ test('the daemon recovers before anything else: a spawn left running is stopped 
   }
 }, { running: RUNNING }));
 
-test('the daemon serves each profile with an endpoint, reports one it cannot, and stops serving when it stops', posixOnly, async () => {
+test('the daemon serves each profile with an endpoint, profiles on one port together, reports one it cannot, and stops serving when it stops', posixOnly, async () => {
   const port = await freePort();
   const config = [
     'mcp:',
     '  profiles:',
-    `    - { name: chat, listen: "127.0.0.1:${port}", token: "\${MCP_CHAT}", permissions: [status] }`,
+    `    - { name: chat, listen: "127.0.0.1:${port}", token: "\${MCP_CHAT}", default: true, permissions: [status] }`,
     `    - { name: broken, listen: "127.0.0.1:${port + 1}", token: "\${MCP_UNSET}", permissions: [status] }`,
     '    - { name: local, permissions: [status] }',
+    `    - { name: chat-alice, listen: "127.0.0.1:${port}", token: "\${MCP_CHAT}", permissions: [status] }`,
   ].join('\n');
   await withInstallation(async (t) => {
     const daemon = await startDaemon(options(t));
@@ -128,10 +129,12 @@ test('the daemon serves each profile with an endpoint, reports one it cannot, an
     const url = `http://127.0.0.1:${port}/mcp`;
     try {
       assert.deepEqual(daemon.value.endpoints.map((e) => [e.profile, 'address' in e ? e.address : e.error.reason]), [
-        ['chat', url], ['broken', 'token'],
+        ['chat', `${url}/chat`], ['chat-alice', `${url}/chat-alice`], ['broken', 'token'],
       ], 'a profile without an endpoint is served only by vault mcp');
-      const init = await post(url, INITIALIZE, { authorization: 'Bearer chat-secret' });
-      assert.equal(init.status, 200, init.text);
+      for (const at of [url, `${url}/chat-alice`]) {
+        const init = await post(at, INITIALIZE, { authorization: 'Bearer chat-secret' });
+        assert.equal(init.status, 200, init.text);
+      }
     } finally {
       await daemon.value.stop();
     }

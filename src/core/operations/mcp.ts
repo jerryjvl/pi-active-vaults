@@ -19,7 +19,12 @@
 //  - every response carries the notice of each vault it acted on with an
 //    unaccepted change;
 //  - a bearer token is compared in constant time, and an empty one matches
-//    nothing.
+//    nothing;
+//  - on an endpoint, `/mcp/<name>` is that profile; `/mcp` and a name the
+//    endpoint does not have are its default (the profile alone on it, or the
+//    one marked `default`), or nothing; a deeper path is nothing. The path only
+//    chooses: the chosen profile's token still decides (mcp.md "Sharing an
+//    endpoint").
 
 import { timingSafeEqual } from 'node:crypto';
 import { withoutSteps } from '../git/index.ts';
@@ -30,7 +35,7 @@ import type { OperationContext } from './context.ts';
 import { describeCommandLineError } from './commandline.ts';
 import { invalid, refused } from './messages.ts';
 import { unacceptedNotices } from './notices.ts';
-import { mayCall, permittedOperations, type McpProfile, type Permission } from './permissions.ts';
+import { endpointKey, mayCall, permittedOperations, type Endpoint, type McpProfile, type Permission } from './permissions.ts';
 import { modelResult, type ModelResult } from './results.ts';
 import type { Caller, Operation, OperationOutcome, ParamSpec } from './types.ts';
 
@@ -129,6 +134,38 @@ export async function callMcpTool(context: OperationContext, profile: McpProfile
   // A client on another machine gets no paths of this one: steps that name them are left out.
   const notices = (await unacceptedNotices(context, chosen.vaults)).map((n) => withoutSteps(n.notice));
   return modelResult({ ...outcome, text: withoutSteps(outcome.text) }, notices);
+}
+
+/** The path an endpoint serves MCP at; a shared endpoint serves each profile below it. */
+export const MCP_PATH = '/mcp';
+
+export interface McpEndpointProfiles {
+  readonly endpoint: Endpoint;
+  /** In the order they are configured. */
+  readonly profiles: readonly McpProfile[];
+}
+
+/** Each endpoint the profiles listen on, with the profiles it serves, in the order they are configured. */
+export function mcpEndpoints(profiles: readonly McpProfile[]): McpEndpointProfiles[] {
+  const found = new Map<string, { endpoint: Endpoint; profiles: McpProfile[] }>();
+  for (const profile of profiles) {
+    if (profile.listen === undefined) continue;
+    const key = endpointKey(profile.listen);
+    const entry = found.get(key) ?? { endpoint: profile.listen, profiles: [] };
+    entry.profiles.push(profile);
+    found.set(key, entry);
+  }
+  return [...found.values()];
+}
+
+/** The profile a request's path chooses among an endpoint's profiles; undefined when none. */
+export function profileForPath(profiles: readonly McpProfile[], pathname: string): McpProfile | undefined {
+  const fallback = profiles.length === 1 ? profiles[0] : profiles.find((p) => p.default);
+  if (pathname === MCP_PATH) return fallback;
+  if (!pathname.startsWith(`${MCP_PATH}/`)) return undefined;
+  const name = pathname.slice(MCP_PATH.length + 1);
+  if (name.includes('/')) return undefined;
+  return profiles.find((p) => p.name === name) ?? fallback;
 }
 
 /** Whether an `Authorization` header carries exactly `token` as a bearer token (the scheme's name in any case). */
