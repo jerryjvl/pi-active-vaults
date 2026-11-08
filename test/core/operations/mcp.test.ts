@@ -41,7 +41,7 @@ const tool = (permission: Permission): string => `vault_${permission}`;
 
 test('with no mcp section, or a profile with no permissions, a client sees nothing and can call nothing', withInstallation(async (t) => {
   assert.deepEqual(t.installation.mcp.profiles, []);
-  const empty: McpProfile = { name: 'none', permissions: new Set(), vaults: new Map([['home', new Set()]]) };
+  const empty: McpProfile = { name: 'none', permissions: new Set(), vaults: new Map([['home', new Set()]]), default: false };
   assert.deepEqual(mcpTools(empty), []);
   for (const permission of PERMISSIONS) {
     const result = await call(t, empty, tool(permission));

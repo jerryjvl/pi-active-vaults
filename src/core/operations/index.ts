@@ -15,7 +15,9 @@ export {
   assignPositionals, commandRequest, describeCommandLineError, parseLine, splitArguments, usage, type CommandLineError, type ParsedLine,
 } from './commandline.ts';
 export { describeError, fromError } from './messages.ts';
-export { bearerMatches, callMcpTool, mcpTools, type JsonSchema, type McpTool } from './mcp.ts';
+export {
+  MCP_PATH, bearerMatches, callMcpTool, mcpEndpoints, mcpTools, profileForPath, type JsonSchema, type McpEndpointProfiles, type McpTool,
+} from './mcp.ts';
 export { MODEL_TEXT_LIMIT, modelResult, outcomeData, type ModelResult, type OutcomeData } from './results.ts';
 export { unacceptedNotices, type VaultNotice } from './notices.ts';
 export { type Finding } from './ops/doctor.ts';

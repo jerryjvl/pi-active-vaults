@@ -4,8 +4,10 @@ Vault operations are available to any MCP client — chat front-ends, other
 agents, editors — through **profiles**. A profile is a set of permitted
 operations, with optional per-vault overrides. The daemon serves each profile
 that has a `listen` endpoint over HTTP at `/mcp` (stateless: each request
-stands alone); `vault mcp --profile <name>` serves one over standard
-input/output for local clients that start their own servers.
+stands alone), and profiles may share an endpoint, chosen by path (see
+[Sharing an endpoint](#sharing-an-endpoint)); `vault mcp --profile <name>`
+serves one over standard input/output for local clients that start their own
+servers.
 
 MCP tools, Pi tools and CLI commands are generated from one catalogue of
 operations in the core, so the surfaces never drift apart. Each MCP tool is
@@ -57,12 +59,47 @@ For each vault, a profile's effective permissions are:
 
 With no `mcp` section, or a profile with no permissions, MCP can touch nothing.
 
+## Sharing an endpoint
+
+Profiles with the same `listen` address and port share one endpoint, and the
+path chooses the profile: `/mcp/<profile>`. One of them may be the endpoint's
+`default`, which serves `/mcp` and every name the endpoint does not have; a
+profile alone on its endpoint is its default. Without a default, those paths
+are not found. A socket or named-pipe path serves one profile.
+
+```yaml
+mcp:
+  profiles:
+    - name: assistant                 # anyone the client cannot name: read only
+      listen: 127.0.0.1:8735
+      token: ${VAULT_MCP_ASSISTANT}
+      default: true
+      vaults: { home-knowledge: [search, read] }
+    - name: assistant-alice           # served at /mcp/assistant-alice
+      listen: 127.0.0.1:8735
+      token: ${VAULT_MCP_ASSISTANT}
+      vaults: { home-knowledge: [search, read], memories-alice: [search, read, "@propose"] }
+```
+
+This is for a client that serves several people and can name the one it acts
+for in the URL — a chat front-end putting the signed-in user's name in the path,
+say — so each person's sessions see only their own vaults, and a name that
+matches no profile (an account added later, an empty one) gets the default
+rather than an error. Make the default the least privileged profile.
+
+The path is a choice, not an identity: the token is what admits a request, so
+profiles that share a token are separated only as far as their clients choose
+honestly. That keeps a well-meaning client's sessions apart; a client that must
+not reach another's profile gets a token of its own.
+
 ## Rules
 
-- **One token per endpoint.** Each HTTP endpoint requires a bearer token (from
-  `${ENV}` or `!command`); there is no anonymous access and no per-client
-  identity within an endpoint. A socket or named-pipe endpoint is protected by
-  being accessible only to the user instead. Standard-I/O servers trust the process that started them.
+- **A token for every HTTP profile.** Each profile served on an address and
+  port requires a bearer token (from `${ENV}` or `!command`), and a request is
+  checked against the token of the profile its path chooses; there is no
+  anonymous access and no per-client identity within a profile. A socket or
+  named-pipe endpoint is protected by being accessible only to the user instead.
+  Standard-I/O servers trust the process that started them.
 - **Loopback by default.** Endpoints do not terminate TLS; expose one beyond the
   machine only through a reverse proxy that does.
 - **Accept needs an owner.** `accept` works only on a profile that declares an

@@ -22,11 +22,11 @@ import { ensurePrivateDir, findPi, packageVersion, sweepScratch, type Host } fro
 
 const SCRATCH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 import { createAutomation, type Automation, type Notice, type PiCommand } from '../core/automation/index.ts';
-import { createContext, loadInstallation, type ContextOptions, type OperationContext } from '../core/operations/index.ts';
+import { createContext, loadInstallation, mcpEndpoints, type ContextOptions, type OperationContext } from '../core/operations/index.ts';
 import { releaseDaemonRecord, takeDaemonRecord, type RecoveryReport } from '../core/queue/index.ts';
 import { err, isRecord, ok, type Result } from '../core/result/index.ts';
 import { listenSocket, type Channel, type ListenError, type SocketServer } from '../core/socket/index.ts';
-import { startMcpEndpoint, type McpEndpoint, type McpEndpointError } from '../mcp/index.ts';
+import { startMcpEndpoint, type McpEndpoint, type McpEndpointError, type McpServed } from '../mcp/index.ts';
 
 export interface DaemonOptions {
   readonly host: Host;
@@ -50,8 +50,8 @@ export interface RunningDaemon {
   readonly automation: Automation;
   /** What start-up recovery did. */
   readonly recovered: RecoveryReport;
-  /** Each MCP profile with an endpoint: served, or why not. */
-  readonly endpoints: readonly (McpEndpoint | { readonly profile: string; readonly error: McpEndpointError })[];
+  /** Each MCP profile with an endpoint, grouped by endpoint: served, or why not. */
+  readonly endpoints: readonly (McpServed | { readonly profile: string; readonly error: McpEndpointError })[];
   stop(): Promise<void>;
 }
 
@@ -142,10 +142,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Result<Runnin
   // Scratch a session that never closed left behind: a day untouched is long past any run's time.
   sweepScratch(installation.value.paths, context.clock.now().getTime(), SCRATCH_MAX_AGE_MS);
   schedule();
-  const endpoints: (McpEndpoint | { profile: string; error: McpEndpointError })[] = [];
-  for (const profile of installation.value.mcp.profiles.filter((p) => p.listen !== undefined)) {
-    const started = await startMcpEndpoint(context, profile);
-    endpoints.push(started.ok ? started.value : { profile: profile.name, error: started.error });
+  const endpoints: (McpServed | { profile: string; error: McpEndpointError })[] = [];
+  const serving: McpEndpoint[] = [];
+  for (const { profiles } of mcpEndpoints(installation.value.mcp.profiles)) {
+    const started = await startMcpEndpoint(context, profiles);
+    if (started.ok) serving.push(started.value);
+    endpoints.push(...(started.ok ? started.value.served : profiles.map((p) => ({ profile: p.name, error: started.error }))));
   }
 
   const timers: ReturnType<typeof setInterval>[] = [];
@@ -179,7 +181,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Result<Runnin
     async stop() {
       for (const timer of timers) clearInterval(timer);
       watcher?.close();
-      for (const endpoint of endpoints) if ('close' in endpoint) await endpoint.close();
+      for (const endpoint of serving) await endpoint.close();
       await ticking;
       await scheduling;
       await automation.stop();
