@@ -80,7 +80,7 @@ export function sweepScratch(paths: Pick<InstallationPaths, 'scratch'>, now: num
 export function scratchFile(scratch: string | undefined, reference: string): string | undefined {
   if (scratch === undefined || !reference.startsWith('scratch:')) return undefined;
   const name = reference.slice('scratch:'.length);
-  return NAME.test(name) && name !== '.' && name !== '..' ? join(scratch, name) : undefined;
+  return isPlainName(name) ? join(scratch, name) : undefined;
 }
 
 // --- A fan-out's workspace ---------------------------------------------------
@@ -139,6 +139,24 @@ function copyTree(from: string, to: string, count: { files: number; bytes: numbe
     }
   }
   return ok(undefined);
+}
+
+/** Whether `name` is a plain file name, as a scratch file or an expected workspace file is named: never a path. */
+export const isPlainName = (name: string): boolean => NAME.test(name) && name !== '.' && name !== '..';
+
+/**
+ * The files of `names` (plain names) that are not regular files in the item's
+ * directory `dir` — what a fan-out's `expect` still waits for. A link does not
+ * count: the worker cannot write one, so it is not the file it was asked for.
+ */
+export function missingFiles(dir: string, names: readonly string[]): string[] {
+  return names.filter((name) => {
+    try {
+      return !lstatSync(join(dir, name)).isFile();
+    } catch {
+      return true;
+    }
+  });
 }
 
 /** A seed reference's directory: `scratch:<name>`, a real directory there; undefined for anything else. */

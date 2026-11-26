@@ -31,15 +31,25 @@
 // a new directory of its own to write files in (item-session.ts), seeded from
 // a directory a script prepared when one is named, so what an item makes goes
 // back as files rather than inside its answer; the package names the
-// workspace, never the caller, so no two fan-outs or retries share one. Every
-// item's answer, or why it has none, goes into the session's log.
+// workspace, never the caller, so no two fan-outs or retries share one. With
+// `expect`, an item is done only once those files are in its directory
+// (item-session.ts reminds it). Every item's answer, or why it has none, goes
+// into the session's log.
+//
+// What a step's script can settle, the model cannot forget: a work list in
+// scratch may be `{ items, save?, workspace?, expect? }`, fixing those three,
+// and the call takes them from it when it leaves them out. A call that
+// contradicts its work list, or names a scratch file that is not there, is
+// refused before any item starts, with an imperative saying exactly what to
+// call instead — the session that made the call still has everything it needs
+// to put it right, which it would not once the items had run.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { AssistantMessage, Usage } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 import { assumePrefixCache, newPrefixTracker, workTokens, usageOf } from '../core/budgets/index.ts';
-import { newWorkspace, scratchFile, scratchFor, seedDir } from '../core/config/index.ts';
+import { isPlainName, newWorkspace, scratchFile, scratchFor, seedDir } from '../core/config/index.ts';
 import { withGrantHeader } from '../core/grants/index.ts';
 import { unfinishedAnswer } from '../core/models/index.ts';
 import { isRecord } from '../core/result/index.ts';
@@ -58,12 +68,13 @@ const GATHER_SYSTEM = 'You combine the results of a task done for several items.
 const ITEM_VAULT_TOOLS = ['read', 'search'] as const;
 
 const PARAMETERS = Type.Object({
-  items: Type.Union([Type.Array(Type.String()), Type.String()], { description: 'The items, one piece of work each; or scratch:<name>, a file in the session\'s scratch directory holding them as a JSON array of strings' }),
+  items: Type.Union([Type.Array(Type.String()), Type.String()], { description: 'The items, one piece of work each; or scratch:<name>, a file in the session\'s scratch directory holding them as a JSON array of strings, or as { items, save?, workspace?, expect? }, which fixes those settings' }),
   each: Type.String({ description: 'The instruction for each item' }),
   gather: Type.Optional(Type.String({ description: 'How to combine the results; without it, each item\'s outcome as JSON' })),
   mcp: Type.Optional(Type.Array(Type.String(), { description: 'MCP servers (from mcp.json) the items may use' })),
   save: Type.Optional(Type.String({ description: 'scratch:<name>: save the outcomes there instead' })),
   workspace: Type.Optional(Type.Union([Type.Boolean(), Type.String()], { description: 'true, or scratch:<seed>: each item gets a new directory of its own it can write files in, a copy of <seed>/<n>/ for the nth item when a seed is named; each outcome says where its directory is' })),
+  expect: Type.Optional(Type.Array(Type.String(), { description: 'File names each item must leave in its workspace; an item is reminded to write a missing one' })),
   thinking: Type.Optional(Type.Union(THINKING_LEVELS.map((l) => Type.Literal(l)), { description: 'The items\' thinking level; the session\'s own otherwise' })),
 });
 
@@ -98,18 +109,62 @@ const quoted = (text: string): string => text.replaceAll('<', '&lt;');
 /** An item as a summary names it: a long one (a letter's JSON, say) by its start only. */
 const label = (item: string): string => (item.length > 80 ? `${item.slice(0, 77)}…` : item);
 
-/** The items as given, or as read from the scratch file a script wrote them to; a string is why not. */
-function itemsOf(items: readonly string[] | string, scratch: string | undefined): readonly string[] | string {
-  if (typeof items !== 'string') return items;
+/** The settings a work list may fix: where the outcomes go and what each item writes. */
+const FIXED = ['save', 'workspace', 'expect'] as const;
+type Fixed = { save?: string; workspace?: boolean | string; expect?: readonly string[] };
+interface WorkList { readonly items: readonly string[]; readonly fixed: Fixed }
+
+const isStrings = (x: unknown): x is string[] => Array.isArray(x) && x.every((s) => typeof s === 'string');
+/** Why `expect` cannot be used as named, from `where` (the call, or a work list); undefined when it can. */
+const badExpect = (expect: readonly string[], where: string): string | undefined =>
+  (expect.every(isPlainName) ? undefined : `expect${where} must name plain files, such as items.json, never a path.`);
+
+/** The items as given, or the work list read from the scratch file a script wrote; a string is why not. */
+function workListOf(items: readonly string[] | string, scratch: string | undefined): WorkList | string {
+  if (typeof items !== 'string') return { items, fixed: {} };
   const file = scratchFile(scratch, items);
   if (file === undefined) return `${items} is not a file in this session's scratch directory (scratch:<name>).`;
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch {
+    return `You must create ${items} before calling vault_fan_out with it: it does not exist. Run the step that writes it first.`;
+  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(file, 'utf8'));
+    parsed = JSON.parse(text);
   } catch {
     return `${items} cannot be read as JSON.`;
   }
-  return Array.isArray(parsed) && parsed.every((x) => typeof x === 'string') ? parsed : `${items} must hold a JSON array of strings.`;
+  const shape = `${items} must hold its items as a JSON array of strings, alone or as "items" beside save, workspace and expect.`;
+  if (isStrings(parsed)) return { items: parsed, fixed: {} };
+  if (!isRecord(parsed) || !isStrings(parsed['items'])) return shape;
+  const unknown = Object.keys(parsed).filter((k) => k !== 'items' && !(FIXED as readonly string[]).includes(k));
+  if (unknown.length > 0) return `${items} holds ${unknown.join(', ')}, which a fan-out does not know; a work list holds items, save, workspace and expect.`;
+  const { save, workspace, expect } = parsed;
+  if (save !== undefined && (typeof save !== 'string' || scratchFile(scratch, save) === undefined)) return `save in ${items} must be scratch:<name>, a file in this session's scratch directory.`;
+  if (workspace !== undefined && workspace !== true && typeof workspace !== 'string') return `workspace in ${items} must be true or scratch:<seed>.`;
+  if (expect !== undefined && !isStrings(expect)) return `expect in ${items} must name plain files, such as items.json, never a path.`;
+  const wrongExpect = expect === undefined ? undefined : badExpect(expect, ` in ${items}`);
+  if (wrongExpect !== undefined) return wrongExpect;
+  return { items: parsed['items'], fixed: { ...(save === undefined ? {} : { save }), ...(workspace === undefined ? {} : { workspace }), ...(expect === undefined ? {} : { expect }) } };
+}
+
+/**
+ * The call's settings with what its work list (`from`) fixes filled in, or —
+ * when the call gives one differently — the imperative that tells the session
+ * what to call instead. The same value is no contradiction.
+ */
+function settled(call: Fixed & { gather?: string }, list: WorkList, from: readonly string[] | string): Fixed | string {
+  const out: Fixed = { ...call };
+  for (const key of FIXED) {
+    const fixed = list.fixed[key];
+    if (fixed === undefined) continue;
+    if (call[key] !== undefined && JSON.stringify(call[key]) !== JSON.stringify(fixed)) return `You must call vault_fan_out again with ${key} = ${JSON.stringify(fixed)}, as ${String(from)} requires, or leave ${key} out.`;
+    Object.assign(out, { [key]: fixed });
+  }
+  if (list.fixed.save !== undefined && call.gather !== undefined) return `You must call vault_fan_out again without gather: ${String(from)} saves its outcomes to ${list.fixed.save}.`;
+  return out;
 }
 
 async function ask(ctx: ExtensionContext, system: string, prompt: string, signal: AbortSignal | undefined): Promise<AssistantMessage | string> {
@@ -142,16 +197,23 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
     parameters: PARAMETERS,
     outputSchema: OUTPUT,
     exposure: 'direct',
-    async execute(_id, { items: given, each, gather, mcp = [], save, workspace, thinking }, signal, _onUpdate, ctx) {
+    async execute(_id, { items: given, each, gather, mcp = [], save: asked, workspace: askedSpace, expect: askedExpect, thinking }, signal, _onUpdate, ctx) {
       const fail = (text: string, status: 'failed' | 'invalid') => ({ content: [{ type: 'text' as const, text }], details: undefined, isError: true, structuredContent: { status, data: null, text, notices: [] } });
       const found = liveOr(holder);
       const live = 'live' in found ? found.live : undefined;
-      const spaces = workspace !== undefined && workspace !== false;
       // The scratch directory the session claimed when it opened.
       const scratch = live === undefined ? undefined : scratchFor(live.context.installation.paths, live.session.trace);
-      const list = itemsOf(given, scratch);
-      if (typeof list === 'string') return fail(list, 'invalid');
+      const work = workListOf(given, scratch);
+      if (typeof work === 'string') return fail(work, 'invalid');
+      const settings = settled({ ...(asked === undefined ? {} : { save: asked }), ...(askedSpace === undefined ? {} : { workspace: askedSpace }), ...(askedExpect === undefined ? {} : { expect: askedExpect }), ...(gather === undefined ? {} : { gather }) }, work, given);
+      if (typeof settings === 'string') return fail(settings, 'invalid');
+      const { save, workspace, expect } = settings;
+      const list = work.items;
+      const spaces = workspace !== undefined && workspace !== false;
       if (list.length === 0) return fail('Give at least one item.', 'invalid');
+      if (expect !== undefined && !spaces) return fail('You must call vault_fan_out again with workspace = true (or scratch:<seed>): expect names files each item leaves in its workspace.', 'invalid');
+      const wrongExpect = expect === undefined ? undefined : badExpect(expect, '');
+      if (wrongExpect !== undefined) return fail(wrongExpect, 'invalid');
       if (ctx.model === undefined) return fail('No model is selected for the item sessions.', 'failed');
       const servers = mcpServersOf(mcp, items);
       if (!servers.ok) return fail(`No MCP server named ${servers.missing.join(', ')} in ${servers.file}.`, 'invalid');
@@ -203,7 +265,7 @@ export function fanOutTool(pi: ExtensionAPI, holder: Holder, items: ItemSessionO
             cwd: ctx.cwd, model: ctx.model as never, ...((thinking ?? ctx.thinkingLevel) === undefined ? {} : { thinkingLevel: thinking ?? ctx.thinkingLevel }),
             until: timeUp.signal,
             prompt: `${each}${dir === undefined ? '' : `\n\nYour workspace, the one directory you can write in: ${dir}`}\n\nThe item:\n<item>\n${quoted(item)}\n</item>`, tools, mcp: itemServers,
-            ...(dir === undefined ? {} : { workspace: dir }),
+            ...(dir === undefined ? {} : { workspace: dir, ...(expect === undefined ? {} : { expect }) }),
             ...(signal === undefined ? {} : { signal }),
             onTool: account(live, index, ctx.cwd),
             onUsage: (u) => {

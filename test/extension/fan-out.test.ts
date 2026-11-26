@@ -35,6 +35,15 @@ function recording(asked: Asked[], reply: ReturnType<typeof fauxAssistantMessage
 }
 
 const traceOf = (pi: { events: { channel: string; data: unknown }[] }): string => (pi.events.find((e) => e.channel === 'pav:v1:ready')?.data as { trace: string }).trace;
+/** A model step standing in for a script: it writes `files` (name → content) to the session's scratch directory, then takes `step`. */
+const scriptThen = (t: { context: { installation: { paths: { scratch: string } } } }, pi: { events: { channel: string; data: unknown }[] }, files: Record<string, string>, step: ReturnType<typeof fanOut>): FauxResponseStep => () => {
+  const scratch = join(t.context.installation.paths.scratch, traceOf(pi));
+  for (const [name, content] of Object.entries(files)) {
+    mkdirSync(join(scratch, name, '..'), { recursive: true });
+    writeFileSync(join(scratch, name), content);
+  }
+  return step;
+};
 const structuredOf = (pi: { results: { tool: string; structured: unknown }[] }) =>
   pi.results.find((r) => r.tool === 'vault_fan_out')?.structured as { status: string; data: { gathered: string | null; items: { item: string; outcome: string; result?: string; reason?: string }[] } } | undefined;
 
@@ -331,16 +340,8 @@ test('save names a file in the scratch directory, never a path, and does not go 
 test('items can come from a scratch file a script wrote, a JSON array of strings; a summary names a long item by its start', withInstallation(async (t) => {
   await withPi(t, {}, async (pi) => {
     const long = JSON.stringify({ letter: 'x'.repeat(200) });
-    // The first model step stands in for a script: it writes the items to the session's scratch directory.
-    const scriptThen = (step: ReturnType<typeof fanOut>): FauxResponseStep => () => {
-      const trace = (pi.events.find((e) => e.channel === 'pav:v1:ready')?.data as { trace: string }).trace;
-      const scratch = join(t.context.installation.paths.scratch, trace);
-      mkdirSync(scratch, { recursive: true });
-      writeFileSync(join(scratch, 'items.json'), JSON.stringify(['a', long]));
-      return step;
-    };
     pi.respond(
-      scriptThen(fanOut({ items: 'scratch:items.json', each: 'Do it.', save: 'scratch:outcomes.json' })),
+      scriptThen(t, pi, { 'items.json': JSON.stringify(['a', long]) }, fanOut({ items: 'scratch:items.json', each: 'Do it.', save: 'scratch:outcomes.json' })),
       fauxAssistantMessage('A'), fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'overloaded' }),
       DONE,
     );
@@ -352,17 +353,10 @@ test('items can come from a scratch file a script wrote, a JSON array of strings
 
 test('items from scratch name a file there holding a JSON array of strings; anything else is a request the model should fix', withInstallation(async (t) => {
   await withPi(t, {}, async (pi) => {
-    const scriptThen = (name: string, content: string, step: ReturnType<typeof fanOut>): FauxResponseStep => () => {
-      const trace = (pi.events.find((e) => e.channel === 'pav:v1:ready')?.data as { trace: string }).trace;
-      const scratch = join(t.context.installation.paths.scratch, trace);
-      mkdirSync(scratch, { recursive: true });
-      writeFileSync(join(scratch, name), content);
-      return step;
-    };
     pi.respond(
       fanOut({ items: 'scratch:../items.json', each: 'Do it.' }),
       fanOut({ items: 'scratch:missing.json', each: 'Do it.' }),
-      scriptThen('numbers.json', '[1, 2]', fanOut({ items: 'scratch:numbers.json', each: 'Do it.' })),
+      scriptThen(t, pi, { 'numbers.json': '[1, 2]' }, fanOut({ items: 'scratch:numbers.json', each: 'Do it.' })),
       fanOut({ items: 'items.json', each: 'Do it.' }),
       DONE,
     );
@@ -370,14 +364,12 @@ test('items from scratch name a file there holding a JSON array of strings; anyt
     const results = pi.results.filter((r) => r.tool === 'vault_fan_out');
     assert.deepEqual(results.map((r) => r.isError), [true, true, true, true]);
     assert.match(results[0]?.text ?? '', /not a file in this session's scratch directory/);
-    assert.match(results[1]?.text ?? '', /cannot be read as JSON/);
-    assert.match(results[2]?.text ?? '', /must hold a JSON array of strings/);
+    assert.equal(results[1]?.text, 'You must create scratch:missing.json before calling vault_fan_out with it: it does not exist. Run the step that writes it first.');
+    assert.match(results[2]?.text ?? '', /must hold its items as a JSON array of strings/);
     assert.match(results[3]?.text ?? '', /not a file in this session's scratch directory/);
     assert.equal(pi.requests.length, 5, 'no item ran');
   });
 }, { running: RUNNING }));
-
-/** The session's trace, as its ready event gives it. */
 
 test('with workspace, each item writes files in a new directory of its own and nowhere else; the outcomes say where, and an empty answer is no failure', { skip: process.platform === 'win32' ? 'paths' : false }, withInstallation(async (t) => {
   await withPi(t, {}, async (pi) => {
@@ -425,14 +417,8 @@ test('with workspace, each item writes files in a new directory of its own and n
 test('a workspace is seeded from a directory a script prepared, a copy per item; each fan-out gets a new one', { skip: process.platform === 'win32' ? 'paths' : false }, withInstallation(async (t) => {
   await withPi(t, {}, async (pi) => {
     const asked: Asked[] = [];
-    const scriptThen = (step: ReturnType<typeof fanOut>): FauxResponseStep => () => {
-      const seed = join(t.context.installation.paths.scratch, traceOf(pi), 'seed');
-      mkdirSync(join(seed, '1'), { recursive: true });
-      writeFileSync(join(seed, '1', 'facts.md'), '# Apples\nRed.');
-      return step;
-    };
     pi.respond(
-      scriptThen(fanOut({ items: ['apples'], each: 'Edit facts.md.', workspace: 'scratch:seed' })),
+      scriptThen(t, pi, { 'seed/1/facts.md': '# Apples\nRed.' }, fanOut({ items: ['apples'], each: 'Edit facts.md.', workspace: 'scratch:seed' })),
       () => toolCall('workspace_edit', { path: 'facts.md', edits: [{ oldText: 'Red.', newText: 'Red or green.' }] }),
       recording(asked, fauxAssistantMessage('edited')),
       fanOut({ items: ['apples'], each: 'Edit facts.md.', workspace: 'scratch:seed' }),
@@ -450,5 +436,108 @@ test('a workspace is seeded from a directory a script prepared, a copy per item;
     assert.equal(readFileSync(join(scratch, 'seed', '1', 'facts.md'), 'utf8'), '# Apples\nRed.', 'the seed is never written');
     assert.equal(results[2]?.isError, true);
     assert.match(results[2]?.text ?? '', /not a directory in this session's scratch directory/);
+  });
+}, { running: RUNNING }));
+
+test('a work list may fix save, workspace and expect: the fan-out uses them when the call leaves them out', { skip: process.platform === 'win32' ? 'paths' : false }, withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    const work = JSON.stringify({ items: ['apples'], save: 'scratch:found.json', workspace: 'scratch:seed', expect: ['colour.json'] });
+    pi.respond(
+      // The model forgets save, workspace and expect: the work list the script wrote still has them.
+      scriptThen(t, pi, { 'work.json': work, 'seed/1/facts.md': '# Apples' }, fanOut({ items: 'scratch:work.json', each: 'Write the colour to colour.json.' })),
+      () => toolCall('workspace_write', { path: 'colour.json', content: '{"colour": "red"}' }),
+      fauxAssistantMessage('wrote colour.json'),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    const saved = JSON.parse(readFileSync(join(t.context.installation.paths.scratch, traceOf(pi), 'found.json'), 'utf8')) as { item: string; outcome: string; workspace: string }[];
+    assert.deepEqual(saved.map((o) => [o.item, o.outcome]), [['apples', 'done']]);
+    const dir = join(t.context.installation.paths.scratch, traceOf(pi), saved[0]?.workspace ?? '');
+    assert.equal(readFileSync(join(dir, 'facts.md'), 'utf8'), '# Apples', 'seeded from the work list\'s workspace');
+    assert.match(toolResults(pi.requests.at(-1), 'vault_fan_out')[0] ?? '', /^Saved 1 outcome\(s\) to scratch:found\.json: 1 done\./);
+  });
+}, { running: RUNNING }));
+
+test('a call that contradicts its work list is refused before any item starts, saying exactly what to call instead', withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    const work = JSON.stringify({ items: ['a'], save: 'scratch:found.json' });
+    pi.respond(
+      scriptThen(t, pi, { 'work.json': work }, fanOut({ items: 'scratch:work.json', each: 'Do it.', save: 'scratch:other.json' })),
+      fanOut({ items: 'scratch:work.json', each: 'Do it.', gather: 'Combine.' }),
+      // The same value as the work list is no contradiction.
+      fanOut({ items: 'scratch:work.json', each: 'Do it.', save: 'scratch:found.json' }),
+      fauxAssistantMessage('A'),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    const results = pi.results.filter((r) => r.tool === 'vault_fan_out');
+    assert.deepEqual(results.map((r) => r.isError), [true, true, false]);
+    assert.equal(results[0]?.text, 'You must call vault_fan_out again with save = "scratch:found.json", as scratch:work.json requires, or leave save out.');
+    assert.equal(results[1]?.text, 'You must call vault_fan_out again without gather: scratch:work.json saves its outcomes to scratch:found.json.');
+    assert.equal(pi.requests.length, 5, 'only the third call ran an item');
+  });
+}, { running: RUNNING }));
+
+test('a work list holds items as strings and only the settings a fan-out knows; anything else is refused, saying what to fix', withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    pi.respond(
+      scriptThen(t, pi, {
+        'typo.json': JSON.stringify({ items: ['a'], saev: 'scratch:found.json' }),
+        'numbers.json': JSON.stringify({ items: [1] }),
+        'path.json': JSON.stringify({ items: ['a'], save: 'found.json' }),
+        'expect.json': JSON.stringify({ items: ['a'], workspace: true, expect: ['../x.json'] }),
+      }, fanOut({ items: 'scratch:typo.json', each: 'Do it.' })),
+      fanOut({ items: 'scratch:numbers.json', each: 'Do it.' }),
+      fanOut({ items: 'scratch:path.json', each: 'Do it.' }),
+      fanOut({ items: 'scratch:expect.json', each: 'Do it.' }),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    const results = pi.results.filter((r) => r.tool === 'vault_fan_out');
+    assert.deepEqual(results.map((r) => r.isError), [true, true, true, true]);
+    assert.match(results[0]?.text ?? '', /scratch:typo\.json holds saev, which a fan-out does not know/);
+    assert.match(results[1]?.text ?? '', /scratch:numbers\.json must hold its items as a JSON array of strings/);
+    assert.match(results[2]?.text ?? '', /save in scratch:path\.json must be scratch:<name>/);
+    assert.match(results[3]?.text ?? '', /expect in scratch:expect\.json must name plain files/);
+    assert.equal(pi.requests.length, 5, 'no item ran');
+  });
+}, { running: RUNNING }));
+
+test('expect needs workspaces and plain file names; otherwise the call is refused, saying what to call instead', withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    pi.respond(fanOut({ items: ['a'], each: 'Do it.', expect: ['items.json'] }), fanOut({ items: ['a'], each: 'Do it.', workspace: true, expect: ['sub/items.json'] }), DONE);
+    await pi.prompt('Fan out.');
+    const results = pi.results.filter((r) => r.tool === 'vault_fan_out');
+    assert.deepEqual(results.map((r) => r.isError), [true, true]);
+    assert.equal(results[0]?.text, 'You must call vault_fan_out again with workspace = true (or scratch:<seed>): expect names files each item leaves in its workspace.');
+    assert.match(results[1]?.text ?? '', /expect must name plain files/);
+    assert.equal(pi.requests.length, 3, 'no item ran');
+  });
+}, { running: RUNNING }));
+
+test('an item that answers without an expected file is told in the same session which file to write, at most twice, then fails for it', { skip: process.platform === 'win32' ? 'paths' : false }, withInstallation(async (t) => {
+  await withPi(t, {}, async (pi) => {
+    const asked: Asked[] = [];
+    pi.respond(
+      fanOut({ items: ['apples', 'pears'], each: 'Write items.json.', workspace: true, expect: ['items.json'], save: 'scratch:outcomes.json' }),
+      // Item 1 forgets, is reminded, and writes it.
+      fauxAssistantMessage('done'),
+      recording(asked, toolCall('workspace_write', { path: 'items.json', content: '[]' })),
+      fauxAssistantMessage('wrote items.json'),
+      // Item 2 never does.
+      fauxAssistantMessage('done'),
+      recording(asked, fauxAssistantMessage('done, really')),
+      recording(asked, fauxAssistantMessage('done, I promise')),
+      DONE,
+    );
+    await pi.prompt('Fan out.');
+    const reminder = 'You must write items.json in your workspace with workspace_write before you finish. Write it now.';
+    // Each reminder is the item's next prompt: once for apples, twice for pears.
+    assert.equal(asked.length, 3);
+    for (const a of asked) assert.ok(a.prompt.includes(reminder), a.prompt);
+    assert.deepEqual(structuredOf(pi)?.data.items.map((i) => [i.item, i.outcome, i.result ?? i.reason]), [
+      ['apples', 'done', 'wrote items.json'],
+      ['pears', 'failed', 'it did not write items.json in its workspace'],
+    ]);
   });
 }, { running: RUNNING }));
