@@ -8,7 +8,11 @@
 // `workspace_write` and `workspace_edit`, with every file operation passed
 // through the core's check (scratch.ts `workspaceWrite`), so a path or link
 // that leads out, an oversized workspace, or JSON that does not parse is
-// refused at the write and told to the item, which can put it right.
+// refused at the write and told to the item, which can put it right. Given
+// files it must leave there (`expect`), an item that answers without one is
+// not done: it is told in the same session, while it still has what it found,
+// exactly which file to write — at most REMINDERS times — and then fails for
+// the file it did not write.
 //
 // It loads nothing else: no extensions, skills, prompt templates or context
 // files, and only the named servers from the user's own `mcp.json` (never a
@@ -29,7 +33,7 @@ import {
   type ExtensionContext, type McpServerConfig, type ModelRuntime, type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import type { AssistantMessage, Model, Usage } from '@earendil-works/pi-ai';
-import { landsWithin, workspaceWrite } from '../core/config/index.ts';
+import { landsWithin, missingFiles, workspaceWrite } from '../core/config/index.ts';
 import { renameIntendedToolCalls } from './tool-names.ts';
 import { unfinishedAnswer } from '../core/models/index.ts';
 import { isRecord } from '../core/result/index.ts';
@@ -38,6 +42,16 @@ import { isRecord } from '../core/result/index.ts';
 export const BUDGET_KEPT = 'the run\'s budget is used (what is left is kept to finish the run)';
 /** The same for the run's time. */
 export const TIME_KEPT = 'the run\'s time is used (what is left is kept to finish the run)';
+
+/** How many times an item that answered without an expected file is told to write it before it fails. */
+const REMINDERS = 2;
+
+/** Names as a sentence lists them: "a", "a and b", "a, b and c". */
+const listed = (names: readonly string[]): string => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1) ?? ''}`);
+
+/** The item's next prompt when files it must leave are missing: explicit and directly actionable, never a hint. */
+const reminderFor = (missing: readonly string[]): string =>
+  `You must write ${listed(missing)} in your workspace with workspace_write before you finish. Write ${missing.length === 1 ? 'it' : 'them'} now.`;
 
 /** Pi's file tools that only read. */
 export const READ_ONLY_TOOLS = ['read', 'grep', 'find', 'ls'] as const;
@@ -63,6 +77,8 @@ export interface ItemRequest {
   readonly mcp: Readonly<Record<string, McpServerConfig>>;
   /** The item's own directory, the one place it may write; its answer may then be empty. */
   readonly workspace?: string;
+  /** Plain file names the item must leave in its workspace before it is done. */
+  readonly expect?: readonly string[];
   readonly signal?: AbortSignal;
   /** Each tool call's result, as it ends. */
   readonly onTool?: (call: { tool: string; input: unknown; isError: boolean; text: string }) => void;
@@ -175,6 +191,8 @@ async function runSession(request: ItemRequest, options: ItemSessionOptions): Pr
   const onAbort = (): void => stop('the session that fanned out was stopped');
   // Whether the model's last response was its answer rather than a step on the way: an answer given stands.
   let answered = false;
+  // Whether the run's budget was reached at an answer: it stands, but the item is not reminded to go on.
+  let spent = false;
   const onTimeUp = (): void => {
     if (!answered) stop(TIME_KEPT, true);
   };
@@ -188,14 +206,14 @@ async function runSession(request: ItemRequest, options: ItemSessionOptions): Pr
     } else if (event.type === 'message_end' && event.message.role === 'assistant') {
       // Over the budget, an item stops before its next step; an answer it has given stands.
       answered = event.message.stopReason !== 'toolUse';
-      if (request.onUsage?.(event.message.usage) === false && !answered) stop(BUDGET_KEPT, true);
+      if (request.onUsage?.(event.message.usage) === false) {
+        spent = true;
+        if (!answered) stop(BUDGET_KEPT, true);
+      }
     }
   });
-  try {
-    await session.bindExtensions({});
-    if (request.signal?.aborted === true) return { ok: false, reason: 'the session that fanned out was stopped' };
-    if (request.until?.aborted === true) onTimeUp();
-    else await session.prompt(request.prompt);
+  /** The item's result as its last answer stands. */
+  const answerOf = (): ItemResult => {
     if (stopped !== undefined) return { ok: false, reason: stopped.why, ...(stopped.skipped === undefined ? {} : { skipped: stopped.skipped }) };
     const active = session.getActiveToolNames();
     const absent = servers.filter((s) => !active.some((t) => t.startsWith(mcpPrefix(s))));
@@ -208,6 +226,23 @@ async function runSession(request: ItemRequest, options: ItemSessionOptions): Pr
     const text = textOf(last);
     // With a workspace, the files are the result: an empty answer that finished is no failure.
     return text === '' && request.workspace === undefined ? { ok: false, reason: 'the model answered with no text' } : { ok: true, text };
+  };
+  try {
+    await session.bindExtensions({});
+    if (request.signal?.aborted === true) return { ok: false, reason: 'the session that fanned out was stopped' };
+    if (request.until?.aborted === true) onTimeUp();
+    else await session.prompt(request.prompt);
+    for (let reminded = 0; ; reminded++) {
+      const result = answerOf();
+      if (!result.ok || request.workspace === undefined || request.expect === undefined) return result;
+      const missing = missingFiles(request.workspace, request.expect);
+      if (missing.length === 0) return result;
+      if (reminded === REMINDERS) return { ok: false, reason: `it did not write ${listed(missing)} in its workspace` };
+      // Reminding is more work: the run's limits come first.
+      if (request.until?.aborted === true) return { ok: false, reason: TIME_KEPT, skipped: true };
+      if (spent) return { ok: false, reason: BUDGET_KEPT, skipped: true };
+      await session.prompt(reminderFor(missing));
+    }
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : String(error) };
   } finally {

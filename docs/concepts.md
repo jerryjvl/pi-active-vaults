@@ -280,7 +280,21 @@ is a `.json` file that does not parse, at the write, so the item can put it
 right. `workspace: scratch:<seed>` starts the nth item with a copy of
 `<seed>/<n>/`, which a script prepared. The package names each workspace,
 never the caller, so no two fan-outs share one; each outcome says where its
-item's directory is. The items'
+item's directory is. With `expect` (file names, and a workspace), an item is
+done only once each named file is in its directory, a seeded one included: an
+item that answers without one is told, in the same session, which file it
+must still write, at most twice, and then fails for the file it did not
+write.
+
+What a step's script can settle, the model cannot forget. The scratch file
+the items come from may instead hold `{ "items": [...], "save", "workspace",
+"expect" }`, any of the last three left out: the script that wrote the items
+then fixes where the outcomes go, the workspaces and the files expected, and
+the fan-out uses them when the call leaves them out. A call that gives one
+differently, or a `gather` beside a fixed `save`, is refused before any item
+starts, and so is one naming a scratch file that is not there; each refusal
+says what to call instead, so the session puts it right while it still has
+everything it needs. The items'
 work is the session's: their tool calls are in its trace, a tool that taints
 taints the session, and their tokens count against its budget. Each item's
 answer, or why it has none, is in the session's log.

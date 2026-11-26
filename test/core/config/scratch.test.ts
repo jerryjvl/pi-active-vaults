@@ -10,8 +10,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, lstatSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { claimScratch, newWorkspace, scratchFor, seedDir, workspaceWrite, WORKSPACE_LIMITS } from '../../../src/core/config/index.ts';
-import { createTempDir } from '../../support/temp-dir.ts';
+import { claimScratch, isPlainName, missingFiles, newWorkspace, scratchFor, seedDir, workspaceWrite, WORKSPACE_LIMITS } from '../../../src/core/config/index.ts';
+import { createTempDir, withTempDir } from '../../support/temp-dir.ts';
 
 const posixOnly = { skip: process.platform === 'win32' ? 'links and modes' : false };
 
@@ -82,4 +82,18 @@ test('a worker writes in its own directory only, never through a link, within th
   } finally {
     temp.cleanup();
   }
+});
+
+test('an expected file is missing until a regular file of that name is in the item\'s directory; a link or directory is not it', posixOnly, withTempDir((dir) => {
+  writeFileSync(dir.file('items.json'), '[]');
+  mkdirSync(dir.file('facts.md'));
+  writeFileSync(dir.file('elsewhere.txt'), 'x');
+  symlinkSync(dir.file('elsewhere.txt'), dir.file('notes.md'));
+  assert.deepEqual(missingFiles(dir.path, ['items.json', 'facts.md', 'notes.md', 'summary.md']), ['facts.md', 'notes.md', 'summary.md']);
+  assert.deepEqual(missingFiles(dir.path, ['items.json']), []);
+}));
+
+test('a plain name is a file name, never a path', () => {
+  assert.deepEqual(['items.json', 'facts.md', 'a-b_c.1'].map(isPlainName), [true, true, true]);
+  assert.deepEqual(['', '.', '..', 'sub/items.json', '../x', '/abs', '.hidden'].map(isPlainName), [false, false, false, false, false, false, false]);
 });
